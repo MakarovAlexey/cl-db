@@ -5,7 +5,9 @@
   :description "Describe cl-db here"
   :author "Your Name <your.name@example.com>"
   :license "Specify license here"
-  :depends-on (#:closer-mop)
+  :depends-on (#:alexandria
+	       #:postmodern
+	       #:closer-mop)
   :components ((:file "package")
                (:file "cl-db")))
 
