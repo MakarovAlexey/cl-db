@@ -64,33 +64,46 @@
 (defun reduce-to-hash-table (hash-function sequence)
   (reduce #'(lambda (hash-table object)
 	      (setf (gethash (funcall hash-function object) hash-table)
-		    object))
+		    object)
+	      hash-table)
 	  sequence
 	  :initial-value (make-hash-table :size (length sequence))))
 
 (defun make-persistence-unit (&rest direct-class-mappings)
-  (let* ((tables (reduce-to-hash-table #'table-name-of reduce #'(lambda (hash-table direct-class-mapping)
-			    (setf (gethash (table-name-of table) hash-table)
-				  (compute-table direct-class-mapping
-						 (remove direct-class-mapping
-							 direct-class-mappings)))
-			    hash-table)
-			 direct-class-mappings
-			 :initial-value (make-hash-table :size (length tables))))
-	 (effective-class-mappings (reduce #'(lambda (hash-table direct-class-mapping)
-					       (let ((class-name (class-name-of direct-class-mapping)))
-						 (setf (gethash class-name hash-table)
-						       (make-instance 'effective-class-mapping
-								      :class-name class-name
-								      :table table)))
-					       hash-table)
-					   direct-class-mappings
-					   :initial-value (make-hash-table :size (length tables)))))
-    (compute-superclasses effective-class-mappings)
-    (compute-reference-mappings effective-class-mappings)
+  (let* ((tables
+	  (reduce-to-hash-table #'table-name-of
+				(map 'list
+				     #'(lambda (direct-class-mapping)
+					 (compute-table direct-class-mapping
+							direct-class-mappings))
+				     direct-class-mappings)))
+	 (effective-class-mappings
+	  (reduce-to-hash-table #'class-name-of
+				(map 'list
+				     #'(lambda (direct-class-mapping)
+					 (compute-effective-class-mapping direct-class-mapping
+									  (gethash (table-name-of direct-class-mapping) tables)))
+				     direct-class-mappings))))
+    (maphash #'(lambda (class-name effective-class-mapping)
+		 (declare (ignore class-name))
+		 (with-slots (superclasses-mappings many-to-one-mappings one-to-many-mappings) effective-class-mapping
+		   (setf superclasses-mappings
+			 (compute-superclasses-mappings effective-class-mapping
+							effective-class-mappings)
+			 many-to-one-mappings
+			 (compute-many-to-one-mappings effective-class-mapping
+						       effective-class-mappings)
+			 many-to-one-mappings
+			 (compute-one-to-many-mappings effective-class-mapping
+						       effective-class-mappings))))
+	     effective-class-mappings)
     (make-instance 'persistence-unit :tables tables
 		   :direct-class-mappings direct-class-mappings
 		   :effective-class-mappings effective-class-mappings)))
+
+(defun make-effective-class-mapping (					 (make-instance 'effective-class-mapping
+							:class-name (class-name-of direct-class-mapping)
+							:table (gethash (table-name-of direct-class-mapping) tables)))))))
 
 (defclass effective-class-mapping ()
   ((class-name :initarg :class-name :reader class-name-of)
