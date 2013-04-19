@@ -2,58 +2,173 @@
 
 (in-package #:cl-db)
 
-(defclass class-mapping ()
-  ((class-name :initarg :class-name :reader class-name-of)
-   (table-name :initarg :table-name :reader table-name-of)
-   (primary-key :initarg :primary-key :reader primary-key-of)
-   (superclasses :initarg :superclasses :reader superclasses-of)
-   (slot-mappings :initarg :slot-mappings :reader slot-mappings-of)))
+;; использовать классы *-mapping для строгого конфигурирования и нестрогого
+;; или сделать конфигурирование в функциональном стиле
 
-(defun map-class (class-name &key table-name primary-key slots superclasses)
+;;(defclass persistence-unit ()
+;;  ((direct-mappings :initarg :mappings :reader effective-mappings-of)
+;;   (tables :initarg :tables :reader tables-of)
+;;   (effective-mappings :initarg :mappings :reader effective-mappings-of)))
+
+(defclass direct-class-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (superclasses :initarg :superclasses :reader superclasses-of)
+   (slot-mappings :initarg :slot-mappings :reader slot-mappings-of)
+   (primary-key :initarg :primary-key :reader primary-key-of)
+   (table-name :initarg :table-name :reader table-name-of)))
+
+(defun map-class (class-name &key table-name primary-key superclasses slots)
   (make-instance 'class-mapping
 		 :class-name class-name
-		 :table-name table-name
-		 :primary-key primary-key
+		 :superclasses superclasses
 		 :slot-mappings slots
-		 :superclasses superclasses))
+		 :table-name table-name
+		 :primary-key primary-key))
 
-(defclass slot-mapping ()
+(defclass direct-slot-mapping ()
   ((slot-name :initarg :slot-name :reader slot-name-of)
-   (mapping :initarg :mapping :reader mapping-of)
-   (deserializer :initarg :deserializer :reader deserializer-of)
-   (serializer :initarg :serializer :reader serializer-of)))
+   (direct-mapping :initarg :mapping :reader direct-mapping-of)
+   (constructor :initarg :constructor :reader constructor-of)
+   (reader :initarg :reader :reader reader-of)))
 
-(defun map-slot (slot-name mapping &optional deserializer serializer)
+(defun map-slot (slot-name mapping &optional constructor reader)
   (make-instance 'slot-mapping :slot-name slot-name
 		 :mapping mapping
-		 :serializer serializer
-		 :deserializer deserializer))
+		 :constructor serializer
+		 :reader deserializer))
 
-(defclass column ()
-  ((name :initarg :name :reader name-of)))
-
-(defun column (name)
-  (make-instance 'column :name name))
-
-(defclass value-mapping ()
-  ((columns :initarg :columns :reader columns-of)))
+(defclass direct-value-mapping ()
+  ((columns-names :initarg :columns-names :reader columns-names-of)))
 
 (defun value (&rest columns)
   (make-instance 'value-mapping :columns columns))
 
-(defclass one-to-many ()
+(defclass direct-one-to-many-mapping ()
   ((class-name :initarg :class-name :reader class-name-of)
-   (columns :initarg :columns :reader columns-of)))
+   (columns-names :initarg :columns-names :reader columns-names-of)))
 
 (defun one-to-many (class-name &rest columns)
   (make-instance 'one-to-many :class-name class-name :columns columns))
 
-(defclass one-to-many ()
+(defclass direct-many-to-one-mapping ()
   ((class-name :initarg :class-name :reader class-name-of)
-   (columns :initarg :columns :reader columns-of)))
+   (columns-names :initarg :columns-names :reader columns-names-of)))
 
 (defun many-to-one (class-name &rest columns)
   (make-instance 'many-to-one :class-name class-name :columns columns))
+
+(defclass persistent-unit ()
+  ((direct-class-mappings :initarg :direct-class-mappings
+			  :reader direct-class-mappings-of)))
+
+(defun reduce-to-hash-table (hash-function sequence)
+  (reduce #'(lambda (hash-table object)
+	      (setf (gethash (funcall hash-function object) hash-table)
+		    object))
+	  sequence
+	  :initial-value (make-hash-table :size (length sequence))))
+
+(defun make-persistence-unit (&rest direct-class-mappings)
+  (let* ((tables (reduce-to-hash-table #'table-name-of reduce #'(lambda (hash-table direct-class-mapping)
+			    (setf (gethash (table-name-of table) hash-table)
+				  (compute-table direct-class-mapping
+						 (remove direct-class-mapping
+							 direct-class-mappings)))
+			    hash-table)
+			 direct-class-mappings
+			 :initial-value (make-hash-table :size (length tables))))
+	 (effective-class-mappings (reduce #'(lambda (hash-table direct-class-mapping)
+					       (let ((class-name (class-name-of direct-class-mapping)))
+						 (setf (gethash class-name hash-table)
+						       (make-instance 'effective-class-mapping
+								      :class-name class-name
+								      :table table)))
+					       hash-table)
+					   direct-class-mappings
+					   :initial-value (make-hash-table :size (length tables)))))
+    (compute-superclasses effective-class-mappings)
+    (compute-reference-mappings effective-class-mappings)
+    (make-instance 'persistence-unit :tables tables
+		   :direct-class-mappings direct-class-mappings
+		   :effective-class-mappings effective-class-mappings)))
+
+(defclass effective-class-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (superclasses-names :initarg :superclasses :reader superclasses-of)
+   (value-mappings :initarg :value-mappings :reader value-mappings-of)
+   (reference-mappings :initarg :reference-mappings :reader reference-mappings-of)
+   (collection-mappings :initarg :collection-mappings :reader collection-mappings-of)
+   (table :initarg :table :reader table-of)))
+
+(defun compute-effective-class-mapping (direct-class-mapping table direct-class-mappings)
+  
+  (reduce #'(lambda (tables class-direct-mapping)
+	      (let ((table-name (table-name-of class-direct-mapping))
+		    (foreign-keys (compute-foreign-keys (class-name-of class-direct-mapping)
+							class-direct-mappings)))
+		(setf (gethash table-name tables)
+		      (make-instance 'table :name table-name
+				     :foregn-keys foreign-keys
+				     :columns (append (reduce #'append
+							      (mapcar #'columns-of
+								      (value-mappings-of class-direct-mapping)))
+						      (reduce #'append
+							      (mapcar #'columns-of foreign-keys)))))))))
+
+(defclass column ()
+  ((name :initarg :name :reader name-of)))
+
+(defclass table ()
+  ((name :initarg :name :reader name-of)
+   (columns :initarg :columns :reader columns-of)
+   (primary-key :initarg :primary-key :reader primary-key-of)
+   (foreign-keys :initarg :foreign-keys :reader foreign-keys-of)))
+
+;; загрузка начинается с отображения не имеющего ассоциаций many-to-one
+
+
+
+;;доинициализировать коллекции при создании зависимых объектов
+
+(defclass effective-slot-mapping ()
+  ((slot-name :initarg :slot-name :reader slot-name-of)
+   (effective-mapping :initarg :mapping :reader effective-mapping-of)
+   (constructor :initarg :constructor :reader constructor-of)
+   (reader :initarg :reader :reader reader-of)))
+
+(defclass effective-value-mapping ()
+  ((columns :initarg :columns :reader columns-of)))
+
+(defclass effective-one-to-many-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (columns :initarg :columns :reader columns-of)))
+
+(defclass effective-many-to-one-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (columns :initarg :columns :reader columns-of)))
+
+;;(defun make-persistence-unit (&rest class-mappings)
+;;  (reduce #'compute-mapping class-mappings
+;;	  :initial-value (make-instance 'persistence-unit)))
+
+;(defun compute-mapping (persistence-unit class-mapping)
+;  (make-instance 'persistence-unit
+;		 
+	;	 :tables (compute-tables (tables-of persistence-unit))
+	;	 :class-mappings
+		 ;;(lambda (persistence-unit class-mapping)
+	      ;(make-instance 'persistence-unit :tables
+
+
+
+;;compute-columns table-name mappings)))))))
+
+;;(defun compute-columns (table-name class-mappings)
+;;  (reduce #'(lambda (columns slot-mapping-definition)
+	      
+
+(defun column (name) ;;? может для определения типа столбца
+  (make-instance 'column :name name))
 
 (defclass clos-session ()
   ((mappings :initarg :mappings :reader mappings-of)
@@ -61,7 +176,7 @@
 
 (defun make-clos-session (connector &rest class-mappings)
   (make-instance 'clos-session
-		 :connection (funcall connectorxs)
+		 :connection (funcall connector)
 		 :cache (make-hash-table :size (length class-mappings))
 		 :mappings (reduce #'(lambda (table class-mapping)
 				       (setf (gethash (class-name-of class-mapping) table)
@@ -70,14 +185,32 @@
 				   class-mappings
 				   :initial-value (make-hash-table :size (length class-mappings)))))
 
+(defvar *session*)
+
 (defun db-read (&key all)
   (db-find-all all))
 
 (defun db-find-all (session class-name)
   (let ((class-mapping (gethash class-name (mappings-of session))))
     (map 'list #'(lambda (row)
-		   (load class-mapping row))
-	 (execute (connection-of session) (make-select-query class-mapping)))))
+		   (load (reduce #'(lambda (table class-mapping)
+				       (setf (gethash (class-name-of class-mapping) table)
+					     class-mapping)
+				       table)
+				   class-mappings
+				   :initial-value (make-hash-table :size (length class-mappings)))))
+
+(defvar *session*)
+
+(defun db-read (&key all)
+  (db-find-all all))
+
+(defun db-find-all (session class-name)
+  (let ((class-mapping (gethash class-name (mappings-of session))))
+    (map 'list #'(lambda (row)
+		   (load row class-mapping session))
+	 (execute (connection-of session)
+		  (make-select-query (table-of class-mapping))))))
 
 (defun make-select-query (table)
   (let ((table-name (name-of table)))
