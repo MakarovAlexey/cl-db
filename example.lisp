@@ -1,44 +1,4 @@
-(in-package #:ucl-glorp)
-
-(defclass persistence-unit ()
-  ((class-maps :initform (make-hash-table) :reader class-maps-of)))
-
-(defclass class-map ()
-  ((mapped-class :initarg :class :reader mapped-class-of)
-   (table-name :initarg :table-name :reader table-name-of)
-   (slot-mappings :initarg :slot-mappings :reader slot-mappings-of)
-   (primary-key :initarg :prinary-key :reader primary-key-of)))
-
-(defun map-class (class-name &key table-name primary-key slots discriminator-value)
-  (make-instance 'class-map :class (find-class 'class-name)
-		 :table-name table-name
-		 :slot-maps slots
-		 :primary-key primary-key))
-
-(defclass slot-mapping ()
-  ((slot-name :initarg :slot-name :reader slot-name-of)))
-
-(defclass value-mapping (slot-mapping)
-  ((column :initarg :column :reader column-of)))
-
-(defun value (slot-name column-name)
-  (make-instance 'value-mapping :column column-name))
-
-;;(defun one-to-many (slot-name 
-
-(defun map-hash-table (key-mapping value-mapping)
-  (make-instance 'hash-table-mapping
-		 :key-mapping key-mapping
-		 :value-mapping value-mapping))
-
-(defclass reference-mapping (slot-mapping)
-  ((referenced-class :initarg :referenced-class :reader referenced-class-of)
-   (columns :initarg :columns :reader columns-of)))
-
-(defun map-reference (class-name &rest columns)
-  (make-instance 'reference-mapping
-		 :referenced-class (find-class class-name)
-		 :columns columns))
+(in-package #:cl-db)
 
 ;;(defun map-slot (slot-name place reader writer)
 ;;#'to-list
@@ -208,17 +168,98 @@
 	   :also-fetch #'project-of
 	   :order-by #'name-of))
 
-(list (where (query-over 'project)
-       #'(lambda (project)
-	   (eq project 1))))
-		       
-		   (
-	    :where (and-expression )
+;;(list (where (query-over 'project)
+;;       #'(lambda (project)
+;;	   (eq project 1))))
+;;		       
+;;		   (
+;;	    :where (and-expression )
 
 ;; сделать db-read макросом? или оставить как функцию, а переделывать выражение в with-session?
 ;; осталось написать
 
-(make-instance 'registry
-	       :mappers (list (make-instance 'mapper :class (find-class 'project)
-					     :select-all '(:select id name :from projects)
-					     :select
+;;(make-instance 'registry
+;;	       :mappers (list (make-instance 'mapper :class (find-class 'project)
+;;					     :select-all '(:select id name :from projects)
+;;					     :select
+
+(defun schema ()
+  (let* ((projects
+	  (make-instance 'table :name "projects" :primary-key (list "id")
+			 :columns (list
+				   (make-instance 'column :name "id" :type "serial")
+				   (make-instance 'column :name "name" :type "varchar")
+				   (make-instance 'column :name "begin_date"
+						  :type "timestump"))))
+	 (users
+	  (make-instance 'table :name "users" :primary-key (list "id")
+			 :columns (list
+				   (make-instance 'column :name "id" :type "serial")
+				   (make-instance 'column :name "name" :type "varchar")
+				   (make-instance 'column :name "email" :type "varchar")
+				   (make-instance 'column :name "login" :type "varchar")
+				   (make-instance 'column :name "password" :type "varchar"))))
+	 (project-members
+	  (make-instance 'table :name "project_members"
+			 :primary-key (list "user_id" "project_id")
+			 :columns (list
+				   (make-instance 'column :name "user_id" :type "integer")
+				   (make-instance 'column :name "project_id" :type "integer"))
+			 :foreign-keys (list
+					(make-instance 'foreign-key :table users
+						       :columns (list
+								 (cons "user_id" "id")))
+					(make-instance 'foreign-key :table projects
+						       :columns (list
+								 (cons "project_id" "id"))))))
+	 (project-managers
+	  (make-instance 'table :name "project_managers"
+			 :primary-key (list "user_id" "project_id")
+			 :columns (list
+				   (make-instance 'column :name "user_id" :type "integer")
+				   (make-instance 'column :name "project_id" :type "integer"))
+			 :foreign-keys (list
+					(make-instance 'foreign-key :table users
+						       :columns (list
+								 (cons "user_id" "id")
+								 (cons "project_id" "id")))))))
+    (list projects users project-members project-managers)))
+
+(defun schema ()
+  (let* ((projects
+	  (make-table "projects" (list "id")
+		      (list (make-instance 'column :name "id" :type "serial")
+			    (make-instance 'column :name "name" :type "varchar")
+			    (make-instance 'column :name "begin_date" :type "timestump"))))
+	 (users
+	  (make-table "users" (list "id")
+		      (list (make-instance 'column :name "id" :type "serial")
+			    (make-instance 'column :name "name" :type "varchar")
+			    (make-instance 'column :name "email" :type "varchar")
+			    (make-instance 'column :name "login" :type "varchar")
+			    (make-instance 'column :name "password" :type "varchar"))))
+	 (project-members
+	  (make-table "project_members" (list "user_id" "project_id")
+		      (list
+		       (make-instance 'column :name "user_id" :type "integer")
+		       (make-instance 'column :name "project_id" :type "integer"))
+		      (make-instance 'foreign-key :table users
+				     :columns (list
+					       (cons "user_id" "id")))
+		      (make-instance 'foreign-key :table projects
+				     :columns (list
+					       (cons "project_id" "id")))))
+	 (project-managers
+	  (make-table "project_managers" (list "user_id" "project_id")
+		      (list
+		       (make-instance 'column :name "user_id" :type "integer")
+		       (make-instance 'column :name "project_id" :type "integer"))
+		      (list
+		       (make-instance 'foreign-key :table users
+				      :columns (list
+						(cons "user_id" "id")
+						(cons "project_id" "id"))))))
+	 (list projects users project-members project-managers))))
+
+(addtest (test-mappings) direct-mapping-definition
+	 (schema))
