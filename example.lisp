@@ -36,7 +36,7 @@
 			(map-slot 'name (value 'name "name"))
 			(map-slot 'begin-date (value "begin_date"))
 			(map-slot 'project-members
-				  (one-to-many 'project-member 'project)
+				  (one-to-many 'project-member "project_id")
 				  #'(lambda (&rest roles)
 				      (reduce #'(lambda (table role)
 						  (setf (gethash (user-of role) table) role)

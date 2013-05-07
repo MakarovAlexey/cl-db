@@ -28,7 +28,7 @@
 (defun one-to-many-mapping-p (mapping)
   (typep mapping (find-class 'one-to-many-mapping-definition)))
 
-(defun map-class (class-name &key table-name primary-key slots)
+(defun map-class (class-name table-name primary-key &rest slots)
   (let ((mappings (mapcar #'mapping-of slots)))
     (make-instance 'class-mapping-definition
 		   :table-name table-name
@@ -58,7 +58,7 @@
   ((columns-names :initarg :columns-names
 		  :reader columns-names-of)))
 
-(defun value (&rest columns)
+(defun value (column &rest columns)
   (make-instance 'value-mapping-definition :columns-names columns))
 
 (defclass one-to-many-mapping-definition ()
@@ -67,7 +67,7 @@
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
 
-(defun one-to-many (class-name &rest columns)
+(defun one-to-many (class-name column &rest columns)
   (make-instance 'one-to-many-mapping-definition
 		 :mapped-class (find-class class-name)
 		 :columns-names columns))
@@ -78,7 +78,7 @@
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
 
-(defun many-to-one (class-name &rest columns)
+(defun many-to-one (class-name column &rest columns)
   (make-instance 'many-to-one-mapping-definition 
 		 :mapped-class (find-class class-name)
 		 :columns-names columns))
