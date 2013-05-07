@@ -28,8 +28,7 @@
 (defun one-to-many-mapping-p (mapping)
   (typep mapping (find-class 'one-to-many-mapping-definition)))
 
-(defun map-class (mappings class-name
-		  &key table-name primary-key slots)
+(defun map-class (class-name &key table-name primary-key slots)
   (let ((mappings (mapcar #'mapping-of slots)))
     (make-instance 'class-mapping-definition
 		   :table-name table-name
@@ -109,9 +108,6 @@
    (mapping :initarg :mapping :reader mapping-of)
    (constructor :initarg :constructor :reader constructor-of)
    (reader :initarg :reader :reader reader-of)))
-
-;;(defmethod shared-initialize ((instance table) slot-names &key class-definition)
-;;  (with-slots (name
 
 (defun compute-mappings (class-mapping-definitions)
   (let ((class-mappings (reduce #'(lambda (hash-table definition)
@@ -220,4 +216,4 @@
 
 
 ;; наследование
-;; в т.ч. проверка одинаковости первичного ключа и родительских классовx
+;; в т.ч. проверка одинаковости первичного ключа и родительских классов
