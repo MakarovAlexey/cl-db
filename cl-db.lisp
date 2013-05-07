@@ -214,6 +214,44 @@
 						    (columns-names-of mapping-definition)
 						    (table-of referenced-class-mapping)))))
 
-
 ;; наследование
 ;; в т.ч. проверка одинаковости первичного ключа и родительских классов
+
+(defclass clos-session ()
+  ((mappings :initarg :mappings :reader mappings-of)
+   (loaded-objects :initarg :loaded-objects :reader loaded-objects-of)))
+
+(defun make-clos-session (connector &rest class-mappings)
+  (make-instance 'clos-session
+		 :connection (funcall connector)
+		 :mappings (reduce #'(lambda (table class-mapping)
+				       (setf (gethash (mapped-class-of class-mapping) table)
+					     class-mapping)
+				       table)
+				   class-mappings
+				   :initial-value (make-hash-table :size (length class-mappings)))))
+
+(defvar *session*)
+
+(defun db-read (&key all)
+  (db-find-all *session* (find-class all)))
+
+;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
+(defun load (class-mapping query row)
+  (let ((object (allocate-instance (mapped-class-of class-mapping))))
+    (maphash #'(lambda (slot-name slot-mapping)
+		 (
+
+(defun build-select (table foreign-keys)
+  nil)
+
+(defun get-class-mapping (session class)
+  (gethash class (mappings-of session)))
+
+(defun db-find-all (session class)
+  (let* ((class-mapping (get-class-mapping session class))
+	 (query (build-select (table-of class-mapping))))
+    (map 'list #'(lambda (row)
+		   (load class-mapping query row))
+	 (execute query (connection-of session)))))
+
