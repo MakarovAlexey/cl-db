@@ -495,35 +495,9 @@
 ;;(defun column (name) ;;? может для определения типа столбца
 ;;  (make-instance 'column :name name))
 
-(defclass clos-session ()
-  ((mappings :initarg :mappings :reader mappings-of)
-   (loaded-objects :initarg :loaded-objects :reader loaded-objects-of)))
 
-(defun make-clos-session (connector &rest class-mappings)
-  (make-instance 'clos-session
-		 :connection (funcall connector)
-		 :cache (make-hash-table :size (length class-mappings))
-		 :mappings (reduce #'(lambda (table class-mapping)
-				       (setf (gethash (class-name-of class-mapping) table)
-					     class-mapping)
-				       table)
-				   class-mappings
-				   :initial-value (make-hash-table :size (length class-mappings)))))
 
-(defvar *session*)
 
-;;(defun db-read (&key all)
-;;  (db-find-all all))
-
-;;(defun db-find-all (session class-name)
-;;  (let ((class-mapping (gethash class-name (mappings-of session))))
-;;    (map 'list #'(lambda (row)
-;;		   (load (reduce #'(lambda (table class-mapping)
-;;				       (setf (gethash (class-name-of class-mapping) table)
-;;					     class-mapping)
-;;				       table)
-;;				   class-mappings
-;;				   :initial-value (make-hash-table :size (length class-mappings))))))))
 
 ;;(defvar *session*)
 
