@@ -284,8 +284,8 @@
 			(compute-class-joins superclass-mapping))))
 	    (superclasses-mappings-of class-mapping))))
 
-;;(defun compute-fetch-joins (class-mapping joined-fetch)
-;;  (
+(defun compute-fetch-joins (class-mapping joined-fetch)
+  (;; 
 
 (defclass joined-fetch ()
   ((slot-mapping :initarg :slot-mapping :reader slot-mapping-of)
@@ -316,19 +316,19 @@
 ;;  ((table :initarg :table :reader table)
 ;;   (foreign-keys :initarg :foreign-keys :reader foreign-keys)))
 
-(defclass table-row ()
-  ((values :initarg :values
-	   :reader values-of)
-   (foreign-key-tables-rows :initarg :foreign-key-tables-rows
-			    :reader foreign-key-tables-rows-of)))
+;;(defclass table-row ()
+;;  ((values :initarg :values
+;;	   :reader values-of)
+;;   (foreign-key-tables-rows :initarg :foreign-key-tables-rows
+;;			    :reader foreign-key-tables-rows-of)))
 
-(defun db-find-all (session class &rest fetch) 
-  (let* ((class-mapping (get-class-mapping session class))
-	 (result (query-select class-mapping fetch
-			       (connection-of session))))
-    (map 'list #'(lambda (table-row)
-		   (load session class-mapping fetch table-row))
-	 table-rows)))
+;;(defun db-find-all (session class &rest fetch) 
+;;  (let* ((class-mapping (get-class-mapping session class))
+;;	 (result (query-select class-mapping fetch
+;;			       (connection-of session))))
+;;    (map 'list #'(lambda (table-row)
+;;		   (load session class-mapping fetch table-row))
+;;	 table-rows)))
 
 ;; execute
 ;; load
