@@ -84,9 +84,18 @@
 		 :columns-names columns))
 
 (defclass class-mapping ()
-  ((table :initarg :table :reader table-of)
-   (mapped-class :initarg :mapped-class :reader mapped-class-of)
-   (slot-mappings :initarg :slot-mappings :reader slot-mappings-of)))
+  ((table :initarg :table
+	  :reader table-of)
+   (mapped-class :initarg :mapped-class
+		 :reader mapped-class-of)
+   (superclasses-mappings :initarg :superclasses-mappings
+			  :reader superclasses-mappings-of)
+   (subclasses-mappings :initarg :subclasses-mappings
+			:reader subclasses-mappings-of)
+   (slot-mappings :initarg :slot-mappings
+		  :reader slot-mappings-of)
+   (reference-mappings :initform (make-hash-table)
+		       :reader reference-mappings-of)))
 
 (defclass table ()
   ((name :initarg :name :reader name-of)
@@ -100,6 +109,12 @@
 
 (defclass foreign-key-column (column)
   ((foreign-keys :initarg :foreign-keys :reader foreign-keys-of)))
+
+(defclass foreign-key ()
+  ((table :initarg :table
+	  :reader table-of)
+   (referenced-table :initarg :referenced-table
+		     :reader referenced-table-of)))
 
 (defclass value-column (column) ())
 
@@ -115,7 +130,6 @@
 				      (setf (gethash mapped-class hash-table)
 					    (make-instance 'class-mapping
 							   :mapped-class mapped-class
-							   ;;:table (make-instance 'table :class-definition definition)
 							   :table (make-instance 'table
 										 :name (table-name-of definition)
 										 :primary-key (primary-key-of class-mapping-definition)))))
@@ -123,17 +137,20 @@
 				class-mapping-definitions
 				:initial-value (make-hash-table :size (length class-mapping-definitions)))))
     (dolist (definition class-mapping-definitions class-mappings)
-      (setf (slot-value (gethash (mapped-class-of definition) class-mappings) 'slots-mappings)
-	    (mapcar #'(lambda (definition)
-			(make-instance 'slot-mapping
-				       :slot-name (slot-name-of definition)
-				       :mapping (compute-mapping (mapping-of definition)
-								 definition
-								 class-mappings)))
-		    (slot-mappings-of definition))))))
+      (with-slots (superclasses-mappings slots-mappings)
+	  (gethash (mapped-class-of definition) class-mappings)
+	(setf slots-mappings
+	      (mapcar #'(lambda (definition)
+			  (make-instance 'slot-mapping
+					 :slot-name (slot-name-of definition)
+					 :mapping (compute-mapping (mapping-of definition)
+								   definition
+								   class-mappings)))
+		      (slot-mappings-of definition)))))))
 
-(defgeneric compute-mapping (mapping-definition class-mapping
-			     class-mapping-definitions))
+(defgeneric compute-slot-mapping (mapping-definition
+				  class-mapping
+				  class-mapping-definitions))
 
 (defclass value-mapping ()
   ((columns :initarg :columns :reader columns-of)))
@@ -148,7 +165,7 @@
   (if (not (column-exist-p table name))
       (add-column table (make-instance 'value-column
 				       :table table :name name))
-      (error "Column '~a' already mapped" name)))
+      (error "Column ~a already mapped" name)))
 
 (defmethod compute-slot-mapping ((mapping-definition value-mapping-definition)
 				 class-mapping class-mapping-definitions)
@@ -160,10 +177,12 @@
 							 (table-of class-mapping)))
 				  (columns-names-of mapping-definition))))
 
-(defclass one-to-many-mapping ()
+(defclass reference-mapping ()
   ((referenced-class-mapping :initarg :referenced-class-mapping
-			     :reader referenced-class-mapping-of)
-   (foreign-key :initarg :foreign-key
+			     :reader referenced-class-mapping-of)))
+
+(defclass one-to-many-mapping ()
+  ((foreign-key :initarg :foreign-key
 		:reader foreign-key-of)))
 
 (defun get-mapping (mapped-class class-mapping-definitions)
@@ -199,9 +218,7 @@
 						    (table-of class-mapping)))))
 
 (defclass many-to-one-mapping ()
-  ((referenced-class-mapping :initarg :referenced-class-mapping
-			     :reader referenced-class-mapping-of)
-   (foreign-key :initarg :foreign-key
+  ((foreign-key :initarg :foreign-key
 		:reader foreign-key-of)))
 
 (defmethod compute-slot-mapping ((mapping-definition many-to-one-mapping-definition)
@@ -236,22 +253,94 @@
 (defun db-read (&key all)
   (db-find-all *session* (find-class all)))
 
-;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
-(defun load (class-mapping query row)
-  (let ((object (allocate-instance (mapped-class-of class-mapping))))
-    (maphash #'(lambda (slot-name slot-mapping)
-		 (
-
-(defun build-select (table foreign-keys)
-  nil)
-
 (defun get-class-mapping (session class)
   (gethash class (mappings-of session)))
 
-(defun db-find-all (session class)
-  (let* ((class-mapping (get-class-mapping session class))
-	 (query (build-select (table-of class-mapping))))
-    (map 'list #'(lambda (row)
-		   (load class-mapping query row))
-	 (execute query (connection-of session)))))
+(defclass join ()
+  ((foreign-key :initarg :foreign-key :reader foreign-key-of)))
 
+(defclass inner-join (join) ())
+
+(defun compute-superclasses-joins (class-mapping joined-fetch)
+  (let ((table (table-of class-mapping)))
+    (mapcar #'(lambda (superclass-mapping)
+		(cons (make-instance 'inner-join
+				     :foreign-key (get-foreign-key table
+								   (primary-key-of table)
+								   (table-of superclass-mapping)))
+		      (compute-class-joins superclass-mapping joined-fetch)))
+	    (superclasses-mappings-of class-mapping))))
+
+(defclass left-outer-join (join) ())
+
+(defun compute-subclasses-joins (class-mapping)
+  (let ((table (table-of class-mapping)))
+    (mapcar #'(lambda (subclass-mapping)
+		(let ((subclass-table (table-of subclass-mapping)))
+		  (cons (make-instance 'left-outer-join
+				       :foreign-key (get-foreign-key subclass-table
+								     (primary-key-of subclass-table)
+								     table))
+			(compute-class-joins superclass-mapping))))
+	    (superclasses-mappings-of class-mapping))))
+
+;;(defun compute-fetch-joins (class-mapping joined-fetch)
+;;  (
+
+(defclass joined-fetch ()
+  ((slot-mapping :initarg :slot-mapping :reader slot-mapping-of)
+   (fetchings :initarg :fetchings :reader fetchings-of)))
+
+(defun compute-class-joins (class-mapping joined-fetch)
+  (flet ((mapping-reference-p (joined-fetch)
+	   (reference-mapping-p (reference-reader joined-fetch)
+				class-mapping)))
+    (append (compute-superclasses-joins class-mapping
+					(remove-if #'mapping-reference-p
+						   joined-fetch))
+	    (compute-fetch-joins class-mapping
+				 (remove-if-not #'reference-mapping-p
+						joined-fetch))
+	    (compute-subclasses-joins class-mapping))))
+
+(defun build-select (class-mapping joined-fetch)
+  (make-instance 'select-query :table (table-of class-mapping)
+		 :joins (compute-class-joins class-mapping fetch)))
+
+(defun query-select (class-mapping fetch connection)
+  (execute (build-select class-mapping fetch) connection))
+
+;;defclass result - hash-table of table-rows on foreign0keys
+;; primary-key inheritance
+;;(defclass db-query ()
+;;  ((table :initarg :table :reader table)
+;;   (foreign-keys :initarg :foreign-keys :reader foreign-keys)))
+
+(defclass table-row ()
+  ((values :initarg :values
+	   :reader values-of)
+   (foreign-key-tables-rows :initarg :foreign-key-tables-rows
+			    :reader foreign-key-tables-rows-of)))
+
+(defun db-find-all (session class &rest fetch) 
+  (let* ((class-mapping (get-class-mapping session class))
+	 (result (query-select class-mapping fetch
+			       (connection-of session))))
+    (map 'list #'(lambda (table-row)
+		   (load session class-mapping fetch table-row))
+	 table-rows)))
+
+;; execute
+;; load
+
+;; наследование и инициализация слотов
+;; объект какого класса создавать? При условии, что нет абстрактных классов
+;; объекты по иерархии загружаются снизу-вверх из исключенных записей нижнего уровня
+
+
+;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
+;;(defun load (session class-mapping fetch result)
+;;  (let ((object (allocate-instance (mapped-class-of class-mapping))))
+;;    (cache object session)
+;;    (maphash #'(lambda (slot-name slot-mapping)
+;;		 (
