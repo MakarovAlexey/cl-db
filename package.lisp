@@ -8,5 +8,6 @@
 	   :value
 	   :one-to-many
 	   :many-to-one
-	   :make-persistence-unit))
+	   :make-clos-session
+	   :with-session))
 
