@@ -276,33 +276,68 @@
 	(error "Class ~a not mapped" class)
 	mapping)))
 
-(defclass join ()
-  ((foreign-key :initarg :foreign-key :reader foreign-key-of)))
+(defclass table-reference ()
+  ((table :initarg :table
+	  :reader table-of)
+   (alias :initarg :alias
+	  :reader alias-of)))
+
+(defclass table-expression ()
+  ((table-reference :initarg :table-reference
+		    :reader table-reference-of)
+   (joins :initarg :joins
+	  :reader joins-of)))
+
+(defclass join (table-expression)
+  ((column-pairs :initarg :column-pairs
+		 :reader column-pairs-of)))
 
 (defclass inner-join (join) ())
 
-(defun compute-superclasses-joins (class-mapping joined-fetch)
-  (let ((table (table-of class-mapping)))
-    (mapcar #'(lambda (superclass-mapping)
-		(cons (make-instance 'inner-join
-				     :foreign-key (get-foreign-key table
-								   (primary-key-of table)
-								   (table-of superclass-mapping)))
-		      (compute-class-joins superclass-mapping joined-fetch)))
-	    (superclasses-mappings-of class-mapping))))
-
 (defclass left-outer-join (join) ())
 
-(defun compute-subclasses-joins (class-mapping)
-  (let ((table (table-of class-mapping)))
+(defclass select-query ()
+  ((table-expression :initarg :table-expression
+		     :reader table-expression-of)
+   (select-list-items :initarg :select-list-items
+		      :reader select-list-items-of)))
+
+(defun compute-column-pairs (table foreign-key)
+  (mapcar #'cons
+	  (primary-key-of table)
+	  (alexandria:hash-table-keys (columns-of foreign-key))))
+
+(defun compute-superclasses-joins (table-reference superclass-mappings)
+  (let ((table (table-of table-reference)))
+    (mapcar #'(lambda (superclass-mapping)
+		(let* ((superclass-table (table-of superclass-mapping))
+		       (superclass-table-reference (make-instance 'table-reference
+								  :table superclass-table)))
+		  (cons (make-instance 'inner-join
+				       :table-reference table-reference
+				       :joined-table-reference superclass-table-reference
+				       :column-pairs (compute-columns-pairs superclass-table
+									    (get-foreign-key table
+											     (primary-key-of table)
+											     superclass-table)))
+			(compute-joins superclass-table-reference superclass-mapping))))
+	    superclass-mappings)))
+
+(defun compute-subclasses-joins (table-reference subclasses-mappings)
+  (let ((table (table-of table-reference)))
     (mapcar #'(lambda (subclass-mapping)
-		(let ((subclass-table (table-of subclass-mapping)))
+		(let* ((subclass-table (table-of subclass-mapping))
+		       (subclass-table-reference (make-instance 'table-reference
+								:table subclass-table)))
 		  (cons (make-instance 'left-outer-join
-				       :foreign-key (get-foreign-key subclass-table
-								     (primary-key-of subclass-table)
-								     table))
+				       :table-reference table-reference
+				       :joined-table-reference subclass-table-reference
+				       :column-pairs (compute-columns-pairs subclass-table
+									    (get-foreign-key subclass-table
+											     (primary-key-of subclass-table)
+											     table)))
 			(compute-class-joins superclass-mapping))))
-	    (superclasses-mappings-of class-mapping))))
+	    subclasses-mappings)))
 
 (defun compute-fetch-joins (class-mapping joined-fetch)
   (mapcar #'(lambda (joined-fetch)
@@ -318,25 +353,28 @@
    (joined-fetch :initarg :joined-fetch
 		 :reader joine-fetch-of)))
 
-(defun compute-joins (class-mapping joined-fetch)
-  (flet ((mapping-reference-p (joined-fetch)
-	   (reference-mapping-p (reference-reader joined-fetch)
-				class-mapping)))
-    (append (compute-superclasses-joins class-mapping
-					(remove-if #'mapping-reference-p
-						   joined-fetch))
-	    (compute-fetch-joins class-mapping
-				 (remove-if-not #'mapping-reference-p
-						joined-fetch))
-	    (compute-subclasses-joins class-mapping))))
+(defun compute-joins (table-reference class-mapping)
+  (append
+   (compute-subclasses-joins table-reference
+			     (superclasses-mappings-of class-mapping))
+   (compute-superclasses-joins table-reference
+			       (subclasses-mappings-of class-mapping))))
 
-(defclass select-query ()
-  ((table :initarg :table :reader table-of)
-   (joins :initarg :joins :reader joins-of)))
 
-(defun make-select-query (class-mapping joined-fetch)
-  (make-instance 'select-query :table (table-of class-mapping)
-		 :joins (compute-joins class-mapping joined-fetch)))
+
+;;(defun make-select-query (class-mapping)
+;;  (let ((table-alias (make-instance 'alias
+;;				    :table (table-of class-mapping)
+;;				    :inner-joins ( (compute-joins class-mapping)
+;;				    )))
+;;    (make-instance 'select-query :from (make-instance -clause table-alias)
+;;		   
+;;		   :joins (compute-joins class-mapping))))
+
+(defgeneric make-query-string (query))
+
+;;(defmethod make-query-string ((query select-query))
+;;  (format nil "SELECT ~{~a~^, ~} FROM ~a 
 
 ;; execute
 
@@ -375,13 +413,13 @@
 (defmacro with-session ((session) &body body)
   `(call-with-session ,session #'(lambda () ,@body)))
 
-(defun db-find-all (session class &rest fetch) 
-  (let* ((class-mapping (get-class-mapping session class))
-	 (result (execute (make-select-query class-mapping fetch)
-			  (connection-of session))))
-    (map 'list #'(lambda (table-row)
-		   (load session class-mapping fetch table-row))
-	 table-rows)))
+;;(defun db-find-all (session class &rest fetch) 
+;;  (let* ((class-mapping (get-class-mapping session class))
+;;	 (result (execute (make-select-query class-mapping fetch)
+;;			  (connection-of session))))
+;;    (map 'list #'(lambda (table-row)
+;;		   (load session class-mapping fetch table-row))
+;;	 table-rows)))
 
-(defun db-read (&key all)
-  (db-find-all *session* (find-class all)))
+;;(defun db-read (&key all)
+;;  (db-find-all *session* (find-class all)))
