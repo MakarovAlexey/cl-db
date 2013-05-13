@@ -284,6 +284,59 @@
    (alias :initarg :alias
 	  :reader alias-of)))
 
+(defvar *object-loader*)
+
+(defun compute-superclass-loaders ())
+
+(defun xyz (class-mapping)
+  (make-instance 'object-loader
+		 :superclasses-loaders (mapcar #'xyz (superclasses-mappings-of class-mapping))
+		 :subclasses-loaders (mapcar #'xyz (superclasses-mappings-of class-mapping))
+(defclass object-loader ()
+  ((class-mapping :initarg :class-mapping
+		  :reader :class-mappings)
+   (table-reference :reader table-reference-of)
+   (superclass-loaders :reader superclass-loaders-of)
+   (subclass-loaders :reader superclass-loaders-of)))
+
+
+
+(defmethod initialize-instance ((instance object-loader) &key class-mapping
+				(superclasses-loaders (compute-superclasses-loaders class-mapping))
+				(subclasses-loaders (compute-subclasses-loaders class-mapping)))
+  (apply #'call-next-method instance
+	 :class-mapping class-mapping
+	 :subclasses-loaders subclasses-loaders
+	 :superclasses-loaders superclasses-loaders))
+  
+  (with-slots (table-refrence superclass-loaders subclass-loaders)
+      
+
+(defun compute-object-loader (table-reference class-mapping)
+  
+
+
+
+(defvar *session*)
+
+(defun call-with-session (session function)
+  (let ((*session* session))
+    (funcall function)))
+
+(defmacro with-session ((session) &body body)
+  `(call-with-session ,session #'(lambda () ,@body)))
+
+;;(defun db-find-all (session class &rest fetch) 
+;;  (let* ((class-mapping (get-class-mapping session class))
+;;	 (result (execute (make-select-query class-mapping fetch)
+;;			  (connection-of session))))
+;;    (map 'list #'(lambda (table-row)
+;;		   (load session class-mapping fetch table-row))
+;;	 table-rows)))
+
+;;(defun db-read (&key all)
+;;  (db-find-all *session* (find-class all)))
+
 (defclass table-expression ()
   ((table-reference :initarg :table-reference
 		    :reader table-reference-of)
@@ -405,23 +458,3 @@
 ;;    (cache object session)
 ;;    (maphash #'(lambda (slot-name slot-mapping)
 ;;		 (
-
-(defvar *session*)
-
-(defun call-with-session (session function)
-  (let ((*session* session))
-    (funcall function)))
-
-(defmacro with-session ((session) &body body)
-  `(call-with-session ,session #'(lambda () ,@body)))
-
-;;(defun db-find-all (session class &rest fetch) 
-;;  (let* ((class-mapping (get-class-mapping session class))
-;;	 (result (execute (make-select-query class-mapping fetch)
-;;			  (connection-of session))))
-;;    (map 'list #'(lambda (table-row)
-;;		   (load session class-mapping fetch table-row))
-;;	 table-rows)))
-
-;;(defun db-read (&key all)
-;;  (db-find-all *session* (find-class all)))
