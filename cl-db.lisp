@@ -15,7 +15,7 @@
    (mapped-superclasses :initarg :mapped-superclasses
 			:reader mapped-superclasses-of)
    (slot-mapping-definitions :initarg :slot-mapping-definitions
-			     :reader slot-mapping-definitions-of)w
+			     :reader slot-mapping-definitions-of)
    (value-mappings :initarg :value-mapping
 		   :reader value-mappings-of)
    (many-to-one-mappings :initarg :many-to-one-mappings
@@ -96,7 +96,7 @@
 		 :reader mapped-class-of)
    (superclasses-mappings :initarg :superclasses-mappings
 			  :reader superclasses-mappings-of)
-   (subclasses-mappings :initarg :subclasses-mappings
+   (subclasses-mappings :initform (list)
 			:reader subclasses-mappings-of)
    (slot-mappings :initarg :slot-mappings
 		  :reader slot-mappings-of)
@@ -170,8 +170,10 @@
 	(with-slots (superclasses-mappings slot-mappings) class-mapping
 	  (setf superclasses-mappings
 		(mapcar #'(lambda (superclass)
-			    (get-mapping (mapped-class-of definition)
-					 class-mappings))
+			    (let ((superclass-mapping (get-mapping (mapped-class-of definition)
+								   class-mappings)))
+			      (push (subclasses-of superclass-mapping) class-mapping)
+			      superclass-mapping))
 			(mapped-superclasses-of definition))
 		slot-mappings
 		(compute-slot-mappings class-mapping
@@ -360,16 +362,16 @@
    (compute-superclasses-joins table-reference
 			       (subclasses-mappings-of class-mapping))))
 
-
-
-;;(defun make-select-query (class-mapping)
-;;  (let ((table-alias (make-instance 'alias
-;;				    :table (table-of class-mapping)
-;;				    :inner-joins ( (compute-joins class-mapping)
-;;				    )))
-;;    (make-instance 'select-query :from (make-instance -clause table-alias)
-;;		   
-;;		   :joins (compute-joins class-mapping))))
+(defun make-select-query (class-mapping)
+  (let* ((table-reference (make-instance 'table-reference
+					 :table (table-of class-mapping)))
+	 (table-expression (make-instance 'table-expression
+					  :table-reference table-reference
+					  :joins (compute-joins table-reference
+								class-mapping))))
+    (make-instance 'select-query
+		   :select-list-items 
+		   :table-expression table-expression)))
 
 (defgeneric make-query-string (query))
 

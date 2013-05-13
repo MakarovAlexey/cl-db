@@ -85,8 +85,7 @@
 		(assert
 		 (string= (make-query-string
 			   (make-select-query
-			    (get-class-mapping session (find-class 'project))
-			    nil))
+			    (get-class-mapping session (find-class 'project))))
 			  "SELECT t_1.id, t_1.name, t_1.begin_date FROM projects as t_1"))))
 
 
@@ -95,8 +94,7 @@
 		(assert
 		 (string= (make-query-string
 			   (make-select-query
-			    (get-class-mapping session (find-class 'project-manager))
-			    nil))
+			    (get-class-mapping session (find-class 'project-manager))))
 			  "SELECT t_1.user_id, t_1.project_id, t_2.user_id, t_2.project_id FROM project_members as t_1 INNER JOIN project_managers as t_2 ON t_1.user_id = t_2.user_id AND t_1.project_id = t_2.project_id"))))
 
 ;;(lift:addtest (test-mappings) reading-all-projects
