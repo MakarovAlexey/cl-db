@@ -284,37 +284,45 @@
    (alias :initarg :alias
 	  :reader alias-of)))
 
-(defvar *object-loader*)
+(defclass joined-superclass ()
+  ((joined-superclasses :initarg :joined-superclasses
+			:reader joined-superclasses-of)))
 
-(defun compute-superclass-loaders ())
+(defmethod initialize-instance :after ((instance joined-superclass)
+				       &key class-mapping
+				       joined-subclass)
+  (let ((superclasses-mappings (superclass-mappings-of class-mapping)))
+    (with-slots (joined-superclasses) instance
+      (setf joined-superclasses
+	    (if (null superclass-loader)
+		(mapcar #'(lambda (superclass-mapping)
+			    (make-instance 'superclass-loader
+					   :class-mapping superclass-mapping))
+			superclasses-mappings)
+		(list* superclass-loader
+		       (mapcar #'(lambda (superclass-mapping)
+				   (make-instance 'superclass-loader
+						  :class-mapping superclass-mapping))
+			       (remove (class-mapping-of joined-subclass)
+				       superclasses-mappings))))))))
 
-(defun xyz (class-mapping)
-  (make-instance 'object-loader
-		 :superclasses-loaders (mapcar #'xyz (superclasses-mappings-of class-mapping))
-		 :subclasses-loaders (mapcar #'xyz (superclasses-mappings-of class-mapping))
-(defclass object-loader ()
+(defclass object-loader (joined-superclass)
   ((class-mapping :initarg :class-mapping
 		  :reader :class-mappings)
-   (table-reference :reader table-reference-of)
-   (superclass-loaders :reader superclass-loaders-of)
-   (subclass-loaders :reader superclass-loaders-of)))
+   (table-reference :reader table-reference-of)))
 
-
-
-(defmethod initialize-instance ((instance object-loader) &key class-mapping
-				(superclasses-loaders (compute-superclasses-loaders class-mapping))
-				(subclasses-loaders (compute-subclasses-loaders class-mapping)))
-  (apply #'call-next-method instance
-	 :class-mapping class-mapping
-	 :subclasses-loaders subclasses-loaders
-	 :superclasses-loaders superclasses-loaders))
+(defun compute-superclasses-loaders (class-mapping)
   
-  (with-slots (table-refrence superclass-loaders subclass-loaders)
+
+(defmethod initialize-instance :after ((instance object-loader)
+				       &key class-mapping
+				       superclass-loader)
+  (with-slots (subclass-loaders)
+      (setf subclasses-loaders
+	    (compute-subclasses-loaders instance class-mapping))))
+  
+
       
-
-(defun compute-object-loader (table-reference class-mapping)
-  
-
 
 
 (defvar *session*)
