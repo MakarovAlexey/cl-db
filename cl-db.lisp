@@ -65,7 +65,8 @@
 		  :reader columns-names-of)))
 
 (defun value (column &rest columns)
-  (make-instance 'value-mapping-definition :columns-names columns))
+  (make-instance 'value-mapping-definition
+		 :columns-names (list* column columns)))
 
 (defclass one-to-many-mapping-definition ()
   ((mapped-class :initarg :mapped-class
@@ -76,7 +77,7 @@
 (defun one-to-many (class-name column &rest columns)
   (make-instance 'one-to-many-mapping-definition
 		 :mapped-class (find-class class-name)
-		 :columns-names columns))
+		 :columns-names (list* column columns)))
 
 (defclass many-to-one-mapping-definition ()
   ((mapped-class :initarg :mapped-class
@@ -87,7 +88,26 @@
 (defun many-to-one (class-name column &rest columns)
   (make-instance 'many-to-one-mapping-definition 
 		 :mapped-class (find-class class-name)
-		 :columns-names columns))
+		 :columns-names (list* column columns)))
+
+(defclass configuration ()
+  ((class-mappings :initform (make-hash-table)
+		   :reader mappings-of)))
+
+(defmethod initialize-instance :after ((instance configuration)
+				       &key class-mapping-definitions)
+  (setf (slot-value instance 'class-mappings)
+	(reduce #'(lambda (hash-table definition)
+		    (let ((mapped-class (mapped-class-of definition)))
+		      (setf (gethash mapped-class hash-table)
+					    (make-instance 'class-mapping
+							   :mapped-class mapped-class
+							   :table (make-instance 'table
+										 :name (table-name-of definition)
+										 :primary-key (primary-key-of definition)))))
+				    hash-table)
+				class-mapping-definitions
+				:initial-value (make-hash-table :size (length class-mapping-definitions)))))
 
 (defclass class-mapping ()
   ((table :initarg :table
@@ -170,9 +190,9 @@
 	(with-slots (superclasses-mappings slot-mappings) class-mapping
 	  (setf superclasses-mappings
 		(mapcar #'(lambda (superclass)
-			    (let ((superclass-mapping (get-mapping (mapped-class-of definition)
+			    (let ((superclass-mapping (get-mapping (mapped-class-of superclass)
 								   class-mappings)))
-			      (push (subclasses-of superclass-mapping) class-mapping)
+			      (push class-mapping (subclasses-mappings-of superclass-mapping))
 			      superclass-mapping))
 			(mapped-superclasses-of definition))
 		slot-mappings
@@ -236,7 +256,6 @@
 
 (defmethod compute-slot-mapping ((mapping-definition one-to-many-mapping-definition)
 				 class-mapping class-mappings)
-  (declare (ignore class-mapping))
   (let ((referenced-class-mapping
 	 (get-mapping (mapped-class-of mapping-definition)
 		      class-mappings)))
