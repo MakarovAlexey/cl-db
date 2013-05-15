@@ -319,3 +319,12 @@
   (setf (slot-value instance 'joined-superclasses) joined-superclasses
 	(slot-value instance 'subclass-object-loaders)
 	(compute-subclass-object-loaders instance)))
+
+(defvar *session*)
+
+(defun call-with-session (session function)
+  (let ((*session* session))
+    (funcall function)))
+
+(defmacro with-session ((session) &body body)
+  `(call-with-session ,session #'(lambda () ,@body)))
