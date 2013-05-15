@@ -285,184 +285,37 @@
 	  :reader alias-of)))
 
 (defclass joined-superclass ()
-  ((joined-superclasses :initarg :joined-superclasses
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)
+   (table-reference :reader table-reference-of)
+   (joined-superclasses :initarg :joined-superclasses
 			:reader joined-superclasses-of)))
 
-(defmethod initialize-instance :after ((instance joined-superclass)
-				       &key class-mapping
-				       joined-subclass)
-  (let ((superclasses-mappings (superclass-mappings-of class-mapping)))
-    (with-slots (joined-superclasses) instance
-      (setf joined-superclasses
-	    (if (null superclass-loader)
-		(mapcar #'(lambda (superclass-mapping)
-			    (make-instance 'superclass-loader
-					   :class-mapping superclass-mapping))
-			superclasses-mappings)
-		(list* superclass-loader
-		       (mapcar #'(lambda (superclass-mapping)
-				   (make-instance 'superclass-loader
-						  :class-mapping superclass-mapping))
-			       (remove (class-mapping-of joined-subclass)
-				       superclasses-mappings))))))))
-
 (defclass object-loader (joined-superclass)
-  ((class-mapping :initarg :class-mapping
-		  :reader :class-mappings)
-   (table-reference :reader table-reference-of)))
+  ((subclass-object-loaders :initarg :subclass-object-loaders
+			    :reader subclass-object-loaders-of)))
 
-(defun compute-superclasses-loaders (class-mapping)
-  
+(defun compute-joined-superclasses (class-mapping)
+  (let ((superclasses-mappings (superclasses-mappings-of class-mapping)))
+    (mapcar #'(lambda (superclass-mapping)
+		(make-instance 'joined-superclass
+			       :class-mapping superclass-mapping))
+	    superclasses-mappings)))
+
+(defun compute-subclass-object-loaders (object-loader)
+  (let ((class-mapping (class-mapping-of object-loader)))
+    (mapcar #'(lambda (subclass-mapping)
+		(make-instance 'object-loader
+			       :class-mapping subclass-mapping
+			       :joined-superclasses (compute-joined-superclasses
+						     (remove class-mapping
+							     (superclasses-mappings-of class-mapping)))))
+	    (subclasses-mappings-of class-mapping))))
 
 (defmethod initialize-instance :after ((instance object-loader)
 				       &key class-mapping
-				       superclass-loader)
-  (with-slots (subclass-loaders)
-      (setf subclasses-loaders
-	    (compute-subclasses-loaders instance class-mapping))))
-  
-
-      
-
-
-(defvar *session*)
-
-(defun call-with-session (session function)
-  (let ((*session* session))
-    (funcall function)))
-
-(defmacro with-session ((session) &body body)
-  `(call-with-session ,session #'(lambda () ,@body)))
-
-;;(defun db-find-all (session class &rest fetch) 
-;;  (let* ((class-mapping (get-class-mapping session class))
-;;	 (result (execute (make-select-query class-mapping fetch)
-;;			  (connection-of session))))
-;;    (map 'list #'(lambda (table-row)
-;;		   (load session class-mapping fetch table-row))
-;;	 table-rows)))
-
-;;(defun db-read (&key all)
-;;  (db-find-all *session* (find-class all)))
-
-(defclass table-expression ()
-  ((table-reference :initarg :table-reference
-		    :reader table-reference-of)
-   (joins :initarg :joins
-	  :reader joins-of)))
-
-(defclass join (table-expression)
-  ((column-pairs :initarg :column-pairs
-		 :reader column-pairs-of)))
-
-(defclass inner-join (join) ())
-
-(defclass left-outer-join (join) ())
-
-(defclass select-query ()
-  ((table-expression :initarg :table-expression
-		     :reader table-expression-of)
-   (select-list-items :initarg :select-list-items
-		      :reader select-list-items-of)))
-
-(defun compute-column-pairs (table foreign-key)
-  (mapcar #'cons
-	  (primary-key-of table)
-	  (alexandria:hash-table-keys (columns-of foreign-key))))
-
-(defun compute-superclasses-joins (table-reference superclass-mappings)
-  (let ((table (table-of table-reference)))
-    (mapcar #'(lambda (superclass-mapping)
-		(let* ((superclass-table (table-of superclass-mapping))
-		       (superclass-table-reference (make-instance 'table-reference
-								  :table superclass-table)))
-		  (cons (make-instance 'inner-join
-				       :table-reference table-reference
-				       :joined-table-reference superclass-table-reference
-				       :column-pairs (compute-columns-pairs superclass-table
-									    (get-foreign-key table
-											     (primary-key-of table)
-											     superclass-table)))
-			(compute-joins superclass-table-reference superclass-mapping))))
-	    superclass-mappings)))
-
-(defun compute-subclasses-joins (table-reference subclasses-mappings)
-  (let ((table (table-of table-reference)))
-    (mapcar #'(lambda (subclass-mapping)
-		(let* ((subclass-table (table-of subclass-mapping))
-		       (subclass-table-reference (make-instance 'table-reference
-								:table subclass-table)))
-		  (cons (make-instance 'left-outer-join
-				       :table-reference table-reference
-				       :joined-table-reference subclass-table-reference
-				       :column-pairs (compute-columns-pairs subclass-table
-									    (get-foreign-key subclass-table
-											     (primary-key-of subclass-table)
-											     table)))
-			(compute-class-joins superclass-mapping))))
-	    subclasses-mappings)))
-
-(defun compute-fetch-joins (class-mapping joined-fetch)
-  (mapcar #'(lambda (joined-fetch)
-	      (make-instance 'left-outer-join
-			     :foreign-key (foreign-key-of
-					   (get-reference-mapping class-mapping
-								  joined-fetch))))
-	  joined-fetch))
-
-(defclass joined-fetch ()
-  ((reference-reader :initarg :reference-reader
-		     :reader reference-reder-of)
-   (joined-fetch :initarg :joined-fetch
-		 :reader joine-fetch-of)))
-
-(defun compute-joins (table-reference class-mapping)
-  (append
-   (compute-subclasses-joins table-reference
-			     (superclasses-mappings-of class-mapping))
-   (compute-superclasses-joins table-reference
-			       (subclasses-mappings-of class-mapping))))
-
-(defun make-select-query (class-mapping)
-  (let* ((table-reference (make-instance 'table-reference
-					 :table (table-of class-mapping)))
-	 (table-expression (make-instance 'table-expression
-					  :table-reference table-reference
-					  :joins (compute-joins table-reference
-								class-mapping))))
-    (make-instance 'select-query
-		   :select-list-items 
-		   :table-expression table-expression)))
-
-(defgeneric make-query-string (query))
-
-;;(defmethod make-query-string ((query select-query))
-;;  (format nil "SELECT ~{~a~^, ~} FROM ~a 
-
-;; execute
-
-;;defclass result - hash-table of table-rows on foreign0keys
-;; primary-key inheritance
-;;(defclass db-query ()
-;;  ((table :initarg :table :reader table)
-;;   (foreign-keys :initarg :foreign-keys :reader foreign-keys)))
-
-;;(defclass table-row ()
-;;  ((values :initarg :values
-;;	   :reader values-of)
-;;   (foreign-key-tables-rows :initarg :foreign-key-tables-rows
-;;			    :reader foreign-key-tables-rows-of)))
-
-;; load
-
-;; наследование и инициализация слотов
-;; объект какого класса создавать? При условии, что нет абстрактных классов
-;; объекты по иерархии загружаются снизу-вверх из исключенных записей нижнего уровня
-
-
-;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
-;;(defun load (session class-mapping fetch result)
-;;  (let ((object (allocate-instance (mapped-class-of class-mapping))))
-;;    (cache object session)
-;;    (maphash #'(lambda (slot-name slot-mapping)
-;;		 (
+				       (joined-superclasses
+					(compute-joined-superclasses class-mapping)))
+  (setf (slot-value instance 'joined-superclasses) joined-superclasses
+	(slot-value instance 'subclass-object-loaders)
+	(compute-subclass-object-loaders instance)))

@@ -80,6 +80,12 @@
 	      (assert (get-class-mapping session (find-class 'project-member)))
 	      (assert (get-class-mapping session (find-class 'project-manager))))
 
+(lift:addtest (test-mappings) object-loaders
+	      (with-session (session)
+		(make-instance 'object-loader
+			       :class-mapping (get-class-mapping session
+								 (find-class 'project)))))
+
 (lift:addtest (test-mappings) making-simple-select
 	      (with-session (session)
 		(assert
