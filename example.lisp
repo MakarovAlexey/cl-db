@@ -553,14 +553,7 @@
 
 
 
-(defvar *session*)
 
-(defun call-with-session (session function)
-  (let ((*session* session))
-    (funcall function)))
-
-(defmacro with-session ((session) &body body)
-  `(call-with-session ,session #'(lambda () ,@body)))
 
 ;;(defun db-find-all (session class &rest fetch) 
 ;;  (let* ((class-mapping (get-class-mapping session class))

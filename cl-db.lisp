@@ -90,38 +90,65 @@
 		 :mapped-class (find-class class-name)
 		 :columns-names (list* column columns)))
 
-(defclass configuration ()
-  ((class-mappings :initform (make-hash-table)
-		   :reader mappings-of)))
+(defclass undefined-class-mapping ()
+  ((mapped-class :initarg :mapped-class
+		 :reader mapped-class-of)))
 
-(defmethod initialize-instance :after ((instance configuration)
-				       &key class-mapping-definitions)
-  (setf (slot-value instance 'class-mappings)
-	(reduce #'(lambda (hash-table definition)
+(defclass class-mapping (undefined-class-mapping)
+  ((table :initarg :table
+	  :reader table-of)
+   (value-mappings :initfrom (make-hash-table)
+		   :reader value-mappings-of)
+   (reference-mappings :initform (make-hash-table)
+		       :reader reference-mappings-of)
+   (subclasses-mappings :initform (list)
+			:reader subclasses-mappings-of)
+   (superclasses-mappings :initarg :superclasses-mappings
+			  :reader superclasses-mappings-of)))
+
+(defmethod shared-initialize :after ((instance class-mapping)
+				     &key definition table)
+  (let ((configuration (configuration-of instance)))
+    (with-slots (value-mappings reference-mappings superclasses-mappings) instance
+      (setf value-mappings (mapcar #'(lambda (slot-mapping-definition))
+				   (value-mappingf-of definition))
+	    reference-mappings (mapcar #'(lambda (slot-mapping-definition))
+				       (reference-mappings-of definition))
+	    superclasses-mappings (mapcar #'(lambda (mapped-class)
+					      (extend (get-mapping mapped-class configuration)
+						      instance))
+					  (superclasses-of definition))))))
+	  
+				     
+  	(reduce #'(lambda (hash-table definition)
 		    (let ((mapped-class (mapped-class-of definition)))
 		      (setf (gethash mapped-class hash-table)
 					    (make-instance 'class-mapping
 							   :mapped-class mapped-class
-							   :table (make-instance 'table
-										 :name (table-name-of definition)
-										 :primary-key (primary-key-of definition)))))
+							   :table )))
 				    hash-table)
 				class-mapping-definitions
-				:initial-value (make-hash-table :size (length class-mapping-definitions)))))
+				:initial-value )))
 
-(defclass class-mapping ()
-  ((table :initarg :table
-	  :reader table-of)
-   (mapped-class :initarg :mapped-class
-		 :reader mapped-class-of)
-   (superclasses-mappings :initarg :superclasses-mappings
-			  :reader superclasses-mappings-of)
-   (subclasses-mappings :initform (list)
-			:reader subclasses-mappings-of)
-   (slot-mappings :initarg :slot-mappings
-		  :reader slot-mappings-of)
-   (reference-mappings :initform (make-hash-table)
-		       :reader reference-mappings-of)))
+(defclass configuration ()
+  ((class-mappings :initfrom (make-hash-table)
+		   :reader mappings-of)))
+
+(defmethod initialize-instance :after ((instance configuration)
+				       &key class-mapping-definitions)
+  (let ((class-mappings (class-mappings-of configuration)))
+    (dolist (class-mapping-definition class-mapping-definitions)
+      (let ((mapped-class (mapped-class-of class-mapping-definition)))
+	(setf (gethash mapped-class class-mappings)
+	      (make-instance 'undefined-class-mapping
+			     :mapped-class mapped-class
+			     :configuration instance))))
+    (maphash #'(lambda (mapped-class class-mapping)
+		 (declare (ignore mapped-class))
+		 (change-class class-mapping 'class-mapping
+			       :table
+			       ;; вычисляем тут, попробовать вычислить схему и отношения до создания отображения
+			       :definition class-mapping-definitions)))))
 
 (defclass table ()
   ((name :initarg :name :reader name-of)

@@ -64,7 +64,8 @@
   ())
 
 (defun map-project-manager ()
-  (map-class 'project-manager "project_managers" '("project_id" "user_id")))
+  (map-class 'project-manager "project_managers" '("project_id" "user_id")
+	     :superclasses '(project-member)))
 
 (lift:deftestsuite test-mappings ()
   ((session
@@ -75,6 +76,16 @@
 		       (map-project-manager)))))
 
 (lift:addtest (test-mappings) classes-mapped
+	      (assert
+	       (= (length
+		   (subclasses-mappings-of (get-class-mapping session (find-class 'project-member))))
+		   1))
+	      (assert
+	       (= (length
+		   (superclasses-mappings-of (get-class-mapping session (find-class 'project-manager))))
+		   1)))
+
+(lift:addtest (test-mappings) classes-mapped
 	      (assert (get-class-mapping session (find-class 'project)))
 	      (assert (get-class-mapping session (find-class 'user)))
 	      (assert (get-class-mapping session (find-class 'project-member)))
@@ -82,9 +93,18 @@
 
 (lift:addtest (test-mappings) object-loaders
 	      (with-session (session)
-		(make-instance 'object-loader
-			       :class-mapping (get-class-mapping session
-								 (find-class 'project)))))
+		(assert (= (length
+			    (subclass-object-loaders-of
+			     (make-instance 'object-loader
+					    :class-mapping (get-class-mapping session
+									      (find-class 'project)))))
+			   0))
+		(assert (= (length
+			    (subclass-object-loaders-of
+			     (make-instance 'object-loader
+					    :class-mapping (get-class-mapping session
+									      (find-class 'project-member)))))
+			   1))))
 
 (lift:addtest (test-mappings) making-simple-select
 	      (with-session (session)
