@@ -2,9 +2,6 @@
 
 (in-package #:cl-db)
 
-;; использовать классы *-mapping для строгого конфигурирования и нестрогого
-;; или сделать конфигурирование в функциональном стиле
-
 (defclass class-mapping-definition ()
   ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
@@ -100,58 +97,14 @@
    (superclasses-mappings :initarg :superclasses-mappings
 			  :reader superclasses-mappings-of)))
 
-(defmethod initialize-instance :after ((instance class-mapping)
-				       &key mapping-definition
-				       mapping-schema)
-  (with-slots (table superclasses-mappings) instance
-  (let ((configuration (configuration-of instance)))
-    
-      (setf value-mappings (mapcar #'(lambda (slot-mapping-definition))
-				   (value-mappingf-of definition))
-	    reference-mappings (mapcar #'(lambda (slot-mapping-definition))
-				       (reference-mappings-of definition))
-	    superclasses-mappings (mapcar #'(lambda (mapped-class)
-					      (extend (get-mapping mapped-class configuration)
-						      instance))
-					  (superclasses-of definition))))))
-	  
-				     
-  	(reduce #'(lambda (hash-table definition)
-		    (let ((mapped-class (mapped-class-of definition)))
-		      (setf (gethash mapped-class hash-table)
-					    (make-instance 'class-mapping
-							   :mapped-class mapped-class
-							   :table )))
-				    hash-table)
-				class-mapping-definitions
-				:initial-value )))
-
 (defclass mapping-schema ()
   ((class-mappings :initfrom (make-hash-table)
-		   :reader mappings-of)
+		   :reader class-mappings-of)
    (tables :initfrom (make-hash-table)
-	   :reader mappings-of)))
+	   :reader tables-of)))
 
-(defun allocate-class-mappings (class-mapping-definitions)
-  (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
-    (dolist (class-mapping-definition class-mapping-definitions class-mappings)
-      (let ((mapped-class (mapped-class-of class-mapping-definition)))
-	(setf (gethash mapped-class class-mappings)
-	      (allocate-instance 'undefined-class-mapping))))))
-
-(defmethod initialize-instance :after ((instance mapping-schema)
-				       &key class-mapping-definitions)
-  (with-slots (tables class-mappings) instance
-    (setf tables (compute-tables class-mapping-definitions))
-    (setf class-mappings (allocate-class-mappings class-mapping-definitions)))
-  (dolist (definition class-mapping-definitions)
-    (let ((class (mapped-class-of definition)))
-      (initialize-instance (get-mapping class)v
-			   :table (get-table (table-name-of definition) instance)
-			   :value-mappings (compute-value-mappings definition instance)
-			   :reference-mappings (compute-value-mappings definition instance)
-			   :subclasses-mappings (compute-subclasses-mappings definition instance)
-			   :superclasses-mappings (compute-superclasses-mappings definition instance)))))
+(defun list-mappings (mapping-schema)
+  (alexandria:hash-table-values (class-mappings-of mapping-schema)))
 
 (defclass table ()
   ((name :initarg :name :reader name-of)
@@ -173,6 +126,83 @@
 	    :reader columns-of)
    (referenced-table :initarg :referenced-table
 		     :reader referenced-table-of)))
+
+(defun allocate-tables (class-mapping-definitions)
+  (let ((tables (make-hash-table :size (length class-mapping-definitions))))
+    (dolist (class-mapping-definition class-mapping-definitions tables)
+      (setf (gethash (table-name-of class-mapping-definition) tables)
+	    (allocate-instance 'table)))))
+
+(defun compute-tables (class-mapping-definitions)
+  (let ((tables (allocate-tables class-mapping-definitions)))
+    (dolist (definition class-mapping-definitions tables)
+      (let* ((table (gethash (table-name-of definition) tables))
+	     (columns (compute-columns table class-mapping-definitions))
+	     (foreign-keys
+	      (compute-foreign-keys table columns
+				    class-mapping-definitions)))
+	(initialize-instance table :columns columns
+			     :foreign-key foreign-keys)))))
+
+(defun allocate-class-mappings (class-mapping-definitions)
+  (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
+    (dolist (class-mapping-definition class-mapping-definitions class-mappings)
+      (setf (gethash (mapped-class-of class-mapping-definition) class-mappings)
+	    (allocate-instance 'class-mapping)))))
+
+(defun compute-superclasses-mappings (class-mapping-definition mapping-schema)
+  (mapcar #'(lambda (class)
+	      (get-mapping class mapping-schema))
+	  (superclasses-of class-mapping-definition)))
+
+(defun compute-subclasses-mappings (class-mapping-definition mapping-schema)
+  (let ((mapped-class (mapped-class-of class-mapping-definition)))
+    (remove-if-not #'(lambda (class-mapping)
+		       (find mapped-class
+			     (superclasses-of class-mapping)))
+		   (list-mappings mapping-schema))))
+
+(defun compute-many-to-one-mappings (class-mapping-definition mapping-schema)
+  (mapcar #'(lambda (slot-mapping-definition)
+	      (let ((mapping-definition (mapping-of slot-mapping-definition)))
+		(make-instance 'many-to-one
+			       :slot-name (slot-name-of slot-mapping-definition)
+			       :constructor (constructor-of slot-mapping-definition)
+			       :reader (reader-of slot-mapping-definition)
+			       :referenced-mapping (get-mapping (mapped-class-of mapping-definition)
+								mapping-schema))))
+	  (many-to-one-mappings-of class-mapping-definition)))
+
+(defun compute-one-to-many-mappings (class-mapping-definition mapping-schema)
+  (mapcar #'(lambda (slot-mapping-definition)
+	      (let ((mapping-definition (mapping-of slot-mapping-definition)))
+		(make-instance 'one-to-many
+			       :slot-name (slot-name-of slot-mapping-definition)
+			       :constructor (constructor-of slot-mapping-definition)
+			       :reader (reader-of slot-mapping-definition)
+			       :foreign
+			       :referenced-mapping (get-mapping (mapped-class-of mapping-definition)
+								mapping-schema))))
+	  (one-to-many-mappings-of class-mapping-definition)))
+
+(defmethod initialize-instance :after ((instance mapping-schema)
+				       &key class-mapping-definitions)
+  (with-slots (tables class-mappings) instance
+    (setf tables (compute-tables class-mapping-definitions)
+	  class-mappings (allocate-class-mappings class-mapping-definitions)))
+  (dolist (definition class-mapping-definitions instance)
+    (let ((table (get-table (table-name-of definition) instance))
+	  (mapped-class (mapped-class-of definition)))
+      (initialize-instance
+       (get-mapping mapped-class instance)
+       :superclasses-mappings (compute-superclasses-mappings definition instance)
+       :subclasses-mappings (compute-subclasses-mappings definition instance)
+       :value-mappings (compute-value-mappings definition table)
+       :mapped-class mapped-class
+       :table table
+       :reference-mappings (append
+			    (compute-one-to-many-mappings definition instance)
+			    (compute-many-to-one-mappings definition table instance))))))
 
 (defclass value-column (column) ())
 

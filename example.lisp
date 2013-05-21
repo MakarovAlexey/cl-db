@@ -687,3 +687,39 @@
 ;;    (cache object session)
 ;;    (maphash #'(lambda (slot-name slot-mapping)
 ;;		 (
+
+
+(defmethod initialize-instance :after ((instance class-mapping) &key
+				       mapping-definition
+				       mapping-schema)
+  (with-slots (configuration table superclasses-mappings
+			     value-mappings reference-mappings) instance
+    (setf table (get-table (table-name-of mapping-definition) mapping-schema)
+	  superclasses-mappings (mapcar #'(lambda (class)
+					    (get-mapping class mapping-schema))
+					(superclasses-of mapping-definition))
+	  value-mappings (mapcar #'(lambda (slot-mapping-definition))
+				 (value-mappingf-of definition))
+	  reference-mappings (mapcar #'(lambda (slot-mapping-definition))
+				       (reference-mappings-of definition))
+
+
+value-mappings (mapcar #'(lambda (slot-mapping-definition))
+				   (value-mappingf-of definition))
+	    reference-mappings (mapcar #'(lambda (slot-mapping-definition))
+				       (reference-mappings-of definition))
+	    superclasses-mappings (mapcar #'(lambda (mapped-class)
+					      (extend (get-mapping mapped-class configuration)
+						      instance))
+					  (superclasses-of definition))))))
+	  
+				     
+  	(reduce #'(lambda (hash-table definition)
+		    (let ((mapped-class (mapped-class-of definition)))
+		      (setf (gethash mapped-class hash-table)
+					    (make-instance 'class-mapping
+							   :mapped-class mapped-class
+							   :table )))
+				    hash-table)
+				class-mapping-definitions
+				:initial-value )))
