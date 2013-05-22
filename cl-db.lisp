@@ -133,6 +133,14 @@
       (setf (gethash (table-name-of class-mapping-definition) tables)
 	    (allocate-instance 'table)))))
 
+(defun allocate-class-mappings (class-mapping-definitions)
+  (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
+    (dolist (class-mapping-definition class-mapping-definitions class-mappings)
+      (setf (gethash (mapped-class-of class-mapping-definition) class-mappings)
+	    (allocate-instance 'class-mapping)))))
+
+
+
 (defun compute-tables (class-mapping-definitions)
   (let ((tables (allocate-tables class-mapping-definitions)))
     (dolist (definition class-mapping-definitions tables)
@@ -143,12 +151,6 @@
 				    class-mapping-definitions)))
 	(initialize-instance table :columns columns
 			     :foreign-key foreign-keys)))))
-
-(defun allocate-class-mappings (class-mapping-definitions)
-  (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
-    (dolist (class-mapping-definition class-mapping-definitions class-mappings)
-      (setf (gethash (mapped-class-of class-mapping-definition) class-mappings)
-	    (allocate-instance 'class-mapping)))))
 
 (defun compute-superclasses-mappings (class-mapping-definition mapping-schema)
   (mapcar #'(lambda (class)
@@ -169,8 +171,9 @@
 			       :slot-name (slot-name-of slot-mapping-definition)
 			       :constructor (constructor-of slot-mapping-definition)
 			       :reader (reader-of slot-mapping-definition)
-			       :referenced-mapping (get-mapping (mapped-class-of mapping-definition)
-								mapping-schema))))
+			       :referenced-class-mapping (get-mapping
+							  (mapped-class-of mapping-definition)
+							  mapping-schema))))
 	  (many-to-one-mappings-of class-mapping-definition)))
 
 (defun compute-one-to-many-mappings (class-mapping-definition mapping-schema)
@@ -181,28 +184,30 @@
 			       :constructor (constructor-of slot-mapping-definition)
 			       :reader (reader-of slot-mapping-definition)
 			       :foreign
-			       :referenced-mapping (get-mapping (mapped-class-of mapping-definition)
-								mapping-schema))))
+			       :referenced-mapping (get-mapping
+						    (mapped-class-of mapping-definition)
+						    mapping-schema))))
 	  (one-to-many-mappings-of class-mapping-definition)))
 
 (defmethod initialize-instance :after ((instance mapping-schema)
 				       &key class-mapping-definitions)
   (with-slots (tables class-mappings) instance
-    (setf tables (compute-tables class-mapping-definitions)
+    (setf tables (allocate-tables class-mapping-definitions)
 	  class-mappings (allocate-class-mappings class-mapping-definitions)))
-  (dolist (definition class-mapping-definitions instance)
-    (let ((table (get-table (table-name-of definition) instance))
-	  (mapped-class (mapped-class-of definition)))
-      (initialize-instance
-       (get-mapping mapped-class instance)
-       :superclasses-mappings (compute-superclasses-mappings definition instance)
-       :subclasses-mappings (compute-subclasses-mappings definition instance)
-       :value-mappings (compute-value-mappings definition table)
-       :mapped-class mapped-class
-       :table table
-       :reference-mappings (append
-			    (compute-one-to-many-mappings definition instance)
-			    (compute-many-to-one-mappings definition table instance))))))
+  (let ((associations (allocate-associations class-mapping-definitions)))
+    (dolist (definition class-mapping-definitions instance)
+      (let ((table (get-table (table-name-of definition) instance))
+	    (mapped-class (mapped-class-of definition)))
+	(initialize-instance
+	 (get-mapping mapped-class instance)
+	 :superclasses-mappings (compute-superclasses-mappings definition instance)
+	 :subclasses-mappings (compute-subclasses-mappings definition instance)
+	 :value-mappings (compute-value-mappings definition table)
+	 :mapped-class mapped-class
+	 :table table
+	 :reference-mappings (append
+			      (compute-one-to-many-mappings definition instance)
+			      (compute-many-to-one-mappings definition table instance))))))
 
 (defclass value-column (column) ())
 
