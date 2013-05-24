@@ -127,11 +127,32 @@
    (referenced-table :initarg :referenced-table
 		     :reader referenced-table-of)))
 
-(defun allocate-tables (class-mapping-definitions)
+;; implement column-type
+(defun compute-columns (class-mapping-definition class-mapping-definitions)
+  (let ((columns (make-hash-table)))
+    (dolist (value-mapping (value-mappings-of class-mapping-definition))
+      (dolist (column (columns-of value-mapping))
+	(setf (gethash (name-of column) columns) column)))
+    (dolist (many-to-one-mapping (many-to-one-mapping-of class-mapping-definition))
+      (dolist (column-name (column-names-of many-to-one-mapping))
+	(setf (gethash column-name columns)
+	      (make-instance 'column :name column-name))))
+    (let ((mapped-class (mapped-class-of class-mapping-definition)))
+      (dolist (class-mapping-definition class-mapping-definitions columns)
+	(dolist (one-to-many-mapping (remove-if-not #'(lambda (mapping)
+							(eq mapped-class 
+							    (mapped-class-of mapping)))
+						    (one-to-many-mapping-of class-mapping-definition)))
+	  (dolist (column-name (column-names-of one-to-many-mapping))
+	    (setf (gethash column-name columns)
+		  (make-instance 'column :name column-name))))))))
+
+(defun compute-tables (class-mapping-definitions)
   (let ((tables (make-hash-table :size (length class-mapping-definitions))))
     (dolist (class-mapping-definition class-mapping-definitions tables)
       (setf (gethash (table-name-of class-mapping-definition) tables)
-	    (allocate-instance 'table)))))
+	    (make-instance 'table :columns (compute-columns class-mapping-definition
+							    class-mapping-definitions))))))
 
 (defun allocate-class-mappings (class-mapping-definitions)
   (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
@@ -139,18 +160,60 @@
       (setf (gethash (mapped-class-of class-mapping-definition) class-mappings)
 	    (allocate-instance 'class-mapping)))))
 
+(defun ensure-association (table referenced-table columns associations)
+  (multiple-value-bind (association presentp)
+      (gethash (list* table referenced-table columns) associations)
+    (declare (ignore association))
+    (if (not presentp)
+	(make-instance 'association
+		       :foreign-key (make-instance 'foreign-key
+						   :table table
+						   :referenced-table referenced-table
+						   :columns columns))
+	association)))
 
+(defclass associations ()
+  ((associations-by-one-to-many :initform (make-hash-table))
+   (associations-by-many-to-one :initform (make-hash-table))))
 
-(defun compute-tables (class-mapping-definitions)
-  (let ((tables (allocate-tables class-mapping-definitions)))
-    (dolist (definition class-mapping-definitions tables)
-      (let* ((table (gethash (table-name-of definition) tables))
-	     (columns (compute-columns table class-mapping-definitions))
-	     (foreign-keys
-	      (compute-foreign-keys table columns
-				    class-mapping-definitions)))
-	(initialize-instance table :columns columns
-			     :foreign-key foreign-keys)))))
+(defun compute-associations (class-mapping-definitions mapping-schema)
+  (let ((associations (make-hash-table :test #'equal)))
+    (dolist (class-mapping-definition class-mapping-definitions)
+      (let ((table (get-table (table-name-of class-mapping-definition) mapping-schema))
+	    (mapped-class (mapped-class-of class-mapping-definition)))
+	(dolist (many-to-one-definition (many-to-one-mappings-of class-mapping-definition))
+	  (multiple-value-bind (association presentp)
+	      (gethash
+	       (list* table
+		      (get-table (table-name-of 
+				  (find (mapped-class-of many-to-one-mapping)
+					class-mapping-definitions
+					:key #'mapped-class-of))
+				 mapping-schema)
+		      (mapcar #'(lambda (column-name)
+				  (get-column column-name table))
+			      (column-names-of many-to-one-mapping)))
+	       associations)
+	    (when (not presentp)
+	      (make-instance 'association
+			     :foreign-key (make-instance 'foreign-key
+							 :table table
+							 :referenced-table referenced-table
+							 :columns columns)
+			     :many-to-one (make-instance 'many-to-one-mapping
+							 :mapped-class mapped-class
+							 :referenced-class 
+	(dolist (one-to-many-mapping (one-to-many-mappings-of class-mapping-definition))
+	  (ensure-association (get-table (table-name-of
+					  (find (mapped-class-of one-to-many-mapping)
+						class-mapping-definitions
+						:key #'mapped-class-of))
+					 mapping-schema)
+			      table
+			      (mapcar #'(lambda (column-name)
+					  (get-column column-name table))
+				      (column-names-of one-to-many-mapping))
+			      associations))))))
 
 (defun compute-superclasses-mappings (class-mapping-definition mapping-schema)
   (mapcar #'(lambda (class)
@@ -192,9 +255,9 @@
 (defmethod initialize-instance :after ((instance mapping-schema)
 				       &key class-mapping-definitions)
   (with-slots (tables class-mappings) instance
-    (setf tables (allocate-tables class-mapping-definitions)
+    (setf tables (compute-tables class-mapping-definitions)
 	  class-mappings (allocate-class-mappings class-mapping-definitions)))
-  (let ((associations (allocate-associations class-mapping-definitions)))
+  (let ((associations (compute-associations class-mapping-definitions instance)))
     (dolist (definition class-mapping-definitions instance)
       (let ((table (get-table (table-name-of definition) instance))
 	    (mapped-class (mapped-class-of definition)))
@@ -207,8 +270,8 @@
 	 :table table
 	 :reference-mappings (append
 			      (compute-one-to-many-mappings definition instance)
-			      (compute-many-to-one-mappings definition table instance))))))
-
+			      (compute-many-to-one-mappings definition table instance)))))
+    
 (defclass value-column (column) ())
 
 (defclass slot-mapping ()
