@@ -107,7 +107,7 @@
 (defun get-table (name mapping-schema)
   (gethash name (tables-of mapping-schema)))
 
-(defclass class-mapping (undefined-class-mapping)
+(defclass class-mapping ()
   ((table :initarg :table
 	  :reader table-of)
    (value-mappings :reader value-mappings-of)
@@ -157,9 +157,9 @@
 
 (defclass table ()
   ((name :initarg :name :reader name-of)
-   (columns :initform (make-hash-table) :reader columns-of)
+   (columns :initarg :columns :reader columns-of)
    (primary-key :initarg :primary-key :reader primary-key-of)
-   (foreign-keys :initform (make-hash-table) :reader foreign-keys-of)))
+   (foreign-keys :reader foreign-keys-of)))
 
 (defun get-column (name table)
   (gethash name (columns-of table))) 
@@ -195,12 +195,13 @@
 	    (setf (gethash column-name columns)
 		  (make-instance 'column :name column-name))))))
     (dolist (value-mapping (value-mappings-of class-mapping-definition))
-      (dolist (column (columns-of value-mapping))
+      (dolist (column-name (columns-names-of value-mapping))
 	(multiple-value-bind (column presentp)
-	    (gethash (name-of column) columns)
-	  (when presentp
-	    (error "Column ~a already mapped" column))
-	  (setf (gethash (name-of column) columns) column))))
+	    (gethash column-name columns)
+	  (if presentp
+	      (error "Column ~a already mapped" column)
+	      (setf (gethash column-name columns)
+		    (make-instance 'column :name column-name))))))
     columns))
 
 (defun compute-tables (class-mapping-definitions)
@@ -211,7 +212,7 @@
 				       class-mapping-definitions)))
 	(setf (gethash table-name tables)
 	      (make-instance 'table :name table-name
-			     :column columns
+			     :columns columns
 			     :primary-key (mapcar #'(lambda (name)
 						      (gethash name columns))
 						  (primary-key-of class-mapping-definition))))))))
@@ -220,7 +221,7 @@
   (let ((class-mappings (make-hash-table :size (length class-mapping-definitions))))
     (dolist (class-mapping-definition class-mapping-definitions class-mappings)
       (setf (gethash (mapped-class-of class-mapping-definition) class-mappings)
-	    (allocate-instance 'class-mapping)))))
+	    (allocate-instance (find-class 'class-mapping))))))
 
 (defun reference-definition-key (reference-definition)
   (list* (mapped-class-of reference-definition)
@@ -365,19 +366,19 @@
        do (setf (gethash many-to-one-definition
 			 association-directions-table)
 		(one-to-many-direction-of association))
-       return association-directions-table)))
+       finally (return association-directions-table))))
 
 (defun compute-superclasses-mappings (class-mapping-definition mapping-schema)
   (mapcar #'(lambda (class)
 	      (get-mapping class mapping-schema))
 	  (mapped-superclasses-of class-mapping-definition)))
 
-(defun compute-subclasses-mappings (class-mapping-definition mapping-schema)
+(defun compute-subclasses (class-mapping-definition class-mapping-definitions)
   (let ((mapped-class (mapped-class-of class-mapping-definition)))
-    (remove-if-not #'(lambda (class-mapping)
-		       (find mapped-class
-			     (mapped-superclasses-of class-mapping)))
-		   (list-mappings mapping-schema))))
+    (remove-if-not #'(lambda (mapped-superclasses)
+		       (not (null (find mapped-class mapped-superclasses))))
+		   class-mapping-definitions
+		   :key #'mapped-superclasses-of)))
 
 (defun compute-association-foreign-keys (table association-directions-table)
   (loop for direction being the hash-values in association-directions-table
@@ -423,7 +424,10 @@
 	(initialize-instance
 	 (get-mapping mapped-class instance)
 	 :superclasses-mappings superclasses-mappings
-	 :subclasses-mappings (compute-subclasses-mappings definition instance)
+	 :subclasses-mappings (mapcar #'(lambda (mapped-subclass)
+					  (get-mapping mapped-subclass instance))
+				      (compute-subclasses definition
+							  class-mapping-definitions))
 	 :value-mappings (compute-value-mappings definition table)
 	 :mapped-class mapped-class
 	 :table table
