@@ -11,8 +11,6 @@
 		:reader primary-key-of)
    (mapped-superclasses :initarg :mapped-superclasses
 			:reader mapped-superclasses-of)
-   (slot-mapping-definitions :initarg :slot-mapping-definitions
-			     :reader slot-mapping-definitions-of)
    (value-mappings :initarg :value-mapping
 		   :reader value-mappings-of)
    (many-to-one-mappings :initarg :many-to-one-mappings
@@ -36,22 +34,24 @@
   (typep mapping (find-class 'one-to-many-mapping-definition)))
 
 (defun map-class (class-name table-name primary-key &key superclasses slots)
-  (let ((mappings (mapcar #'mapping-of slots)))
-    (make-instance 'class-mapping-definition
-		   :table-name table-name
-		   :primary-key primary-key
-		   :mapped-class (find-class class-name)
-		   :mapped-superclasses (mapcar #'find-class superclasses)
-		   :slot-mapping-definitions slots
-		   :value-mapping (remove-if-not #'value-mapping-p
-						 mappings)
-		   :many-to-one-mappings (remove-if-not #'many-to-one-mapping-p
-							mappings)
-		   :one-to-many-mappings (remove-if-not #'one-to-many-mapping-p
-							mappings))))
+  (make-instance 'class-mapping-definition
+		 :table-name table-name
+		 :primary-key primary-key
+		 :mapped-class (find-class class-name)
+		 :mapped-superclasses (mapcar #'find-class superclasses)
+		 :value-mapping (remove-if-not #'value-mapping-p
+					       slots
+					       :key #'mapping-of)
+		 :many-to-one-mappings (remove-if-not #'many-to-one-mapping-p
+						      slots
+						      :key #'mapping-of)
+		 :one-to-many-mappings (remove-if-not #'one-to-many-mapping-p
+						      slots
+						      :key #'mapping-of)))
 
 (defclass slot-mapping-definition ()
-  ((slot-name :initarg :slot-name :reader slot-name-of)
+  ((class-mapping-definition :accessor class-mapping-definition-of)
+   (slot-name :initarg :slot-name :reader slot-name-of)
    (mapping :initarg :mapping :reader mapping-of)
    (unmarshaller :initarg :unmarshaller :reader unmarshaller-of)
    (marshaller :initarg :marshaller :reader marshaller-of)))
@@ -72,8 +72,7 @@
 		 :columns-names (list* column columns)))
 
 (defclass one-to-many-mapping-definition ()
-  ((class-mapping-definition :accessor class-mapping-definition-of)
-   (mapped-class :initarg :mapped-class
+  ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
@@ -110,9 +109,11 @@
 (defclass class-mapping ()
   ((table :initarg :table
 	  :reader table-of)
-   (value-mappings :reader value-mappings-of)
-   (reference-mappings :reader reference-mappings-of)
-   (subclasses-mappings :initform (list)
+   (value-mappings :initarg :vaue-mappings
+		   :reader value-mappings-of)
+   (reference-mappings :initarg :reference-mappings
+		       :reader reference-mappings-of)
+   (subclasses-mappings :initarg subclasses-mappings
 			:reader subclasses-mappings-of)
    (superclasses-mappings :initarg :superclasses-mappings
 			  :reader superclasses-mappings-of)))
@@ -138,14 +139,13 @@
 
 (defclass slot-mapping ()
   ((slot-name :initarg :slot-name :reader slot-name-of)
-   (mapping :initarg :mapping :reader mapping-of)
    (unmarshaller :initarg :unmarshaller :reader unmarshaller-of)
    (marshaller :initarg :marshaller :reader marshaller-of)))
 
-(defclass value-mapping ()
+(defclass value-mapping (slot-mapping)
   ((columns :initarg :columns :reader columns-of)))
 
-(defclass reference-mapping ()
+(defclass reference-mapping (slot-mapping)
   ((referenced-class-mapping :initarg :referenced-class-mapping
 			     :reader referenced-class-mapping-of)
    (association :initarg :association
@@ -180,8 +180,9 @@
 		     :reader referenced-table-of)))
 
 (defun compute-columns (class-mapping-definition class-mapping-definitions)
-  (let ((columns (make-hash-table)))
-    (dolist (many-to-one-mapping (many-to-one-mappings-of class-mapping-definition))
+  (let ((columns (make-hash-table :test #'equal)))
+    (dolist (many-to-one-mapping (mapcar #'mapping-of
+					 (many-to-one-mappings-of class-mapping-definition)))
       (dolist (column-name (columns-names-of many-to-one-mapping))
 	(setf (gethash column-name columns)
 	      (make-instance 'column :name column-name))))
@@ -190,11 +191,12 @@
 	(dolist (one-to-many-mapping (remove-if-not #'(lambda (mapping)
 							(eq mapped-class 
 							    (mapped-class-of mapping)))
-						    (one-to-many-mappings-of class-mapping-definition)))
+						    (mapcar #'mapping-of
+							    (one-to-many-mappings-of class-mapping-definition))))
 	  (dolist (column-name (columns-names-of one-to-many-mapping))
 	    (setf (gethash column-name columns)
 		  (make-instance 'column :name column-name))))))
-    (dolist (value-mapping (value-mappings-of class-mapping-definition))
+    (dolist (value-mapping (mapcar #'mapping-of (value-mappings-of class-mapping-definition)))
       (dolist (column-name (columns-names-of value-mapping))
 	(multiple-value-bind (column presentp)
 	    (gethash column-name columns)
@@ -205,7 +207,8 @@
     columns))
 
 (defun compute-tables (class-mapping-definitions)
-  (let ((tables (make-hash-table :size (length class-mapping-definitions))))
+  (let ((tables (make-hash-table :test #'equal
+				 :size (length class-mapping-definitions))))
     (dolist (class-mapping-definition class-mapping-definitions tables)
       (let* ((table-name (table-name-of class-mapping-definition))
 	     (columns (compute-columns class-mapping-definition
@@ -375,10 +378,11 @@
 
 (defun compute-subclasses (class-mapping-definition class-mapping-definitions)
   (let ((mapped-class (mapped-class-of class-mapping-definition)))
-    (remove-if-not #'(lambda (mapped-superclasses)
-		       (not (null (find mapped-class mapped-superclasses))))
-		   class-mapping-definitions
-		   :key #'mapped-superclasses-of)))
+    (mapcar #'mapped-class-of
+	    (remove-if-not #'(lambda (mapped-superclasses)
+			       (not (null (find mapped-class mapped-superclasses))))
+			   class-mapping-definitions
+			   :key #'mapped-superclasses-of))))
 
 (defun compute-association-foreign-keys (table association-directions-table)
   (loop for direction being the hash-values in association-directions-table
@@ -399,7 +403,7 @@
 	      (make-instance 'value-mapping
 			     :columns (mapcar #'(lambda (name)
 						  (get-column name table))
-					      (columns-names-of definition))
+					      (columns-names-of (mapping-of definition)))
 			     :slot-name (slot-name-of definition)
 			     :marshaller (marshaller-of definition)
 			     :unmarshaller (unmarshaller-of definition)))

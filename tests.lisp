@@ -37,9 +37,9 @@
 		    :accessor project-members-of)))
 
 (defun map-project ()
-  (map-class 'project "projects" '(id)
+  (map-class 'project "projects" '("id")
 	     :slots (list (map-slot 'id (value "id"))
-			  (map-slot 'name (value 'name "name"))
+			  (map-slot 'name (value "name"))
 			  (map-slot 'begin-date (value "begin_date"))
 			  (map-slot 'project-members
 				    (one-to-many 'project-member "project_id")
@@ -67,73 +67,38 @@
   (map-class 'project-manager "project_managers" '("project_id" "user_id")
 	     :superclasses '(project-member)))
 
-(lift:deftestsuite test-mappings ()
-  ((session
-    (make-clos-session #'(lambda () nil)
-		       (map-project)
-		       (map-user)
-		       (map-project-member)
-		       (map-project-manager)))))
+(lift:deftestsuite schema-test ()
+  ((schema (make-instance 'mapping-schema
+			  :class-mapping-definitions (list
+						      (map-project)
+						      (map-user)
+						      (map-project-member)
+						      (map-project-manager))))))
 
-(lift:addtest (test-mappings) classes-mapped
-	      (assert
-	       (= (length
-		   (subclasses-mappings-of (get-class-mapping session (find-class 'project-member))))
-		   1))
-	      (assert
-	       (= (length
-		   (superclasses-mappings-of (get-class-mapping session (find-class 'project-manager))))
-		   1)))
-
-(lift:addtest (test-mappings) classes-mapped
-	      (assert (get-class-mapping session (find-class 'project)))
-	      (assert (get-class-mapping session (find-class 'user)))
-	      (assert (get-class-mapping session (find-class 'project-member)))
-	      (assert (get-class-mapping session (find-class 'project-manager))))
-
-(lift:addtest (test-mappings) object-loaders
-	      (with-session (session)
-		(assert (= (length
-			    (subclass-object-loaders-of
-			     (make-instance 'object-loader
-					    :class-mapping (get-class-mapping session
-									      (find-class 'project)))))
-			   0))
-		(assert (= (length
-			    (subclass-object-loaders-of
-			     (make-instance 'object-loader
-					    :class-mapping (get-class-mapping session
-									      (find-class 'project-member)))))
-			   1))))
-
-(lift:addtest (test-mappings) making-simple-select
-	      (with-session (session)
-		(assert
-		 (string= (make-query-string
-			   (make-select-query
-			    (get-class-mapping session (find-class 'project))))
-			  "SELECT t_1.id, t_1.name, t_1.begin_date FROM projects as t_1"))))
+(lift:addtest table-columns
+	      (lift:ensure-same
+	       (reverse
+		(mapcar #'name-of
+			(alexandria:hash-table-values
+			 (columns-of (get-table "projects" schema)))))
+	       (list "id" "name" "begin_date"))
+	      (lift:ensure-same
+	       (reverse
+		(mapcar #'name-of
+			(alexandria:hash-table-values
+			 (columns-of (get-table "users" schema)))))
+	       (list "id" "name" "login" "password"))
+	      (lift:ensure-same
+	       (reverse
+		(mapcar #'name-of
+			(alexandria:hash-table-values
+			 (columns-of (get-table "project_memebers" schema)))))
+	       (list "user_id" "project_id"))
+	      (lift:ensure-same
+	       (reverse
+		(mapcar #'name-of
+			(alexandria:hash-table-values
+			 (columns-of (get-table "project_managers" schema)))))
+	       (list "project_id" "user_id")))
 
 
-(lift:addtest (test-mappings) making-select-with-inheritance
-	      (with-session (session)
-		(assert
-		 (string= (make-query-string
-			   (make-select-query
-			    (get-class-mapping session (find-class 'project-manager))))
-			  "SELECT t_1.user_id, t_1.project_id, t_2.user_id, t_2.project_id FROM project_members as t_1 INNER JOIN project_managers as t_2 ON t_1.user_id = t_2.user_id AND t_1.project_id = t_2.project_id"))))
-
-;;(lift:addtest (test-mappings) reading-all-projects
-;;	      (with-session (session)
-;;		(db-read :all 'project)))
-
-;;(lift:addtest (test-mappings) executing-query
-;;	      (make-query 'project #'project-manager-roles-of))
-
-;;(lift:addtest (test-mappings) inheritnce-query
-;;	      (make-query ))
-
-;;(lift:addtest (test-mappings) inheritnce-query-with-fetch
-;;	      (make-query 'project-managment #'user-of))
-	 
-			 ;;(map-project-manager)))

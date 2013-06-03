@@ -9,7 +9,6 @@
 	       #:postmodern
 	       #:closer-mop)
   :components ((:file "package")
-	       (:file "schema")
                (:file "cl-db")))
 
 (asdf:defsystem #:cl-db.tests
