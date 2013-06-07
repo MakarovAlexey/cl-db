@@ -644,16 +644,7 @@
    (compute-superclasses-joins table-reference
 			       (subclasses-mappings-of class-mapping))))
 
-(defun make-select-query (class-mapping)
-  (let* ((table-reference (make-instance 'table-reference
-					 :table (table-of class-mapping)))
-	 (table-expression (make-instance 'table-expression
-					  :table-reference table-reference
-					  :joins (compute-joins table-reference
-								class-mapping))))
-    (make-instance 'select-query
-		   :select-list-items 
-		   :table-expression table-expression)))
+
 
 (defgeneric make-query-string (query))
 

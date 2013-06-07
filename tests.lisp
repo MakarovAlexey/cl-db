@@ -13,6 +13,21 @@
 			  :accessor project-manager-roles-of))
   (:documentation "Пользователь системы, ответственный исполнитель"))
 
+(defclass project ()
+  ((name :initarg :name
+	 :accessor name-of)
+   (begin-date :initarg :begin-date
+	       :accessor begin-date-of)
+   (project-members :initarg :project-members
+		    :accessor project-members-of)))
+
+(defclass project-member ()
+  ((project :initarg :project :reader project-of)
+   (user :initarg :user :reader user-of)))
+
+(defclass project-manager (project-member)
+  ())
+
 (defun map-user ()
   (map-class 'user "users" '(id)
 	     :slots (list (map-slot 'id (value "id"))
@@ -27,14 +42,6 @@
 						roles
 						:initial-value (make-hash-table :size (length roles))))
 				    #'alexandria:hash-table-values))))
-
-(defclass project ()
-  ((name :initarg :name
-	 :accessor name-of)
-   (begin-date :initarg :begin-date
-	       :accessor begin-date-of)
-   (project-members :initarg :project-members
-		    :accessor project-members-of)))
 
 (defun map-project ()
   (map-class 'project "projects" '("id")
@@ -51,17 +58,10 @@
 						:initial-value (make-hash-table :size (length roles))))
 				    #'alexandria:hash-table-values))))
 
-(defclass project-member ()
-  ((project :initarg :project :reader project-of)
-   (user :initarg :user :reader user-of)))
-
 (defun map-project-member ()
   (map-class 'project-member "project_memebers" '("project_id" "user_id")
 	     :slots (list (map-slot 'project (many-to-one 'project "project_id"))
 			  (map-slot 'user (many-to-one 'user "user_id")))))
-
-(defclass project-manager (project-member)
-  ())
 
 (defun map-project-manager ()
   (map-class 'project-manager "project_managers" '("project_id" "user_id")
@@ -75,30 +75,53 @@
 						      (map-project-member)
 						      (map-project-manager))))))
 
+(defun contains-only (sequence &rest elements)
+  (let ((excess-elements (set-difference sequence elements :test #'equalp))
+	(expected-elements (set-difference elements sequence :test #'equalp)))
+    (lift:ensure-null excess-elements
+		      :report "Sequence ~a have excess elements ~a"
+		      :arguments (excess-elements sequence))
+    (lift:ensure-null expected-elements
+		      :report "In sequence ~a expected ~a"
+		      :arguments (excess-elements sequence))))
+
 (lift:addtest table-columns
-	      (lift:ensure-same
-	       (reverse
-		(mapcar #'name-of
-			(alexandria:hash-table-values
-			 (columns-of (get-table "projects" schema)))))
-	       (list "id" "name" "begin_date"))
-	      (lift:ensure-same
-	       (reverse
-		(mapcar #'name-of
-			(alexandria:hash-table-values
-			 (columns-of (get-table "users" schema)))))
-	       (list "id" "name" "login" "password"))
-	      (lift:ensure-same
-	       (reverse
-		(mapcar #'name-of
-			(alexandria:hash-table-values
-			 (columns-of (get-table "project_memebers" schema)))))
-	       (list "user_id" "project_id"))
-	      (lift:ensure-same
-	       (reverse
-		(mapcar #'name-of
-			(alexandria:hash-table-values
-			 (columns-of (get-table "project_managers" schema)))))
-	       (list "project_id" "user_id")))
+  (contains-only (mapcar #'name-of
+			 (alexandria:hash-table-values
+			  (columns-of (get-table "projects" schema))))
+		 (list "id" "name" "begin_date"))
+  (contains-only (mapcar #'name-of
+			 (alexandria:hash-table-values
+			  (columns-of (get-table "users" schema))))
+		 (list "id" "name" "login" "password"))
+  (contains-only (mapcar #'name-of
+			 (alexandria:hash-table-values
+			  (columns-of (get-table "project_memebers" schema))))
+		 (list "user_id" "project_id"))
+  (contains-only (mapcar #'name-of
+			 (alexandria:hash-table-values
+			  (columns-of (get-table "project_managers" schema))))
+		 (list "project_id" "user_id")))
 
+(lift:addtest subclasses
+  (lift:ensure-null
+    (not (subclasses-mappings-of
+	  (get-mapping (find-class 'project-member) schema)))))
 
+(lift:addtest value-mappings
+  (lift:ensure-null
+    (not (value-mappings-of
+	  (get-mapping (find-class 'project) schema)))))
+
+(lift:addtest reference-mappings
+  (lift:ensure (every #'(lambda (reference)
+			  (not (null reference)))
+		      (reference-mappings-of
+		       (get-mapping (find-class 'project) schema)))))
+
+(lift:addtest object-loaders
+  (lift:ensure-failed-error
+   (make-object-loader (get-mapping (find-class 'project) schema) nil)
+   (make-object-loader (get-mapping (find-class 'user) schema) nil)
+   (make-object-loader (get-mapping (find-class 'project-member) schema) nil)
+   (make-object-loader (get-mapping (find-class 'project-manager) schema) nil)))
