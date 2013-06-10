@@ -778,3 +778,52 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 ;;	      (make-query 'project-managment #'user-of))
 	 
 			 ;;(map-project-manager)))
+
+(define-mapping projects-managment.mapping)
+
+(use-mapping projects-managment.mapping)
+
+(define-class-mapping user () ("users" ("id"))
+  (id (value "id"))
+  (name (value "name"))
+  (login (value "login"))
+  (password (value "password"))
+  (project-managments (one-to-many project-managment "project_id")
+		      #'(lambda (&rest roles)
+			  (alexandria:alist-hash-table
+			   (mapcar #'(lambda (role)
+				       (cons (project-of role) role))
+				   roles)))
+		      #'alexandria:hash-table-values))
+
+(define-class-mapping project () ("projects" ("id"))
+  (id (value "id"))
+  (name (value "name"))
+  (begin-date (value "begin_date"))
+  (project-members (one-to-many project-member "project_id")
+		   #'(lambda (&rest roles)
+			  (alexandria:alist-hash-table
+			   (mapcar #'(lambda (role)
+				       (cons (user-of role) role))
+				   roles)))
+		   #'alexandria:hash-table-values))
+
+(define-class-mapping project-participation ()
+  ("project_memebers" ("project_id" "user_id"))
+  (project (many-to-one project "project_id"))
+  (user (many-to-one user "user_id")))
+
+(define-class-mapping project-managment (project-participation)
+  ("project_managers"))
+
+(defmacro define-class-mapping (class (&rest superclasses)
+				(table (&rest primary-key))
+				&rest slot-mappings)
+  `(let* ((*table* (assert-instance
+		    (make-instance 'table :name table)))
+	  (*class-mapping* (assert-instance
+			    (make-instance 'class-mapping-definition
+					   :mapped-class (find-class ,class)
+					   :superclasses (mapcar #'find-class ,superclasses)
+					   :table *table*))))
+							  :
