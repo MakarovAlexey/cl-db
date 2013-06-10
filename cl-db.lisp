@@ -11,7 +11,7 @@
 		:reader primary-key-of)
    (mapped-superclasses :initarg :mapped-superclasses
 			:reader mapped-superclasses-of)
-   (value-mappings :initarg :value-mapping
+   (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
    (many-to-one-mappings :initarg :many-to-one-mappings
 			 :reader many-to-one-mappings-of)
@@ -39,7 +39,7 @@
 		 :primary-key primary-key
 		 :mapped-class (find-class class-name)
 		 :mapped-superclasses (mapcar #'find-class superclasses)
-		 :value-mapping (remove-if-not #'value-mapping-p slots)
+		 :value-mappings (remove-if-not #'value-mapping-p slots)
 		 :many-to-one-mappings (remove-if-not #'many-to-one-mapping-p slots)
 		 :one-to-many-mappings (remove-if-not #'one-to-many-mapping-p slots)))
 
@@ -60,8 +60,7 @@
 		  :reader columns-names-of)))
 
 (defclass many-to-one-mapping-definition (slot-mapping-definition)
-  ((class-mapping-definition :accessor class-mapping-definition-of)
-   (mapped-class :initarg :mapped-class
+  ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
@@ -115,7 +114,7 @@
 (defclass class-mapping ()
   ((table :initarg :table
 	  :reader table-of)
-   (value-mappings :initarg :vaule-mappings
+   (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
    (reference-mappings :initarg :reference-mappings
 		       :reader reference-mappings-of)
