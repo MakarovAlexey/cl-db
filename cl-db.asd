@@ -2,8 +2,8 @@
 
 (asdf:defsystem #:cl-db
   :serial t
-  :description "Describe cl-db here"
-  :author "Your Name <your.name@example.com>"
+  :description "common lisp object-relational mapping system"
+  :author "Makarov Alexey <alexeys@@yandex.ru>"
   :license "Specify license here"
   :depends-on (#:alexandria
 	       #:postmodern

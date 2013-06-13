@@ -214,14 +214,24 @@
 				     (table-name-of class-mapping-definitions)
 				     mapping-schema)))))))
 
+(defun add-column (name table)
+  (multiple-value-bind (column presentp)
+      (when (presentp)
+	(error "Column '~a' in table '~a' already exist"
+	       name (name-of table)))
+    (setf (gethash name (columns-of table))
+	  (make-instance 'column :name name))))
+
 (defun compute-value-mappings (class-mapping-definition mapping-schema)
-  (let* ((class-mapping (get-mapping (mapped-class-of class-mapping-definition) mapping-schema))
+  (let* ((class-mapping (get-mapping
+			 (mapped-class-of class-mapping-definition)
+			 mapping-schema))
 	 (table (table-of class-mapping)))
     (with-slots (value-mappings) class-mapping
-      (setf value-mappings (mapcar #'(lambda (value-mapping-definition)
+      (setf value-mappings (mapcar #'(lambda (definition)
 				       (make-instance 'value-mapping
 						      :columns (mapcar #'(lambda (name)
-									   (ensure-column name table))
+									   (add-column name table))
 								       (columns-names-of definition))
 						      :slot-name (slot-name-of definition)
 						      :marshaller (marshaller-of definition)
@@ -234,26 +244,27 @@
 						class-mapping-definitions)))
 	(one-to-many-definitions (apply #'append
 					(mapcar #'one-to-many-mappings-of
-						class-mapping-definitions))))
-    (let ((associations (list)))
-      (dolist (many-to-one-definition many-to-one-definitions)
+						class-mapping-definitions)))
+	(associations (list)))
+    (dolist (many-to-one-definition many-to-one-definitions)
+      (setf associations
+	    (acons many-to-one-definition
+		   (find-if #'(lambda (one-to-many-definition)
+				(and (eq (mapped-class-of one-to-many-definition)
+					 (mapped-class-of 
+					  (class-mapping-definition-of many-to-one-definition)))
+				     (not (set-difference (columns-names-of one-to-many-definition)
+							  (columns-names-of many-to-one-definition)
+							  :test #'string=))))
+			    one-to-many-definitions)
+		   associations)))
+    (dolist (one-to-many-definition one-to-many-definitions)
+      (when (null (rassoc one-to-many-definition associations))
 	(setf associations
-	      (acons many-to-one-definition
-		     (find-if #'(lambda (one-to-many-definition)
-				  (and (eq (mapped-class-of one-to-many-definition)
-					   (mapped-class-of 
-					    (class-mapping-definition-of many-to-one-definition)))
-				       (not (set-difference (columns-names-of one-to-many-definition)
-							    (columns-names-of many-to-one-definition)
-							    :test #'string=))))
-			      one-to-many-definitions)
-		     associations)))
-      (dolist (one-to-many-definition one-to-many-definitions)
-	(when (null (rassoc one-to-many-definition associations))
-	  (setf associations
-		(acons nil one-to-many-definition))))
-      associations)))
+	      (acons nil one-to-many-definition associations))))
+    associations))
 
+;; сделать указание тпа колонки обязательным, организовать моиск определения колонки внешнегоключа в первичном ключе определений отображения
 (defgeneric compute-reference-foreign-key (reference-definition mapping-schema))
 
 (defmethod compute-reference-foreign-key ((many-to-one-definition many-to-one-mapping-definition)
@@ -333,7 +344,7 @@
       (setf many-to-one-direction many-to-one-mapping))
     (with-slots (reference-mappings)
 	(get-mapping (mapped-class-of
-		      (class-mapping-definition many-to-one-definition))
+		      (class-mapping-definition-of many-to-one-definition))
 		     mapping-schema)
       (push many-to-one-mapping reference-mappings))))
 	 
@@ -354,7 +365,7 @@
       (setf one-to-many-direction one-to-many-mapping))
     (with-slots (reference-mappings)
 	(get-mapping (mapped-class-of
-		      (class-mapping-definition one-to-many-definition))
+		      (class-mapping-definition-of one-to-many-definition))
 		     mapping-schema)
       (push one-to-many-mapping reference-mappings))))
 
@@ -383,36 +394,38 @@
 
 (defun compute-inheritance-mapping (class-mapping-definition
 				    superclass mapping-schema)
-  (let* ((mapped-class (mapped-class-of class-mapping-definition))
-	 (subclass-mapping (get-mapping subclass mapping-schema))
-	 (superclass-mapping (get-mapping superclass mapping-schema))
+  (let* ((superclass-mapping (get-mapping superclass mapping-schema))
+	 (subclass-mapping (get-mapping
+			    (mapped-class-of class-mapping-definition)
+			    mapping-schema))
 	 (inheritance-mapping
 	  (make-instance 'inheritance-mapping
-			 :subclass-mapping class-mapping
+			 :subclass-mapping subclass-mapping
 			 :superclass-mapping superclass-mapping
 			 :foreign-key (compute-inheritance-foreign-key subclass-mapping
 								       (primary-key-of class-mapping-definition)
 								       superclass-mapping))))
     (with-slots (superclass-mappings) subclass-mapping
       (push inheritance-mapping superclass-mappings))
-    (with-slots (subclass-mapping) superclass-mapping
+    (with-slots (subclass-mappings) superclass-mapping
       (push inheritance-mapping subclass-mappings))))
 
 (defun compute-inheritance-mappings (class-mapping-definition mapping-schema)
   (dolist (superclass (mapped-superclasses-of class-mapping-definition))
       (compute-inheritance-mapping class-mapping-definition
-				   superclass mapping-schema))))
+				   superclass mapping-schema)))
     
 ;; 1. инициализация отображения простых значений, псоле этого возможно вычисление наследования и ссылок
 (defmethod initialize-instance :after ((instance mapping-schema)
 				       &key class-mapping-definitions)
   (with-slots (tables class-mappings) instance
     (setf tables (compute-tables class-mapping-definitions)
-	  class-mappings (compute-class-mappings class-mapping-definitions)))
-  (dolist (class-mapping-definition class-mapping-definitioins)
-    (compute-value-mappings class-mapping-definitions instance))
+	  class-mappings (compute-class-mappings class-mapping-definitions
+						 instance)))
+  (dolist (class-mapping-definition class-mapping-definitions)
+    (compute-value-mappings class-mapping-definition instance))
   (compute-reference-mappings class-mapping-definitions instance)
-  (dolist (class-mapping-definition class-mapping-definitioins)
+  (dolist (class-mapping-definition class-mapping-definitions)
     (compute-inheritance-mappings class-mapping-definition instance)))
 
 (defclass clos-session ()

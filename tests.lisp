@@ -75,33 +75,33 @@
 						      (map-project-member)
 						      (map-project-manager))))))
 
-(defun contains-only (sequence &rest elements)
-  (let ((excess-elements (set-difference sequence elements :test #'equalp))
-	(expected-elements (set-difference elements sequence :test #'equalp)))
-    (lift:ensure-null excess-elements
-		      :report "Sequence ~a have excess elements ~a"
-		      :arguments (excess-elements sequence))
-    (lift:ensure-null expected-elements
-		      :report "In sequence ~a expected ~a"
-		      :arguments (excess-elements sequence))))
+(lift:addtest projects-table-columns
+  (lift:ensure-same (sort (mapcar #'name-of
+				  (alexandria:hash-table-values
+				   (columns-of (get-table "projects" schema))))
+			  #'string<=)
+		    '("begin_date" "id" "name")))
 
-(lift:addtest table-columns
-  (contains-only (mapcar #'name-of
-			 (alexandria:hash-table-values
-			  (columns-of (get-table "projects" schema))))
-		 (list "id" "name" "begin_date"))
-  (contains-only (mapcar #'name-of
-			 (alexandria:hash-table-values
-			  (columns-of (get-table "users" schema))))
-		 (list "id" "name" "login" "password"))
-  (contains-only (mapcar #'name-of
-			 (alexandria:hash-table-values
-			  (columns-of (get-table "project_memebers" schema))))
-		 (list "user_id" "project_id"))
-  (contains-only (mapcar #'name-of
-			 (alexandria:hash-table-values
-			  (columns-of (get-table "project_managers" schema))))
-		 (list "project_id" "user_id")))
+(lift:addtest users-table-columns
+  (lift:ensure-same (sort (mapcar #'name-of
+				  (alexandria:hash-table-values
+				   (columns-of (get-table "users" schema))))
+			  #'string<=)
+		    '("id" "login" "name" "password")))
+
+(lift:addtest project-members-table-columns
+  (lift:ensure-same (sort (mapcar #'name-of
+				  (alexandria:hash-table-values
+				   (columns-of (get-table "project_memebers" schema))))
+			  #'string<=)
+		    '("project_id" "user_id")))
+
+(lift:addtest project-managers-table-columns
+  (lift:ensure-same (sort (mapcar #'name-of
+				  (alexandria:hash-table-values
+				   (columns-of (get-table "project_managers" schema))))
+			  #'string<=)
+		    '("project_id" "user_id")))
 
 (lift:addtest subclasses
   (lift:ensure-null
