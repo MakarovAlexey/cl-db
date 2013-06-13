@@ -60,8 +60,7 @@
 		  :reader columns-names-of)))
 
 (defclass many-to-one-mapping-definition (slot-mapping-definition)
-  ((class-mapping-definition :accessor class-mapping-definition-of)
-   (mapped-class :initarg :mapped-class
+  ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
@@ -115,7 +114,7 @@
 (defclass class-mapping ()
   ((table :initarg :table
 	  :reader table-of)
-   (value-mappings :initarg :vaule-mappings
+   (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
    (reference-mappings :initarg :reference-mappings
 		       :reader reference-mappings-of)
