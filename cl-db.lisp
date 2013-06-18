@@ -275,28 +275,55 @@
 	      (acons nil one-to-many-definition associations))))
     associations))
 
+(defun find-value-column-definition (column-name
+				     class-mapping-definition)
+  (let ((value-mapping-definition
+	 (find-if #'(lambda (value-mapping-definition)
+		      (find column-name
+			    (column-names-of value-mapping-definition)))
+		  (value-mappings-of class-mapping-definition))))
+    (when (not (null value-mapping-definition))
+      (get-column-definition column-name value-mapping-definition))))
+
+(defun find-superclasses-column-definition (column-position
+					    class-mapping-definition
+					    class-mapping-definitions)
+  (loop for mapped-superclass
+     in (mapped-superclasses-of class-mapping-definition)
+     thereis (find-column-definition column-position
+				     mapped-superclass
+				     class-mapping-definitions)))
+
+(defun find-many-to-one-column-definition (column-name
+					   class-mapping-definition
+					   class-mapping-definitions)
+  (let ((many-to-one-definition
+	 (find-if #'(lambda (many-to-one-definition)
+		      (find column-name
+			    (column-names-of many-to-one-definition)))
+		  (many-to-one-mappings-of class-mapping-definition))))
+    (find-column-definition
+     (position column-name
+	       (column-names-of many-to-one-definition))
+     (mapped-class-of many-to-one-definition)
+     class-mapping-definitions)))
+
 ;; hash-table value-columns
 (defun find-column-definition (column-position mapped-class
 			       class-mapping-definitions)
-  (let ((class-mapping-definition
-	 (find mapped-class class-mapping-definitions :key #'mapped-class-of))
+  (let ((class-mapping-definition (find mapped-class
+					class-mapping-definitions
+					:key #'mapped-class-of))
 	(column-name (elt (primary-key-of class-mapping-definition)
 			  column-position)))
-    (or (get-value-column-definition column-name class-mapping-definition)
-	(loop for mapped-superclass
-	   in (mapped-superclasses-of class-mapping-definition)
-	   thereis (find-reference-column-definition column-position
-						     mapped-superclass
-						     class-mapping-definition))
-	(let ((many-to-one-definition
-	       (find-if #'(lambda (many-to-one-definition)
-			    (find column-name
-				  (column-names-of many-to-one-definition)))
-			(many-to-one-mappings-of class-mapping-definition))))
-	  (find-column-definition
-	   (position column-name (column-names-of many-to-one-definition))
-	   (mapped-class-of many-to-one-definition)
-	   class-mapping-definitions)))))
+    (or (find-value-column-definition column-name
+				      class-mapping-definition)
+	(find-superclasses-column-definition column-position
+					     class-mapping-definition
+					     class-mapping-definitions)
+	(find-many-to-one-column-definition column-name
+					    class-mapping-definition
+					    class-mapping-definitions))))
 
 (defun add-reference-column (name table value-column)
   (setf (gethash name (columns-of table))
