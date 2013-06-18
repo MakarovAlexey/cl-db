@@ -11,6 +11,8 @@
 		:reader primary-key-of)
    (mapped-superclasses :initarg :mapped-superclasses
 			:reader mapped-superclasses-of)
+   (value-columns :initarg :value-columns
+		  :reader value-columns-of)
    (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
    (many-to-one-mappings :initarg :many-to-one-mappings
@@ -19,10 +21,18 @@
 			 :reader one-to-many-mappings-of)))
 
 (defmethod initialize-instance :after ((instance class-mapping-definition)
-				       &key many-to-one-mappings
+				       &key value-mappings
+				       many-to-one-mappings
 				       one-to-many-mappings)
   (dolist (mapping (append many-to-one-mappings one-to-many-mappings))
-    (setf (class-mapping-definition-of mapping) instance)))
+    (setf (class-mapping-definition-of mapping) instance))
+  (let ((value-columns-table (make-hash-table)))
+    (dolist (value-mapping value-mappings)
+      (dolist (column-definition (column-definitions-of value-mapping))
+	(setf (gethash (column-name-of column-definition)
+		       value-columns-table) column-definition)))
+    (with-slots (value-columns) class-mapping-definition
+      (setf value-columns value-columns-table))))
 
 (defun value-mapping-p (mapping)
   (typep mapping (find-class 'value-mapping-definition)))
@@ -99,7 +109,9 @@
   ((class-mappings :initform (make-hash-table)
 		   :reader class-mappings-of)
    (tables :initform (make-hash-table)
-	   :reader tables-of)))
+	   :reader tables-of)
+   (class-mapping-definitions :initarg :class-mapping-definitions
+			      :reader class-mapping-definitions-of)))
 
 (defun get-table (name mapping-schema)
   (gethash name (tables-of mapping-schema)))
@@ -263,6 +275,45 @@
 	      (acons nil one-to-many-definition associations))))
     associations))
 
+;; hash-table value-columns
+(defun find-column-definition (column-position mapped-class
+			       class-mapping-definitions)
+  (let ((class-mapping-definition
+	 (find mapped-class class-mapping-definitions :key #'mapped-class-of))
+	(column-name (elt (primary-key-of class-mapping-definition)
+			  column-position)))
+    (or (get-value-column-definition column-name class-mapping-definition)
+	(loop for mapped-superclass
+	   in (mapped-superclasses-of class-mapping-definition)
+	   thereis (find-reference-column-definition column-position
+						     mapped-superclass
+						     class-mapping-definition))
+	(let ((many-to-one-definition
+	       (find-if #'(lambda (many-to-one-definition)
+			    (find column-name
+				  (column-names-of many-to-one-definition)))
+			(many-to-one-mappings-of class-mapping-definition))))
+	  (find-column-definition
+	   (position column-name (column-names-of many-to-one-definition))
+	   (mapped-class-of many-to-one-definition)
+	   class-mapping-definitions)))))
+
+(defun add-reference-column (name table value-column)
+  (setf (gethash name (columns-of table))
+	(make-instance 'column :name name
+		       :type-name (type-name-of value-column))))
+
+(defun ensure-reference-column (name table class-mapping-definitions)
+  (multiple-value-bind (column presentp)
+      (gethash name (columns-of table))
+      (if (not presentp)
+	  (add-reference-column name table
+				(find-value-column name
+						   (name-of table)
+						   class-mapping-definitions
+						   (mapping-schema-of table)))
+	  column)))
+
 ;; сделать указание тпа колонки обязательным, организовать моиск определения колонки внешнегоключа в первичном ключе определений отображения
 (defgeneric compute-reference-foreign-key (reference-definition mapping-schema))
 
@@ -274,7 +325,7 @@
 		mapping-schema)))
     (make-instance 'foreign-key :table table
 		   :columns (mapcar #'(lambda (name)
-					(ensure-column name table))
+					(ensure-reference-column name table))
 				    (columns-names-of many-to-one-definition))
 		   :referenced-table (table-of
 				      (get-mapping 
@@ -288,7 +339,7 @@
 			  mapping-schema))))
     (make-instance 'foreign-key :table table
 		   :columns (mapcar #'(lambda (name)
-					(ensure-column name table))
+					(ensure-reference-column name table))
 				    (columns-names-of one-to-many-definition))
 		   :referenced-table (get-table
 				      (table-name-of
@@ -346,7 +397,6 @@
 		      (class-mapping-definition-of many-to-one-definition))
 		     mapping-schema)
       (push many-to-one-mapping reference-mappings))))
-	 
 
 (defmethod initialize-instance :after ((instance unidirectional-one-to-many-association)
 				       &key one-to-many-definition
