@@ -275,6 +275,15 @@
 	      (acons nil one-to-many-definition associations))))
     associations))
 
+(defun find-superclasses-column-definition (column-position
+					    class-mapping-definition
+					    class-mapping-definitions)
+  (loop for mapped-superclass
+     in (mapped-superclasses-of class-mapping-definition)
+     thereis (find-column-definition column-position
+				     mapped-superclass
+				     class-mapping-definitions)))
+
 (defun find-value-column-definition (column-name
 				     class-mapping-definition)
   (let ((value-mapping-definition
@@ -284,15 +293,6 @@
 		  (value-mappings-of class-mapping-definition))))
     (when (not (null value-mapping-definition))
       (get-column-definition column-name value-mapping-definition))))
-
-(defun find-superclasses-column-definition (column-position
-					    class-mapping-definition
-					    class-mapping-definitions)
-  (loop for mapped-superclass
-     in (mapped-superclasses-of class-mapping-definition)
-     thereis (find-column-definition column-position
-				     mapped-superclass
-				     class-mapping-definitions)))
 
 (defun find-many-to-one-column-definition (column-name
 					   class-mapping-definition
@@ -308,51 +308,55 @@
      (mapped-class-of many-to-one-definition)
      class-mapping-definitions)))
 
-;; hash-table value-columns
+;; infinite recursion
+;; проверка тождественности стобцов PK (по определению) по иерархии наследования
+;; проверить отсутствие исопльзования стобцов наследуемого первичного ключа в отображении значений
+;; сделать ссылку  на определения отображений в Mapping-schema, выорплнтиь рефаткоринг
+
 (defun find-column-definition (column-position mapped-class
 			       class-mapping-definitions)
-  (let ((class-mapping-definition (find mapped-class
-					class-mapping-definitions
-					:key #'mapped-class-of))
-	(column-name (elt (primary-key-of class-mapping-definition)
-			  column-position)))
-    (or (find-value-column-definition column-name
-				      class-mapping-definition)
-	(find-superclasses-column-definition column-position
+  (let* ((class-mapping-definition
+	  (find mapped-class class-mapping-definitions :key #'mapped-class-of))
+	 (column-name
+	  (elt (primary-key-of class-mapping-definition) column-position)))
+    (or (find-superclasses-column-definition column-position
 					     class-mapping-definition
 					     class-mapping-definitions)
+	(find-value-column-definition column-name
+				      class-mapping-definition)
 	(find-many-to-one-column-definition column-name
 					    class-mapping-definition
 					    class-mapping-definitions))))
 
-(defun add-reference-column (name table value-column)
+(defun add-reference-column (name table column-definition)
   (setf (gethash name (columns-of table))
 	(make-instance 'column :name name
-		       :type-name (type-name-of value-column))))
+		       :type-name (type-name-of column-definition))))
 
 (defun ensure-reference-column (name table class-mapping-definitions)
   (multiple-value-bind (column presentp)
       (gethash name (columns-of table))
       (if (not presentp)
 	  (add-reference-column name table
-				(find-value-column name
-						   (name-of table)
+				(find-column-definition name
+							(name-of table)
 						   class-mapping-definitions
 						   (mapping-schema-of table)))
 	  column)))
 
-;; сделать указание тпа колонки обязательным, организовать моиск определения колонки внешнегоключа в первичном ключе определений отображения
 (defgeneric compute-reference-foreign-key (reference-definition mapping-schema))
 
 (defmethod compute-reference-foreign-key ((many-to-one-definition many-to-one-mapping-definition)
-				mapping-schema)
-  (let ((table (get-table
-		(table-name-of 
-		 (class-mapping-definition-of many-to-one-definition))
-		mapping-schema)))
+					  mapping-schema)
+  (let* ((class-mapping-definition
+	  (class-mapping-definition-of many-to-one-definition))
+	 (table
+	  (get-table (table-name-of class-mapping-definition) mapping-schema)))
     (make-instance 'foreign-key :table table
 		   :columns (mapcar #'(lambda (name)
-					(ensure-reference-column name table))
+					(ensure-reference-column many-to-one-definition
+								 class-mapping-definition
+								 (class-mapping-definitions-of mapping-schema)))
 				    (columns-names-of many-to-one-definition))
 		   :referenced-table (table-of
 				      (get-mapping 
@@ -490,8 +494,7 @@
   (dolist (superclass (mapped-superclasses-of class-mapping-definition))
       (compute-inheritance-mapping class-mapping-definition
 				   superclass mapping-schema)))
-    
-;; 1. инициализация отображения простых значений, псоле этого возможно вычисление наследования и ссылок
+
 (defmethod initialize-instance :after ((instance mapping-schema)
 				       &key class-mapping-definitions)
   (with-slots (tables class-mappings) instance
