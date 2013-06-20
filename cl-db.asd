@@ -7,6 +7,7 @@
   :license "Specify license here"
   :depends-on (#:alexandria
 	       #:postmodern
+	       #:ironclad
 	       #:closer-mop)
   :components ((:file "package")
                (:file "cl-db")))

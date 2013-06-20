@@ -16,41 +16,40 @@
 ;;  (apply #'value #'simple #'simple column))
 
 ;; способ инициализации слота, initarg или setf? 
-(map-class 'user :table-name "users" :primary-key '(id)
-	   :slots (list (map-slot 'id (value "id"))
-			(map-slot 'name (value "name"))
-			(map-slot 'login (value "login"))
-			(map-slot 'password (value "password"))
-			(map-slot 'managed-projects
-				  (one-to-many 'project-manager 'user)
-				  #'(lambda (&rest roles)
-				      (reduce #'(lambda (table role)
-						  (setf (gethash (project-of role) table) role)
-						  table)
-					      roles
-					      :initial-value (make-hash-table :size (length roles))))
-				  #'alexandria:hash-table-values)))
+(map-class 'user "users" '("id")
+	   (map-slot 'id (value (column "id" "serial")))
+	   (map-slot 'name (value (column "name" "varchar")))
+	   (map-slot 'login (value (column "login" "varchar")))
+	   (map-slot 'password (value (column "password" "varchar")))
+	   (map-slot 'managed-projects
+		     (one-to-many 'project-manager "user_id")
+		     #'(lambda (&rest roles)
+			 (reduce #'(lambda (table role)
+				     (setf (gethash (project-of role) table) role)
+				     table)
+				 roles
+				 :initial-value (make-hash-table :size (length roles))))
+		     #'alexandria:hash-table-values))
 
-(map-class 'project :table-name "projects" :primary-key '(id)
-	   :slots (list (map-slot 'id (value "id"))
-			(map-slot 'name (value 'name "name"))
-			(map-slot 'begin-date (value "begin_date"))
-			(map-slot 'project-members
-				  (one-to-many 'project-member "project_id")
-				  #'(lambda (&rest roles)
-				      (reduce #'(lambda (table role)
-						  (setf (gethash (user-of role) table) role)
-						  table)
-					      roles
-					      :initial-value (make-hash-table :size (length roles))))
-				  #'alexandria:hash-table-values)))
+(map-class 'project "projects" '("id")
+	   (map-slot 'id (value "id"))
+	   (map-slot 'name (value 'name "name"))
+	   (map-slot 'begin-date (value "begin_date"))
+	   (map-slot 'project-members
+		     (one-to-many 'project-member "project_id")
+		     #'(lambda (&rest roles)
+			 (reduce #'(lambda (table role)
+				     (setf (gethash (user-of role) table) role)
+				     table)
+				 roles
+				 :initial-value (make-hash-table :size (length roles))))
+		     #'alexandria:hash-table-values))
 
-(map-class 'project-member :table-name "project_memebers" :primary-key '(project user)
-	   :slots (list (map-slot 'project (many-to-one 'project "project_id"))
-			(map-slot 'user (many-to-one 'user "user_id"))))
+(map-class 'project-member "project_memebers" '("project_id" "user_id")
+	   (map-slot 'project (many-to-one 'project "project_id"))
+	   (map-slot 'user (many-to-one 'user "user_id")))
 
-(map-class 'project-manager :table-name "project_managers" :superclasses '(project-member)
-	   :slots (list))
+(map-subclass 'project-manager '(project-member) "project_managers")
 
 ;;(map-class 'project-plan :table-name "project_plans" :primary-key '(project id)
 ;;	   :slots (list (map-slot 'project (many-to-one 'project "project_id"))

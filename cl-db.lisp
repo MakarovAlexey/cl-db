@@ -7,12 +7,6 @@
 		 :reader mapped-class-of)
    (table-name :initarg :table-name
 	       :reader table-name-of)
-   (primary-key :initarg :primary-key
-		:reader primary-key-of)
-   (mapped-superclasses :initarg :mapped-superclasses
-			:reader mapped-superclasses-of)
-   (value-columns :initarg :value-columns
-		  :reader value-columns-of)
    (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
    (many-to-one-mappings :initarg :many-to-one-mappings
@@ -20,19 +14,21 @@
    (one-to-many-mappings :initarg :one-to-many-mappings
 			 :reader one-to-many-mappings-of)))
 
+(defclass root-class-mapping-definition
+    (class-mapping-definition)
+  ((primary-key :initarg :primary-key
+		:reader primary-key-of)))
+
+(defclass subclass-mapping-definition
+    (class-mapping-definition)
+  ((mapped-superclasses :initarg :mapped-superclasses
+			:reader mapped-superclasses-of)))
+
 (defmethod initialize-instance :after ((instance class-mapping-definition)
-				       &key value-mappings
-				       many-to-one-mappings
+				       &key many-to-one-mappings
 				       one-to-many-mappings)
   (dolist (mapping (append many-to-one-mappings one-to-many-mappings))
-    (setf (class-mapping-definition-of mapping) instance))
-  (let ((value-columns-table (make-hash-table)))
-    (dolist (value-mapping value-mappings)
-      (dolist (column-definition (column-definitions-of value-mapping))
-	(setf (gethash (column-name-of column-definition)
-		       value-columns-table) column-definition)))
-    (with-slots (value-columns) class-mapping-definition
-      (setf value-columns value-columns-table))))
+    (setf (class-mapping-definition-of mapping) instance)))
 
 (defun value-mapping-p (mapping)
   (typep mapping (find-class 'value-mapping-definition)))
@@ -43,10 +39,18 @@
 (defun one-to-many-mapping-p (mapping)
   (typep mapping (find-class 'one-to-many-mapping-definition)))
 
-(defun map-class (class-name table-name primary-key &key superclasses slots)
-  (make-instance 'class-mapping-definition
+(defun map-class (class-name table-name primary-key &rest slots)
+  (make-instance 'root-class-mapping-definition
 		 :table-name table-name
 		 :primary-key primary-key
+		 :mapped-class (find-class class-name)
+		 :value-mappings (remove-if-not #'value-mapping-p slots)
+		 :many-to-one-mappings (remove-if-not #'many-to-one-mapping-p slots)
+		 :one-to-many-mappings (remove-if-not #'one-to-many-mapping-p slots)))
+
+(defun map-subclass (class-name superclasses table-name &rest slots)
+  (make-instance 'subclass-mapping-definition
+		 :table-name table-name
 		 :mapped-class (find-class class-name)
 		 :mapped-superclasses (mapcar #'find-class superclasses)
 		 :value-mappings (remove-if-not #'value-mapping-p slots)
@@ -60,24 +64,33 @@
    (marshaller :initarg :marshaller :reader marshaller-of)))
 
 (defclass value-mapping-definition (slot-mapping-definition)
-  ((columns-names :initarg :columns-names
-		  :reader columns-names-of)))
+  ((columns-definitions :initarg :columns-definitions
+			:reader columns-definitions-of)))
 
-(defclass one-to-many-mapping-definition (slot-mapping-definition)
+(defclass reference-mapping-definition (slot-mapping-definition)
   ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
    (columns-names :initarg :columns-names
 		  :reader columns-names-of)))
 
-(defclass many-to-one-mapping-definition (slot-mapping-definition)
-  ((mapped-class :initarg :mapped-class
-		 :reader mapped-class-of)
-   (columns-names :initarg :columns-names
-		  :reader columns-names-of)))
+(defclass one-to-many-mapping-definition
+    (reference-mapping-definition)
+  ())
+
+(defclass many-to-one-mapping-definition
+    (reference-mapping-definition)
+ ())
 
 (defun map-slot (slot-name mapping
 		 &optional (marshaller #'list) (unmarshaller #'list))
   (funcall mapping slot-name marshaller unmarshaller))
+
+(defclass column-definition ()
+  ((name :initarg :name :reader name-of)
+   (type-name :initarg :type-name :reader type-name-of)))
+
+(defun column (name type-name)
+  (make-instance 'column-definition :name name :type-name type-name))
 
 (defun value (column &rest columns)
   #'(lambda (slot-name marshaller unmarshaller)
@@ -85,33 +98,39 @@
 		     :slot-name slot-name
 		     :marshaller marshaller
 		     :unmarshaller unmarshaller
-		     :columns-names (list* column columns))))
+		     :columns-definitions (list* column columns))))
 
-(defun one-to-many (class-name column &rest columns)
+(defun one-to-many (class-name column-name &rest column-names)
   #'(lambda (slot-name marshaller unmarshaller)
       (make-instance 'one-to-many-mapping-definition
 		     :slot-name slot-name
 		     :marshaller marshaller
 		     :unmarshaller unmarshaller
 		     :mapped-class (find-class class-name)
-		     :columns-names (list* column columns))))
+		     :columns-names (list* column-name column-names))))
 
-(defun many-to-one (class-name column &rest columns)
+(defun many-to-one (class-name column-name &rest column-names)
   #'(lambda (slot-name marshaller unmarshaller)
       (make-instance 'many-to-one-mapping-definition
 		     :slot-name slot-name
 		     :marshaller marshaller
 		     :unmarshaller unmarshaller
 		     :mapped-class (find-class class-name)
-		     :columns-names (list* column columns))))
+		     :columns-names (list* column-name column-names))))
 
 (defclass mapping-schema ()
-  ((class-mappings :initform (make-hash-table)
+  ((class-mapping-definitions :initarg :class-mapping-definitions
+			      :reader class-mapping-definitions-of)
+   (class-mappings :initform (make-hash-table)
 		   :reader class-mappings-of)
    (tables :initform (make-hash-table)
-	   :reader tables-of)
-   (class-mapping-definitions :initarg :class-mapping-definitions
-			      :reader class-mapping-definitions-of)))
+	   :reader tables-of)))
+
+(defvar *mapping-schema*)
+
+(defun find-class-mapping-definition (mapped-class)
+  (find mapped-class (class-mapping-definitions-of *mapping-schema*)
+	:key #'mapped-class-of))
 
 (defun get-table (name mapping-schema)
   (gethash name (tables-of mapping-schema)))
@@ -124,15 +143,17 @@
 	mapping)))
 
 (defclass class-mapping ()
-  ((table :initarg :table
+  ((mapped-class :initarg :mapped-class
+		 :reader mapped-class-of)
+   (table :initarg :table
 	  :reader table-of)
    (value-mappings :initarg :value-mappings
 		   :reader value-mappings-of)
-   (reference-mappings :initarg :reference-mappings
+   (reference-mappings :initform (list)
 		       :reader reference-mappings-of)
-   (subclasses-mappings :initarg :subclasses-mappings
+   (subclasses-mappings :initform (list)
 			:reader subclasses-mappings-of)
-   (superclasses-mappings :initarg :superclasses-mappings
+   (superclasses-mappings :initform (list)
 			  :reader superclasses-mappings-of)))
 
 (defclass foreign-key-mapping ()
@@ -140,7 +161,10 @@
 		:reader foreign-key-of)))
 
 (defclass inheritance-mapping (foreign-key-mapping)
-  ())
+  ((subclass-mapping :initarg :subclass-mapping
+		     :reader subclass-mapping-of)
+   (superclass-mapping :initarg :superclass-mapping
+		       :reader superclass-mapping-of)))
 
 (defclass association (foreign-key-mapping)
   ())
@@ -169,23 +193,23 @@
   ((columns :initarg :columns :reader columns-of)))
 
 (defclass reference-mapping (slot-mapping)
-  ((referenced-class-mapping :initarg :referenced-class-mapping
-			     :reader referenced-class-mapping-of)
-   (association :initarg :association
-		:reader association-of)))
+  ((association :initarg :association
+		:reader association-of)
+   (referenced-class-mapping :initarg :referenced-class-mapping
+			     :reader referenced-class-mapping-of)))
 
-(defclass one-to-many-direction (reference-mapping) ())
+(defclass one-to-many-mapping (reference-mapping) ())
 
 (defclass many-to-one-mapping (reference-mapping) ())
 
 (defclass table ()
   ((name :initarg :name :reader name-of)
-   (columns :initarg :columns :reader columns-of)
+   (columns :initform (make-hash-table) :reader columns-of)
    (primary-key :initarg :primary-key :reader primary-key-of)
-   (foreign-keys :reader foreign-keys-of)))
+   (foreign-keys :initform (list) :reader foreign-keys-of)))
 
 (defun get-column (name table)
-  (gethash name (columns-of table))) 
+  (gethash name (columns-of table)))
 
 (defclass column ()
   ((name :initarg :name :reader name-of)
@@ -222,16 +246,21 @@
 	      (make-instance 'class-mapping
 			     :mapped-class mapped-class
 			     :table (get-table
-				     (table-name-of class-mapping-definitions)
+				     (table-name-of class-mapping-definition)
 				     mapping-schema)))))))
 
-(defun add-column (name table)
-  (multiple-value-bind (column presentp)
-      (when (presentp)
+(defun add-column (column-definition table)
+  (let ((name (name-of column-definition))
+	(type-name (type-name-of column-definition)))
+    (multiple-value-bind (column presentp)
+	(gethash name (columns-of table))
+      (declare (ignore column))
+      (when presentp
 	(error "Column '~a' in table '~a' already exist"
 	       name (name-of table)))
-    (setf (gethash name (columns-of table))
-	  (make-instance 'column :name name))))
+      (setf (gethash name (columns-of table))
+	    (make-instance 'column :name name
+			   :type-name type-name)))))
 
 (defun compute-value-mappings (class-mapping-definition mapping-schema)
   (let* ((class-mapping (get-mapping
@@ -239,23 +268,24 @@
 			 mapping-schema))
 	 (table (table-of class-mapping)))
     (with-slots (value-mappings) class-mapping
-      (setf value-mappings (mapcar #'(lambda (definition)
-				       (make-instance 'value-mapping
-						      :columns (mapcar #'(lambda (name)
-									   (add-column name table))
-								       (columns-names-of definition))
-						      :slot-name (slot-name-of definition)
-						      :marshaller (marshaller-of definition)
-						      :unmarshaller (unmarshaller-of definition)))
-				   (value-mappings-of class-mapping-definition))))))
+      (setf value-mappings
+	    (mapcar #'(lambda (definition)
+			(make-instance 'value-mapping
+				       :columns (mapcar #'(lambda (column-definition)
+							    (add-column column-definition table))
+							(columns-definitions-of definition))
+				       :slot-name (slot-name-of definition)
+				       :marshaller (marshaller-of definition)
+				       :unmarshaller (unmarshaller-of definition)))
+		    (value-mappings-of class-mapping-definition))))))
 
 (defun compute-reference-pairs (class-mapping-definitions)
-  (let ((many-to-one-definitions (apply #'append
-					(mapcar #'many-to-one-mappings-of
-						class-mapping-definitions)))
-	(one-to-many-definitions (apply #'append
-					(mapcar #'one-to-many-mappings-of
-						class-mapping-definitions)))
+  (let ((many-to-one-definitions
+	 (apply #'append (mapcar #'many-to-one-mappings-of
+				 class-mapping-definitions)))
+	(one-to-many-definitions
+	 (apply #'append (mapcar #'one-to-many-mappings-of
+				 class-mapping-definitions)))
 	(associations (list)))
     (dolist (many-to-one-definition many-to-one-definitions)
       (setf associations
@@ -275,21 +305,17 @@
 	      (acons nil one-to-many-definition associations))))
     associations))
 
-(defun find-superclasses-column-definition (column-position
-					    class-mapping-definition
-					    class-mapping-definitions)
-  (loop for mapped-superclass
-     in (mapped-superclasses-of class-mapping-definition)
-     thereis (find-column-definition column-position
-				     mapped-superclass
-				     class-mapping-definitions)))
+(defun get-column-definition (column-name value-mapping-definition)
+  (find column-name (columns-definitions-of value-mapping-definition)
+	:key #'name-of))
 
 (defun find-value-column-definition (column-name
 				     class-mapping-definition)
   (let ((value-mapping-definition
 	 (find-if #'(lambda (value-mapping-definition)
 		      (find column-name
-			    (column-names-of value-mapping-definition)))
+			    (columns-definitions-of value-mapping-definition)
+			    :key #'name-of))
 		  (value-mappings-of class-mapping-definition))))
     (when (not (null value-mapping-definition))
       (get-column-definition column-name value-mapping-definition))))
@@ -300,77 +326,93 @@
   (let ((many-to-one-definition
 	 (find-if #'(lambda (many-to-one-definition)
 		      (find column-name
-			    (column-names-of many-to-one-definition)))
+			    (columns-names-of many-to-one-definition)))
 		  (many-to-one-mappings-of class-mapping-definition))))
-    (find-column-definition
-     (position column-name
-	       (column-names-of many-to-one-definition))
-     (mapped-class-of many-to-one-definition)
-     class-mapping-definitions)))
+    (when (not (null many-to-one-definition))
+      (find-column-definition
+       (position column-name
+		 (columns-names-of many-to-one-definition))
+       (mapped-class-of many-to-one-definition)
+       class-mapping-definitions))))
+
+(defun find-primary-key-column-definition (column-position
+					   class-mapping-definition
+					   class-mapping-definitions)
+  (let ((column-definition
+	 (loop for mapped-superclass
+	    in (mapped-superclasses-of class-mapping-definition)
+	    thereis (find-primary-key-column-definition column-position
+							(find mapped-superclass
+							      class-mapping-definitions
+							      :key #'mapped-class)
+							class-mapping-definitions))))
+    
 
 ;; infinite recursion
 ;; проверка тождественности стобцов PK (по определению) по иерархии наследования
 ;; проверить отсутствие исопльзования стобцов наследуемого первичного ключа в отображении значений
-;; сделать ссылку  на определения отображений в Mapping-schema, выорплнтиь рефаткоринг
+;; сделать ссылку  на определения отображений в mapping-schema, выорплнтиь рефаткоринг
 
 (defun find-column-definition (column-position mapped-class
 			       class-mapping-definitions)
   (let* ((class-mapping-definition
-	  (find mapped-class class-mapping-definitions :key #'mapped-class-of))
+	  (find mapped-class class-mapping-definitions
+		:key #'mapped-class-of))
 	 (column-name
-	  (elt (primary-key-of class-mapping-definition) column-position)))
-    (or (find-superclasses-column-definition column-position
-					     class-mapping-definition
-					     class-mapping-definitions)
-	(find-value-column-definition column-name
+	  (elt (primary-key-of class-mapping-definition)
+	       column-position)))
+    (or (find-value-column-definition column-name
 				      class-mapping-definition)
 	(find-many-to-one-column-definition column-name
 					    class-mapping-definition
 					    class-mapping-definitions))))
 
-(defun add-reference-column (name table column-definition)
-  (setf (gethash name (columns-of table))
-	(make-instance 'column :name name
-		       :type-name (type-name-of column-definition))))
-
-(defun ensure-reference-column (name table class-mapping-definitions)
-  (multiple-value-bind (column presentp)
-      (gethash name (columns-of table))
+(defun ensure-reference-column (name class-mapping-definition
+				mapping-schema)
+  (let ((table (get-table (table-name-of class-mapping-definition)
+			  mapping-schema)))
+    (multiple-value-bind (column presentp)
+	(gethash name (columns-of table))
       (if (not presentp)
-	  (add-reference-column name table
-				(find-column-definition name
-							(name-of table)
-						   class-mapping-definitions
-						   (mapping-schema-of table)))
-	  column)))
+	  (add-column (or (find-column-definition
+			   (position name (primary-key-of class-mapping-definition))
+			   (mapped-class-of class-mapping-definition)
+			   (class-mapping-definitions-of mapping-schema))
+			  (error "Definition of column '~a' of table '~a' not found"
+				 name (name-of table)))
+		      table)
+	  column))))
 
 (defgeneric compute-reference-foreign-key (reference-definition mapping-schema))
 
 (defmethod compute-reference-foreign-key ((many-to-one-definition many-to-one-mapping-definition)
 					  mapping-schema)
-  (let* ((class-mapping-definition
-	  (class-mapping-definition-of many-to-one-definition))
-	 (table
-	  (get-table (table-name-of class-mapping-definition) mapping-schema)))
-    (make-instance 'foreign-key :table table
+  (let ((class-mapping-definition
+	 (class-mapping-definition-of many-to-one-definition)))
+    (make-instance 'foreign-key
+		   :table (get-table
+			   (table-name-of class-mapping-definition)
+			   mapping-schema)
 		   :columns (mapcar #'(lambda (name)
-					(ensure-reference-column many-to-one-definition
+					(ensure-reference-column name
 								 class-mapping-definition
-								 (class-mapping-definitions-of mapping-schema)))
+								 mapping-schema))
 				    (columns-names-of many-to-one-definition))
 		   :referenced-table (table-of
-				      (get-mapping 
+				      (get-mapping
 				       (mapped-class-of many-to-one-definition)
 				       mapping-schema)))))
 
 (defmethod compute-reference-foreign-key ((one-to-many-definition one-to-many-mapping-definition)
-				mapping-schema)
-  (let ((table (table-of (get-mapping
-			  (mapped-class-of one-to-many-definition)
-			  mapping-schema))))
-    (make-instance 'foreign-key :table table
+					  mapping-schema)
+  (let ((mapped-class (mapped-class-of one-to-many-definition)))
+    (make-instance 'foreign-key
+		   :table (table-of
+			   (get-mapping mapped-class mapping-schema))
 		   :columns (mapcar #'(lambda (name)
-					(ensure-reference-column name table))
+					(ensure-reference-column name
+								 (find-class-mapping-definition mapped-class)
+								 mapping-schema))
 				    (columns-names-of one-to-many-definition))
 		   :referenced-table (get-table
 				      (table-name-of
@@ -456,56 +498,91 @@
 			     one-to-many-definition
 			     mapping-schema)))
 
-;; 1. Для генерации схемы БД необходимо добавить вычисление типа колонки
-;; 2. Добавить проверку первичного ключа по составу с PK такблиц наследуемых классов
+;; 2. Добавить проверку первичного ключа по составу с PK таблиц наследуемых классов
 ;; 3. Добавить проверку отсутствия дублирования отображения колонки между отображением значения и отображением ссылки
 ;; колонки не должны фигурировать одновременно во внешних ключах и вотображении значений
 ;; 4. Проверить возможноть опредления первичного ключа таблицы, который бы включал колонки надкласса, а также дополнительные (в т.ч. наследование классов с разными PK)
 
-(defun compute-inheritance-foreign-key (subclass-mapping columns-names
-					superclass-mapping)
+;;(defun find-primary-key-column-definition (column-position
+;;					   class-mapping-definition
+;;					   class-mapping-definitions)
+;;  (let ((column-definition
+;;	 (loop for mapped-superclass
+;;	    in (mapped-superclasses-of class-mapping-definition)
+;;	    thereis (find-primary-key-column-definition column-position
+;;							(find mapped-superclass
+;;							      class-mapping-definitions
+;;							      :key #'mapped-class)
+;;							class-mapping-definitions))))
+;;    (if (null column-definition)
+;;	(
+
+;;(defun ensure-primary-key-column (name class-mapping-definition
+;;				  mapping-schema)
+;;  (let ((table (get-table (table-name-of class-mapping-definition)
+;;			  mapping-schema)))
+;;    (multiple-value-bind (column presentp)
+;;	(get-column name table)
+;;      (if (not presentp)
+;;	  (add-column (or (find-primary-key-column-definition
+;;			   (position name (primary-key-of class-mapping-definition))
+;;			   class-mapping-definition
+;;			   (class-mapping-definitions-of mapping-schema))
+;;			  (error "Definition of column '~a' of table '~a' not found"
+;;				 name (name-of table)))
+;;		      table)
+;;	  column))))
+
+(defun compute-inheritance-foreign-key (subclass-mapping superclass-mapping)
   (let ((table (table-of subclass-mapping)))
     (make-instance 'foreign-key
-		   :table (table-of subclass-mapping)
-		   :referenced-table (table-of superclass-mapping)
-		   :columns (mapcar #'(lambda (name)
-					(get-column name table))
-				    columns-names))))
+		   :table table
+		   :columns (primary-key-of table)
+		   :referenced-table (table-of superclass-mapping))))
 
-(defun compute-inheritance-mapping (class-mapping-definition
-				    superclass mapping-schema)
-  (let* ((superclass-mapping (get-mapping superclass mapping-schema))
-	 (subclass-mapping (get-mapping
-			    (mapped-class-of class-mapping-definition)
-			    mapping-schema))
-	 (inheritance-mapping
-	  (make-instance 'inheritance-mapping
-			 :subclass-mapping subclass-mapping
-			 :superclass-mapping superclass-mapping
-			 :foreign-key (compute-inheritance-foreign-key subclass-mapping
-								       (primary-key-of class-mapping-definition)
-								       superclass-mapping))))
-    (with-slots (superclass-mappings) subclass-mapping
-      (push inheritance-mapping superclass-mappings))
-    (with-slots (subclass-mappings) superclass-mapping
-      (push inheritance-mapping subclass-mappings))))
+(defun compute-inheritance-mapping (subclass-mapping superclass-mapping)
+  (let ((inheritance-mapping
+	 (make-instance 'inheritance-mapping
+			:subclass-mapping subclass-mapping
+			:superclass-mapping superclass-mapping
+			:foreign-key (compute-inheritance-foreign-key subclass-mapping
+								      superclass-mapping))))
+    (with-slots (subclasses-mappings) superclass-mapping
+      (push inheritance-mapping subclasses-mappings))
+    inheritance-mapping))
+
+;;    (with-slots (primary-key) (table-of subclass-mapping)
+;;      (setf primary-key
+;;	    (mapcar #'(lambda (column-name)
+;;			(ensure-primary-key-column column-name
+;;						 class-mapping-definition
+;;						 mapping-schema))
+;;		    (primary-key-of class-mapping-definition))))
 
 (defun compute-inheritance-mappings (class-mapping-definition mapping-schema)
-  (dolist (superclass (mapped-superclasses-of class-mapping-definition))
-      (compute-inheritance-mapping class-mapping-definition
-				   superclass mapping-schema)))
+  (let ((subclass-mapping (get-mapping
+			   (mapped-class-of class-mapping-definition)
+			   mapping-schema)))
+    (with-slots (superclasses-mappings) subclass-mapping
+      (setf superclasses-mappings
+	    (mapcar #'(lambda (superclass)
+			(compute-inheritance-mapping subclass-mapping
+						     (get-mapping superclass
+								  mapping-schema)))
+		    (mapped-superclasses-of class-mapping-definition))))))
 
 (defmethod initialize-instance :after ((instance mapping-schema)
 				       &key class-mapping-definitions)
-  (with-slots (tables class-mappings) instance
-    (setf tables (compute-tables class-mapping-definitions)
-	  class-mappings (compute-class-mappings class-mapping-definitions
-						 instance)))
-  (dolist (class-mapping-definition class-mapping-definitions)
-    (compute-value-mappings class-mapping-definition instance))
-  (compute-reference-mappings class-mapping-definitions instance)
-  (dolist (class-mapping-definition class-mapping-definitions)
-    (compute-inheritance-mappings class-mapping-definition instance)))
+  (let ((*mapping-schema* instance))
+    (with-slots (tables class-mappings) instance
+      (setf tables (compute-tables class-mapping-definitions)
+	    class-mappings (compute-class-mappings class-mapping-definitions
+						   instance)))
+    (dolist (class-mapping-definition class-mapping-definitions)
+      (compute-value-mappings class-mapping-definition instance))
+    (compute-reference-mappings class-mapping-definitions instance)
+    (dolist (class-mapping-definition class-mapping-definitions)
+      (compute-inheritance-mappings class-mapping-definition instance))))
 
 (defclass clos-session ()
   ((mappings :initarg :mappings :reader mappings-of)
