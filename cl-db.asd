@@ -9,8 +9,11 @@
 	       #:postmodern
 	       #:ironclad
 	       #:closer-mop)
+  :serial t
   :components ((:file "package")
-               (:file "cl-db")))
+	       (:file "definition")
+               (:file "cl-db")
+	       (:file "session")))
 
 (asdf:defsystem #:cl-db.tests
   :serial t

@@ -32,18 +32,19 @@
 		     #'alexandria:hash-table-values))
 
 (map-class 'project "projects" '("id")
-	   (map-slot 'id (value "id"))
-	   (map-slot 'name (value 'name "name"))
-	   (map-slot 'begin-date (value "begin_date"))
-	   (map-slot 'project-members
-		     (one-to-many 'project-member "project_id")
-		     #'(lambda (&rest roles)
-			 (reduce #'(lambda (table role)
-				     (setf (gethash (user-of role) table) role)
-				     table)
-				 roles
-				 :initial-value (make-hash-table :size (length roles))))
-		     #'alexandria:hash-table-values))
+	   :slots (list
+		   (map-slot 'id (value "id"))
+		   (map-slot 'name (value 'name "name"))
+		   (map-slot 'begin-date (value "begin_date"))
+		   (map-slot 'project-members
+			     (one-to-many 'project-member "project_id")
+			     #'(lambda (&rest roles)
+				 (reduce #'(lambda (table role)
+					     (setf (gethash (user-of role) table) role)
+					     table)
+					 roles
+					 :initial-value (make-hash-table :size (length roles))))
+			     #'alexandria:hash-table-values)))
 
 (map-class 'project-member "project_memebers" '("project_id" "user_id")
 	   (map-slot 'project (many-to-one 'project "project_id"))
@@ -815,14 +816,93 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 (define-class-mapping project-managment (project-participation)
   ("project_managers"))
 
-(defmacro define-class-mapping (class (&rest superclasses)
-				(table (&rest primary-key))
-				&rest slot-mappings)
-  `(let* ((*table* (assert-instance
-		    (make-instance 'table :name table)))
-	  (*class-mapping* (assert-instance
-			    (make-instance 'class-mapping-definition
-					   :mapped-class (find-class ,class)
-					   :superclasses (mapcar #'find-class ,superclasses)
-					   :table *table*))))
-							  :
+(define-class-mapping project () ("projects" ("id"))
+  (id (value "id"))
+  (name (value "name"))
+  (begin-date (value "begin_date"))
+  (project-members (one-to-many project-member "project_id")
+		   #'(lambda (&rest roles)
+			  (alexandria:alist-hash-table
+			   (mapcar #'(lambda (role)
+				       (cons (user-of role) role))
+				   roles)))
+		   #'alexandria:hash-table-values))
+
+;;;;;;;;;;;;;;;;;;
+
+(define-class-mapping user ("users" "id")
+  (value id (("id" "serial")))
+  (value name (("name" "varchar")))
+  (value login (("login" "varchar")))
+  (value password (("password" "varchar")))
+  (one-to-many project-managments project-managment ("project_id")
+	       #'(lambda (&rest roles)
+		   (alexandria:alist-hash-table
+		    (mapcar #'(lambda (role)
+				(cons (project-of role) role))
+			    roles)))
+	       #'alexandria:hash-table-values))
+
+(define-class-mapping project ("projects" "id")
+  (value id (("id" "serial")))
+  (value name (("name" "varchar")))
+  (value begin-date (("begin_date" "date")))
+  (one-to-many project-members project-member ("project_id")
+	       #'(lambda (&rest roles)
+		   (alexandria:alist-hash-table
+		    (mapcar #'(lambda (role)
+				(cons (user-of role) role))
+			    roles)))
+	       #'alexandria:hash-table-values))
+
+(define-class-mapping project-participation
+    ("project_memebers" "project_id" "user_id")
+  (many-to-one project project "project_id")
+  (many-to-one user user "user_id"))
+
+;;(define-subclass-mapping project-managment
+;;    ("project_managers"
+;;     (project "id")
+;;     (project-participation "project_id" "user_id")))
+
+(defmacro superclass (class-name &rest columns))
+
+(defmacro value (slot-name (column &rest columns)
+		 &optional marshaller unmarshaller))
+
+(defmacro many-to-one (slot-name class-name (column &rest columns)
+		       &optional marshaller unmarshaller))
+
+(defmacro one-to-many (slot-name class-name (column &rest columns)
+		       &optional marshaller unmarshaller))
+
+;; (defmacro indexed-one-to-many
+;;(indexed-one-to-many project-members
+;;		     project-member ("project_id")
+;;		     user ("user_id")) =>  alist
+
+(defmacro define-class-mapping (class-name
+				(table-name
+				 primary-key-column
+				 &rest primary-key-columns)
+				slot-mappping
+				&rest slot-mapppings)
+  (let ((slot-mappings (mapcar #'(lambda (slot-mapping)
+				   (destructuring-bind (slot-name (
+				   (appply #'compute-slot-mapping-definition))
+			       slot-mapppings)))
+    `(make-instance 'class-mapping-definition
+		    :mapped-class (find-class (quote ,class-name))
+		    :table-name ,table-name
+		    :primary-key (list* ,primary-key-column ,primary-key-columns)
+		    :slot-mappings ,(loop for (slot-name (mapping-type &rest args) marshaller unmarshaller)
+					 (case 
+				       (compute-slot-mapping-definition mapping-type slot-name marshaller unmarshaller
+				     dolist (mapping slot-mapppings)
+					  (destruc
+
+(defmacro define-subclass-mappings (class-name 
+				    (table-name)
+				    (superclass-definition
+				     &rest superclasses-definitions)
+				    &rest slot-mapppings))
