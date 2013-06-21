@@ -860,12 +860,14 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
   (many-to-one project project "project_id")
   (many-to-one user user "user_id"))
 
+(define-subclass-mapping project-managment
+    (("project_managers")
+     (project-participation "project_id" "user_id")))
+
 ;;(define-subclass-mapping project-managment
 ;;    ("project_managers"
 ;;     (project "id")
 ;;     (project-participation "project_id" "user_id")))
-
-(defmacro superclass (class-name &rest columns))
 
 (defmacro value (slot-name (column &rest columns)
 		 &optional marshaller unmarshaller))
@@ -881,28 +883,21 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 ;;		     project-member ("project_id")
 ;;		     user ("user_id")) =>  alist
 
-(defmacro define-class-mapping (class-name
-				(table-name
-				 primary-key-column
-				 &rest primary-key-columns)
-				slot-mappping
-				&rest slot-mapppings)
+(defmacro define-class-mappings (class-name
+				 ((&rest superclasses-definitions)
+				  (table-name
+				   &rest primary-key-columns))
+				 &rest slot-mapppings)
   (let ((slot-mappings (mapcar #'(lambda (slot-mapping)
 				   (destructuring-bind (slot-name (
-				   (appply #'compute-slot-mapping-definition))
-			       slot-mapppings)))
+								   (appply #'compute-slot-mapping-definition))
+								  slot-mapppings)))
     `(make-instance 'class-mapping-definition
 		    :mapped-class (find-class (quote ,class-name))
 		    :table-name ,table-name
 		    :primary-key (list* ,primary-key-column ,primary-key-columns)
 		    :slot-mappings ,(loop for (slot-name (mapping-type &rest args) marshaller unmarshaller)
 					 (case 
-				       (compute-slot-mapping-definition mapping-type slot-name marshaller unmarshaller
-				     dolist (mapping slot-mapppings)
-					  (destruc
-
-(defmacro define-subclass-mappings (class-name 
-				    (table-name)
-				    (superclass-definition
-				     &rest superclasses-definitions)
-				    &rest slot-mapppings))
+					     (compute-slot-mapping-definition mapping-type slot-name marshaller unmarshaller
+									      dolist (mapping slot-mapppings)
+									      (destruc
