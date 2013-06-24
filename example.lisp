@@ -864,6 +864,83 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
     (("project_managers")
      (project-participation "project_id" "user_id")))
 
+;;;;;;;;;;;;;;;;;;;;;;
+
+(define-class-mapping user ("users" "id")
+  (id (value ("id" "serial")))
+  (name (value ("name" "varchar")))
+  (login (value ("login" "varchar")))
+  (password (value ("password" "varchar")))
+  (project-managments (one-to-many project-managment ("project_id"))
+		      #'(lambda (&rest roles)
+			  (alexandria:alist-hash-table
+			   (mapcar #'(lambda (role)
+				       (cons (project-of role) role))
+				   roles)))
+		      #'alexandria:hash-table-values))
+
+(define-class-mapping project ("projects" "id")
+  (id (value ("id" "serial")))
+  (name (value ("name" "varchar")))
+  (begin-date (value ("begin_date" "date")))
+  (main-plan (many-to-one project-plan "main_plan_id"))
+  (project-plans (one-to-many project-plan "project_id"))
+  (project-members (one-to-many project-member ("project_id"))
+		   #'(lambda (&rest roles)
+		       (alexandria:alist-hash-table
+			(mapcar #'(lambda (role)
+				    (cons (user-of role) role))
+				roles)))
+		   #'alexandria:hash-table-values))
+
+(define-class-mapping project-participation
+    ("project_memebers" "project_id" "user_id")
+  (project (many-to-one project "project_id"))
+  (user (many-to-one user "user_id")))
+
+(define-class-mapping project-managment
+    ("project_managers"
+     (project-participation "project_id" "user_id")))
+
+(define-class-mapping project-plan
+    ("project_plans" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (name (value ("name" "varchar")))
+  (user (many-to-one user "user_id"))
+  (tasks
+   (many-to-one tasks-alteration "tasks_alteration_id"))
+  (tasks-alterations
+   (one-to-many tasks-alteration "project_id" "plan_id")))
+
+(define-class-mapping project-task
+    ("project_tasks" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (name (value ("name" "varchar"))))
+
+(define-class-mapping tasks-alteration
+    ("tasks_alterations" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (timestamp (value "date" "timestamp"))
+  (task-list-tree-node
+   (many-to-one task-list-tree-node
+		"project_id" "tasks_alteration_id")))
+
+(define-class-mapping task-list-tree-node
+    ("task-list-tree-node" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (key (value ("key" "integer")))
+  (value (many-to-one project-task "task_id"))
+  (left (many-to-one (or task-list-tree-node null)
+		     "project_id" "left_node_id"))
+  (right (many-to-one (or task-list-tree-node null)
+		      "project_id" "right_node_id")))
+
+
+
 ;;(define-subclass-mapping project-managment
 ;;    ("project_managers"
 ;;     (project "id")
