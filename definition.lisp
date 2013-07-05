@@ -1,5 +1,32 @@
 (in-package #:cl-db)
 
+(defvar *mappings* (make-hash-table))
+
+(defmacro define-mapping (name)
+  `(setf (gethash *mappings* ,name) (list)))
+
+(defvar *mapping*)
+
+(defun use-mapping (name)
+  (setf *mapping* (gethash *mappings* name)))
+
+;;(defmacro define-class-mappings ((class-name table-name) options
+;;				 &rest slot-mapppings)
+;;  `(setf (gethash 
+;;  (let ((slot-mappings (mapcar #'(lambda (slot-mapping)
+;;				   (destructuring-bind (slot-name (
+;;								   (appply #'compute-slot-mapping-definition))
+;;								  slot-mapppings)))
+;;    `(make-instance 'class-mapping-definition
+;;		    :mapped-class (find-class (quote ,class-name))
+;;		    :table-name ,table-name
+;;		    :primary-key (list* ,primary-key-column ,primary-key-columns)
+;;		    :slot-mappings ,(loop for (slot-name (mapping-type &rest args) marshaller unmarshaller)
+;;					 (case 
+;;					     (compute-slot-mapping-definition mapping-type slot-name marshaller unmarshaller
+;;									      dolist (mapping slot-mapppings)
+;;									      (destruc
+
 (defclass class-mapping-definition ()
   ((mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
@@ -46,7 +73,7 @@
 		 :many-to-one-mappings (remove-if-not #'many-to-one-mapping-p slots)
 		 :one-to-many-mappings (remove-if-not #'one-to-many-mapping-p slots)))
 
-(defun superclass (class-name &rest primary-key)
+;;(defun superclass (class-name &rest primary-key)
 
 (defun map-subclass (class-name superclasses table-name &rest slots)
   (make-instance 'subclass-mapping-definition

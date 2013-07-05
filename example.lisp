@@ -866,6 +866,10 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 
 ;;;;;;;;;;;;;;;;;;;;;;
 
+(define-class-mapping organization ("organizations" "id")
+  (id (value ("id" "serial")))
+  (name (value ("name" "varchar"))))
+
 (define-class-mapping user ("users" "id")
   (id (value ("id" "serial")))
   (name (value ("name" "varchar")))
@@ -891,7 +895,15 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 			(mapcar #'(lambda (role)
 				    (cons (user-of role) role))
 				roles)))
-		   #'alexandria:hash-table-values))
+		   #'alexandria:hash-table-values)
+  (tasks (one-to-many task "project_id")))
+
+(define-class-mapping project-task
+    ("project_tasks" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (name (value ("name" "varchar")))
+  (description (value ("description" "varchar"))))
 
 (define-class-mapping project-participation
     ("project_memebers" "project_id" "user_id")
@@ -913,11 +925,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
   (tasks-alterations
    (one-to-many tasks-alteration "project_id" "plan_id")))
 
-(define-class-mapping project-task
-    ("project_tasks" "project_id" "id")
-  (id (value ("id" "serial")))
-  (project (many-to-one project "project_id"))
-  (name (value ("name" "varchar"))))
+
 
 (define-class-mapping tasks-alteration
     ("tasks_alterations" "project_id" "id")
@@ -939,7 +947,15 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
   (right (many-to-one (or task-list-tree-node null)
 		      "project_id" "right_node_id")))
 
+(define-class-mapping plan-object ("plan_objects" "project_id" "id")
+  (id (value ("id" "serial")))
+  (project (many-to-one project "project_id"))
+  (name (value ("name" "varchar")))
+  (description (value ("description" "varchar")))
+  (child-objects (one-to-many plan-subobject "project_id" "plan_id")))
 
+(define-class-mapping plan-subobject ("plan_subobjects" plan-object)
+  (parent-object (many-to-one plan-object "project_id" "id")))
 
 ;;(define-subclass-mapping project-managment
 ;;    ("project_managers"
@@ -960,10 +976,9 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 ;;		     project-member ("project_id")
 ;;		     user ("user_id")) =>  alist
 
-(defmacro define-class-mappings (class-name
-				 ((&rest superclasses-definitions)
-				  (table-name
-				   &rest primary-key-columns))
+(defmacro define-class-mappings ((class-name table-name)
+				 (&key primary-key)
+				 (&key superclasses)
 				 &rest slot-mapppings)
   (let ((slot-mappings (mapcar #'(lambda (slot-mapping)
 				   (destructuring-bind (slot-name (
