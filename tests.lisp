@@ -28,112 +28,76 @@
 (defclass project-manager (project-member)
   ())
 
-(defun map-user ()
-  (map-class 'user "users" '("id")
-	     (map-slot 'id (value (column "id" "serial")))
-	     (map-slot 'name (value (column "name" "varchar")))
-	     (map-slot 'login (value (column "login" "varchar")))
-	     (map-slot 'password (value (column "password" "varchar")))
-	     (map-slot 'project-manager-roles (one-to-many 'project-manager "user_id")
-		       #'(lambda (&rest roles)
-			   (reduce #'(lambda (table role)
-				       (setf (gethash (project-of role) table) role)
-				       table)
-				   roles
-				   :initial-value (make-hash-table :size (length roles))))
-		       #'alexandria:hash-table-values)))
+(define-mapping :test-mapping)
 
-(defun map-project ()
-  (map-class 'project "projects" '("id")
-	     (map-slot 'id (value (column "id" "serial")))
-	     (map-slot 'name (value (column "name" "varchar")))
-	     (map-slot 'begin-date (value (column "begin_date" "timestamp")))
-	     (map-slot 'project-members
-		       (one-to-many 'project-member "project_id")
-		       #'(lambda (&rest roles)
-			   (reduce #'(lambda (table role)
-				       (setf (gethash (user-of role) table) role)
-				       table)
-				   roles
-				   :initial-value (make-hash-table :size (length roles))))
-		       #'alexandria:hash-table-values)))
+(use-mapping :test-mapping)
 
-(defun map-project-member ()
-  (map-class 'project-member "project_memebers" '("project_id" "user_id")
-	     (map-slot 'project (many-to-one 'project "project_id"))
-	     (map-slot 'user (many-to-one 'user "user_id"))))
+(define-class-mapping (user "users")
+    ((:primary-key "id"))
+  (id (:value ("id" "integer")))
+  (name (:value ("name" "varchar")))
+  (login (:value ("login" "varchar")))
+  (password (:value ("password" "varchar")))
+  (project-manager-roles (:one-to-many project-manager "user_id")
+			 #'(lambda (&rest roles)
+			     (reduce #'(lambda (table role)
+					 (setf (gethash (project-of role) table) role)
+					 table)
+				     roles
+				     :initial-value (make-hash-table :size (length roles))))
+			 #'alexandria:hash-table-values))
 
-(defun map-project-manager ()
-  (map-class 'project-manager '(project-member)
-	     "project_managers" '("project_id" "user_id")))
+(define-class-mapping (project "projects")
+    ((:primary-key "id"))
+  (id (:value ("id" "integer")))
+  (name (:value ("name" "varchar")))
+  (begin-date (:value ("begin_date" "timestamp")))
+  (project-members (:one-to-many project-member "project_id")
+		   #'(lambda (&rest roles)
+		       (reduce #'(lambda (table role)
+				   (setf (gethash (user-of role) table) role)
+				   table)
+			       roles
+			       :initial-value (make-hash-table :size (length roles))))
+		   #'alexandria:hash-table-values))
 
-(lift:deftestsuite config-test ()
+(define-class-mapping (project-member "project_memebers")
+    ((:primary-key "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+
+(define-class-mapping (project-manager "project_managers")
+    ((:superclasses project-member)))
+
+(lift:deftestsuite compilation ()
   ())
 
-(lift:addtest do-config-test
-  (lift:ensure-no-warning
-    (make-instance 'mapping-schema
-		   :class-mapping-definitions (list
-					       (map-project)
-					       (map-user)
-					       (map-project-member)
-					       (map-project-manager)))))
-
-(lift:deftestsuite schema-test ()
-  ((schema (make-instance 'mapping-schema
-			  :class-mapping-definitions (list
-						      (map-project)
-						      (map-user)
-						      (map-project-member)
-						      (map-project-manager))))))
-
 (lift:addtest projects-table-columns
-  (lift:ensure-same (sort (mapcar #'name-of
-				  (alexandria:hash-table-values
-				   (columns-of (get-table "projects" schema))))
-			  #'string<=)
-		    '("begin_date" "id" "name")))
+  (lift:ensure-same
+   (get-columns (find-class-mapping 'project))
+   '(("id" "integer") ("name" "varchar") ("begin_date" "timestamp"))
+   :test #'equal))
 
 (lift:addtest users-table-columns
-  (lift:ensure-same (sort (mapcar #'name-of
-				  (alexandria:hash-table-values
-				   (columns-of (get-table "users" schema))))
-			  #'string<=)
-		    '("id" "login" "name" "password")))
+  (lift:ensure-same
+   (get-columns (find-class-mapping 'user))
+   '(("id" "integer") ("name" "varchar")
+     ("login" "varchar") ("password" "varchar"))
+   :test #'equal))
 
 (lift:addtest project-members-table-columns
-  (lift:ensure-same (sort (mapcar #'name-of
-				  (alexandria:hash-table-values
-				   (columns-of (get-table "project_memebers" schema))))
-			  #'string<=)
-		    '("project_id" "user_id")))
+  (lift:ensure-same
+   (get-columns (find-class-mapping 'project-member))
+   '(("project_id" "integer") ("user_id" "integer"))
+   :test #'equal))
 
 (lift:addtest project-managers-table-columns
-  (lift:ensure-same (sort (mapcar #'name-of
-				  (alexandria:hash-table-values
-				   (columns-of (get-table "project_managers" schema))))
-			  #'string<=)
-		    '("project_id" "user_id")))
+  (lift:ensure-same
+   (get-columns (find-class-mapping 'project-manager))
+   '(("user_id" "integer") ("project_id" "integer"))
+   :test #'equal))
 
-(lift:addtest subclasses
-  (lift:ensure-null
-    (not (subclasses-mappings-of
-	  (get-mapping (find-class 'project-member) schema)))))
-
-(lift:addtest value-mappings
-  (lift:ensure-null
-    (not (value-mappings-of
-	  (get-mapping (find-class 'project) schema)))))
-
-(lift:addtest reference-mappings
-  (lift:ensure (every #'(lambda (reference)
-			  (not (null reference)))
-		      (reference-mappings-of
-		       (get-mapping (find-class 'project) schema)))))
-
-(lift:addtest object-loaders
-  (lift:ensure-failed-error
-   (make-object-loader (get-mapping (find-class 'project) schema) nil)
-   (make-object-loader (get-mapping (find-class 'user) schema) nil)
-   (make-object-loader (get-mapping (find-class 'project-member) schema) nil)
-   (make-object-loader (get-mapping (find-class 'project-manager) schema) nil)))
+(lift:addtest reference-foreign-key-count
+  (lift:ensure-same
+   (length (compile-reference-foreign-keys (list-class-mappings)))
+   3))
