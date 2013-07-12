@@ -2,17 +2,9 @@
 
 (in-package #:cl-db)
 
-(defvar *mapping-schema*)
-
-(defclass mapping-schema ()
-  ((tables :initarg :tables
-	   :reader tables-of)
-   (class-mappings :initarg :class-mappings
-		   :reader class-mappings-of)))
-
 (defclass table ()
   ((name :initarg :name :reader name-of)
-   (columns :initform (make-hash-table) :reader columns-of)
+   (columns :initarg :columns :reader columns-of)
    (primary-key :initarg :primary-key :reader primary-key-of)
    (foreign-keys :initform (list) :reader foreign-keys-of)))
 
@@ -21,7 +13,9 @@
    (type-name :initarg :type-name :reader type-name-of)))
 
 (defclass foreign-key ()
-  ((table :initarg :table
+  ((name :initarg :name
+	 :reader name-of)
+   (table :initarg :table
 	  :reader table-of)
    (columns :initarg :columns
 	    :reader columns-of)
@@ -47,6 +41,13 @@
 		:reader foreign-key-of)))
 
 (defclass inheritance-mapping (foreign-key-mapping)
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)))
+
+(defclass superclass-mapping (inheritance-mapping)
+  ())
+
+(defclass subclass-mapping (inheritance-mapping)
   ())
 
 (defclass slot-mapping ()
@@ -57,15 +58,33 @@
 (defclass value-mapping (slot-mapping)
   ((columns :initarg :columns :reader columns-of)))
 
-(defclass reference-mapping (slot-mapping foreign-key-mapping)
+(defclass reference-mapping
+    (slot-mapping foreign-key-mapping)
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)))
+
 ;;  ((association :initarg :association
 ;;		:reader association-of)
-   ((referenced-class-mapping :initarg :referenced-class-mapping
-			     :reader referenced-class-mapping-of)))
 
 (defclass one-to-many-mapping (reference-mapping) ())
 
 (defclass many-to-one-mapping (reference-mapping) ())
+
+(defclass mapping-schema ()
+  ((tables :initarg :tables
+	   :reader tables-of)
+   (class-mappings :reader class-mappings-of)))
+
+(defmethod initialize-instance :after ((instance mapping-schema)
+				       &key class-mappings)
+  (let ((mappings-table
+	 (alexandria:alist-hash-table
+	  (mapcar #'(lambda (class-mapping)
+		      (cons (mapped-class-of class-mapping)
+			    class-mapping))
+		  class-mappings))))
+    (with-slots (class-mappings) instance
+      (setf class-mappings mappings-table))))
 
 (defun get-mapping (mapped-class mapping-schema)
   (multiple-value-bind (mapping present-p)

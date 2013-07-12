@@ -28,46 +28,47 @@
 (defclass project-manager (project-member)
   ())
 
-(define-mapping test-mapping)
-
-(use-mapping test-mapping)
-
-(define-class-mapping (user "users")
-    ((:primary-key "id"))
-  (id (:value ("id" "integer")))
-  (name (:value ("name" "varchar")))
-  (login (:value ("login" "varchar")))
-  (password (:value ("password" "varchar")))
-  (project-manager-roles (:one-to-many project-manager "user_id")
-			 #'(lambda (&rest roles)
-			     (reduce #'(lambda (table role)
-					 (setf (gethash (project-of role) table) role)
-					 table)
-				     roles
-				     :initial-value (make-hash-table :size (length roles))))
-			 #'alexandria:hash-table-values))
-
-(define-class-mapping (project "projects")
-    ((:primary-key "id"))
-  (id (:value ("id" "integer")))
-  (name (:value ("name" "varchar")))
-  (begin-date (:value ("begin_date" "timestamp")))
-  (project-members (:one-to-many project-member "project_id")
-		   #'(lambda (&rest roles)
-		       (reduce #'(lambda (table role)
-				   (setf (gethash (user-of role) table) role)
-				   table)
-			       roles
-			       :initial-value (make-hash-table :size (length roles))))
-		   #'alexandria:hash-table-values))
-
-(define-class-mapping (project-member "project_memebers")
-    ((:primary-key "project_id" "user_id"))
-  (project (:many-to-one project "project_id"))
-  (user (:many-to-one user "user_id")))
-
-(define-class-mapping (project-manager "project_managers")
-    ((:superclasses project-member)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-mapping test-mapping)
+  
+  (use-mapping test-mapping)
+  
+  (define-class-mapping (user "users")
+      ((:primary-key "id"))
+    (id (:value ("id" "integer")))
+    (name (:value ("name" "varchar")))
+    (login (:value ("login" "varchar")))
+    (password (:value ("password" "varchar")))
+    (project-manager-roles (:one-to-many project-manager "user_id")
+			   #'(lambda (&rest roles)
+			       (reduce #'(lambda (table role)
+					   (setf (gethash (project-of role) table) role)
+					   table)
+				       roles
+				       :initial-value (make-hash-table :size (length roles))))
+			   #'alexandria:hash-table-values))
+  
+  (define-class-mapping (project "projects")
+      ((:primary-key "id"))
+    (id (:value ("id" "integer")))
+    (name (:value ("name" "varchar")))
+    (begin-date (:value ("begin_date" "timestamp")))
+    (project-members (:one-to-many project-member "project_id")
+		     #'(lambda (&rest roles)
+			 (reduce #'(lambda (table role)
+				     (setf (gethash (user-of role) table) role)
+				     table)
+				 roles
+				 :initial-value (make-hash-table :size (length roles))))
+		     #'alexandria:hash-table-values))
+  
+  (define-class-mapping (project-member "project_memebers")
+      ((:primary-key "project_id" "user_id"))
+    (project (:many-to-one project "project_id"))
+    (user (:many-to-one user "user_id")))
+  
+  (define-class-mapping (project-manager "project_managers")
+      ((:superclasses project-member))))
 
 (lift:deftestsuite compilation ()
   ())
