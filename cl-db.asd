@@ -11,8 +11,8 @@
 	       #:closer-mop)
   :serial t
   :components ((:file "package")
-	       (:file "definition")
-               (:file "cl-db")
+	       (:file "cl-db")
+	       (:file "mapping-dsl")
 	       (:file "session")))
 
 (asdf:defsystem #:cl-db.tests

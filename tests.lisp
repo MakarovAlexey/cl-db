@@ -28,9 +28,9 @@
 (defclass project-manager (project-member)
   ())
 
-(define-mapping :test-mapping)
+(define-mapping test-mapping)
 
-(use-mapping :test-mapping)
+(use-mapping test-mapping)
 
 (define-class-mapping (user "users")
     ((:primary-key "id"))

@@ -4,12 +4,14 @@
 
 (defmacro define-mapping (name)
   (setf (gethash name *mappings*)
-	(make-instance 'mapping-definition)))
+	(make-instance 'mapping-definition :name name)))
 
 (defvar *mapping-definition*)
 
 (defclass mapping-definition ()
-  ((class-mappings :initform (make-hash-table)
+  ((name :initarg :name
+	 :reader name-of)
+   (class-mappings :initform (make-hash-table)
 		   :accessor class-mappings-of))
   (:metaclass closer-mop:funcallable-standard-class))
 
@@ -32,8 +34,6 @@
 		 :reader mapped-class-of)
    (table-name :initarg :table-name
 	       :reader table-name-of)
-   (table-symbol :initform (alexandria:ensure-symbol (gensym "TABLE-"))
-		 :reader table-symbol-of)
    (primary-key :initarg :primary-key
 		:reader primary-key-of)
    (superclasses :initarg :superclasses
@@ -139,6 +139,18 @@
 						      :one-to-many
 						      #'make-one-to-many-mapping
 						      slot-mappings)))))
+
+(defun sql-name (string)
+  (substitute #\_ #\- (string-downcase string)))
+
+(defun lisp-name (string)
+  (substitute #\- #\_ (string-upcase string)))
+
+(defun table-symbol (class-mapping-definition)
+  (alexandria:ensure-symbol
+    (lisp-name
+     (format nil "~a-table"
+	     (table-name-of class-mapping-definition)))))
 
 (defun compile-value-mapping-columns (value-mapping)
   (loop for (name type-name) in (columns-of value-mapping)
@@ -266,7 +278,7 @@
 			     :type-name ,column-type)))
 
 (defun compile-table (class-mapping-definition)
-  `(,(table-symbol-of class-mapping-definition)
+  `(,(table-symbol class-mapping-definition)
      (make-instance 'table
 		    :name ,(table-name-of class-mapping-definition)
 		    :primary-key (quote
@@ -276,12 +288,6 @@
 
 (defun compile-tables (&rest class-mapping-definitions)
   (mapcar #'compile-table class-mapping-definitions))
-
-(defun sql-name (string)
-  (substitute #\_ #\- (string-downcase string)))
-
-(defun lisp-name (string)
-  (substitute #\- #\_ (string-upcase string)))
 
 (defun make-superclass-foreign-key-name (class-mapping
 					 superclass-mapping)
@@ -297,8 +303,8 @@
 	      `(,(make-superclass-foreign-key-name
 		  class-mapping-definition
 		  superclass-mapping)
-		 ,(table-symbol-of class-mapping-definition)
-		 ,(table-symbol-of superclass-mapping)
+		 ,(table-symbol class-mapping-definition)
+		 ,(table-symbol superclass-mapping)
 		 ,@(get-primary-key superclass-mapping))))
 	  (superclasses-of class-mapping-definition)))
 
@@ -350,8 +356,8 @@
 		`(,(make-many-to-one-foreign-key-name
 		    class-mapping-definition
 		    many-to-one-mapping)
-		   ,(table-symbol-of class-mapping-definition)
-		   ,(table-symbol-of reference-class-mapping)
+		   ,(table-symbol class-mapping-definition)
+		   ,(table-symbol reference-class-mapping)
 		   ,@(columns-of many-to-one-mapping)))))
 
 (defun make-one-to-many-foreign-key-name (class-mapping-definition
@@ -371,8 +377,8 @@
 	       `(,(make-one-to-many-foreign-key-name
 		   class-mapping-definition
 		   one-to-many-mapping)
-		  ,(table-symbol-of reference-class-mapping)
-		  ,(table-symbol-of class-mapping-definition)
+		  ,(table-symbol reference-class-mapping)
+		  ,(table-symbol class-mapping-definition)
 		  ,@(columns-of one-to-many-mapping)))))
 
 (defun get-reference-foreign-keys (class-mapping-definition)
@@ -472,11 +478,11 @@
 						   superclass-mapping-definition))))))))
 
 (defun compile-class-mapping (class-mapping-definition)
-  (with-slots (mapped-class table-symbol) class-mapping-definition
+  (with-slots (mapped-class) class-mapping-definition
     `(,(get-class-mapping-name mapped-class)
        (make-instance 'class-mapping
 		      :mapped-class (quote ,mapped-class)
-		      :table (quote ,table-symbol)
+		      :table (quote ,(table-name-of class-mapping-definition))
 		      :value-mappings (list
 				       ,@(compile-value-mappings
 					  class-mapping-definition))))))
@@ -498,26 +504,21 @@
 	 (class-mappings
 	  (apply #'compile-class-mappings
 		 class-mapping-definitions)))
-    `(let* (,@tables
-	    ,@superclass-foreign-keys
-	    ,@reference-foreign-keys
-	    ,@class-mappings)
-       (setf ,@(loop for cmd in class-mapping-definitions
-		  append (compile-reference-mappings cmd))
-	     ,@(loop for cmd in class-mapping-definitions
-		  append (compile-superclass-mappings cmd))
-	     ,@(loop for cmd in class-mapping-definitions
-		  append (compile-subclass-mappings cmd)))
+    `(defun ,(name-of *mapping-definition*) ()
+       (let* (,@tables
+	      ,@superclass-foreign-keys
+	      ,@reference-foreign-keys
+	      ,@class-mappings)
+	 (setf ,@(loop for cmd in class-mapping-definitions
+		    append (compile-reference-mappings cmd))
+	       ,@(loop for cmd in class-mapping-definitions
+		    append (compile-superclass-mappings cmd))
+	       ,@(loop for cmd in class-mapping-definitions
+		    append (compile-subclass-mappings cmd)))
        ;;       (closer-mop:set-funcallable-instance-function
        ;;	*mapping-definition*
-       #'(lambda ()
-	   (make-instance 'mapping-schema
-			  :tables (list ,@(mapcar #'first tables))
-			  :foreign-keys
-			  (list
-			   ,@(mapcar #'first
-				     (append superclass-foreign-keys
-					     reference-foreign-keys)))
-			  :class-mappings (list
-					   ,@(mapcar #'first
-						     class-mappings)))))))
+	     (make-instance 'mapping-schema
+			    :tables (list ,@(mapcar #'first tables))
+			    :class-mappings (list
+					     ,@(mapcar #'first
+						       class-mappings)))))))
