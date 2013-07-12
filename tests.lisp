@@ -99,5 +99,6 @@
 
 (lift:addtest reference-foreign-key-count
   (lift:ensure-same
-   (length (compile-reference-foreign-keys (list-class-mappings)))
+   (length (apply #'compile-reference-foreign-keys
+		  (list-class-mappings)))
    3))
