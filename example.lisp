@@ -1,6 +1,6 @@
 (in-package #:cl-db)
 
-(define-connector (connect-projects test-mapping)
+(define-session (projects test-mapping)
     (:default t)
   (postmodern:connect "projects" "makarov" "zxcvb" "localhost"))
 

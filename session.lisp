@@ -5,17 +5,24 @@
    (connection :initarg :connection :reader connection-of)
    (loaded-objects :initarg :loaded-objects :reader loaded-objects-of)))
 
+(defvar *default-session*)
+
+(defmacro define-session ((name mapping-schema)
+			  (&key (default t)) &body body)
+  `(progn (defun ,name ()
+	    (make-instance 'clos-session
+			   :mappings (funcall
+				      (function ,mapping-schema))
+			   :connection ,@body))
+	  ,@(when default
+		  `((setf *default-session* (function ,name))))))
+
+
+
 (defun make-clos-session (connector mapping-schema)
   (make-instance 'clos-session
 		 :connection (funcall connector)
 		 :mapping-schema mapping-schema))
-
-(defun get-class-mapping (session class)
-  (multiple-value-bind (mapping present-p)
-      (gethash class (mappings-of session))
-    (if (not present-p)
-	(error "Class ~a not mapped" class)
-	mapping)))
 
 (defclass joined-superclass ()
   ((class-mapping :initarg :class-mapping
