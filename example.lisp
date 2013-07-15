@@ -1,10 +1,20 @@
 (in-package #:cl-db)
 
-(define-session (projects test-mapping)
-    (:default t)
-  (postmodern:connect "projects" "makarov" "zxcvb" "localhost"))
+(define-database-interface (cl-db.cl-postgres postgresql) ;;as package
+    ()
+  (:open-connection #'postmodern:connect)
+  (:close-connection #'postmodern:disconnect)
+  (:prepare #'cl-postgres:prepare-query)
+  (:execute (lambda (connection name &rest params)
+	      (cl-postgres:exec-prepared connection name params
+					 cl-postgres:alist-row-reader))))
 
-(with-session ()
+(define-configuration (projects test-mapping cl-db.cl-postgres)
+    ;; as function that produce sesssion object
+    (:default t)
+  ("projects" "makarov" "zxcvb" "localhost"))
+
+(with-session () ;; or (with-session (projects)
   (db-read :all 'project-manager
 	   :where #'(lambda (manager)
 		      (eq (login-of manager) "makarov"))
@@ -206,59 +216,6 @@
 ;;    (maphash #'(lambda (slot-name slot-mapping)
 ;;		 (
 
-
-(defmethod initialize-instance :after ((instance class-mapping) &key
-				       mapping-definition
-				       mapping-schema)
-  (with-slots (configuration table superclasses-mappings
-			     value-mappings reference-mappings) instance
-    (setf table (get-table (table-name-of mapping-definition) mapping-schema)
-	  superclasses-mappings (mapcar #'(lambda (class)
-					    (get-mapping class mapping-schema))
-					(superclasses-of mapping-definition))
-	  value-mappings (mapcar #'(lambda (slot-mapping-definition))
-				 (value-mappingf-of definition))
-	  reference-mappings (mapcar #'(lambda (slot-mapping-definition))
-				       (reference-mappings-of definition))
-
-
-value-mappings (mapcar #'(lambda (slot-mapping-definition))
-				   (value-mappingf-of definition))
-	    reference-mappings (mapcar #'(lambda (slot-mapping-definition))
-				       (reference-mappings-of definition))
-	    superclasses-mappings (mapcar #'(lambda (mapped-class)
-					      (extend (get-mapping mapped-class configuration)
-						      instance))
-					  (superclasses-of definition))))))
-	  
-				     
-  	(reduce #'(lambda (hash-table definition)
-		    (let ((mapped-class (mapped-class-of definition)))
-		      (setf (gethash mapped-class hash-table)
-					    (make-instance 'class-mapping
-							   :mapped-class mapped-class
-							   :table )))
-				    hash-table)
-				class-mapping-definitions
-				:initial-value )))
-
-
-(lift:addtest (test-mappings) classes-mapped
-	      (assert
-	       (= (length
-		   (subclasses-mappings-of (get-class-mapping session (find-class 'project-member))))
-		   1))
-	      (assert
-	       (= (length
-		   (superclasses-mappings-of (get-class-mapping session (find-class 'project-manager))))
-		   1)))
-
-(lift:addtest (test-mappings) classes-mapped
-	      (assert (get-class-mapping session (find-class 'project)))
-	      (assert (get-class-mapping session (find-class 'user)))
-	      (assert (get-class-mapping session (find-class 'project-member)))
-	      (assert (get-class-mapping session (find-class 'project-manager))))
-
 (lift:addtest (test-mappings) object-loaders
 	      (with-session (session)
 		(assert (= (length
@@ -291,114 +248,15 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 			    (get-class-mapping session (find-class 'project-manager))))
 			  "SELECT t_1.user_id, t_1.project_id, t_2.user_id, t_2.project_id FROM project_members as t_1 INNER JOIN project_managers as t_2 ON t_1.user_id = t_2.user_id AND t_1.project_id = t_2.project_id"))))
 
-;;(lift:addtest (test-mappings) reading-all-projects
-;;	      (with-session (session)
-;;		(db-read :all 'project)))
-
-;;(lift:addtest (test-mappings) executing-query
-;;	      (make-query 'project #'project-manager-roles-of))
-
-;;(lift:addtest (test-mappings) inheritnce-query
-;;	      (make-query ))
-
-;;(lift:addtest (test-mappings) inheritnce-query-with-fetch
-;;	      (make-query 'project-managment #'user-of))
-	 
-			 ;;(map-project-manager)))
-
-(define-mapping projects-managment.mapping)
-
-(use-mapping projects-managment.mapping)
-
-(define-class-mapping user () ("users" ("id"))
-  (id (value "id"))
-  (name (value "name"))
-  (login (value "login"))
-  (password (value "password"))
-  (project-managments (one-to-many project-managment "project_id")
-		      #'(lambda (&rest roles)
-			  (alexandria:alist-hash-table
-			   (mapcar #'(lambda (role)
-				       (cons (project-of role) role))
-				   roles)))
-		      #'alexandria:hash-table-values))
-
-(define-class-mapping project () ("projects" ("id"))
-  (id (value "id"))
-  (name (value "name"))
-  (begin-date (value "begin_date"))
-  (project-members (one-to-many project-member "project_id")
-		   #'(lambda (&rest roles)
-			  (alexandria:alist-hash-table
-			   (mapcar #'(lambda (role)
-				       (cons (user-of role) role))
-				   roles)))
-		   #'alexandria:hash-table-values))
-
-(define-class-mapping project-participation ()
-  ("project_memebers" ("project_id" "user_id"))
-  (project (many-to-one project "project_id"))
-  (user (many-to-one user "user_id")))
-
-(define-class-mapping project-managment (project-participation)
-  ("project_managers"))
-
-(define-class-mapping project () ("projects" ("id"))
-  (id (value "id"))
-  (name (value "name"))
-  (begin-date (value "begin_date"))
-  (project-members (one-to-many project-member "project_id")
-		   #'(lambda (&rest roles)
-			  (alexandria:alist-hash-table
-			   (mapcar #'(lambda (role)
-				       (cons (user-of role) role))
-				   roles)))
-		   #'alexandria:hash-table-values))
-
 ;;;;;;;;;;;;;;;;;;
 
-(define-class-mapping user ("users" "id")
-  (value id (("id" "serial")))
-  (value name (("name" "varchar")))
-  (value login (("login" "varchar")))
-  (value password (("password" "varchar")))
-  (one-to-many project-managments project-managment ("project_id")
-	       #'(lambda (&rest roles)
-		   (alexandria:alist-hash-table
-		    (mapcar #'(lambda (role)
-				(cons (project-of role) role))
-			    roles)))
-	       #'alexandria:hash-table-values))
-
-(define-class-mapping project ("projects" "id")
-  (value id (("id" "serial")))
-  (value name (("name" "varchar")))
-  (value begin-date (("begin_date" "date")))
-  (one-to-many project-members project-member ("project_id")
-	       #'(lambda (&rest roles)
-		   (alexandria:alist-hash-table
-		    (mapcar #'(lambda (role)
-				(cons (user-of role) role))
-			    roles)))
-	       #'alexandria:hash-table-values))
-
-(define-class-mapping project-participation
-    ("project_memebers" "project_id" "user_id")
-  (many-to-one project project "project_id")
-  (many-to-one user user "user_id"))
-
-(define-subclass-mapping project-managment
-    (("project_managers")
-     (project-participation "project_id" "user_id")))
-
-;;;;;;;;;;;;;;;;;;;;;;
 
 (define-class-mapping organization ("organizations" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (name (value ("name" "varchar"))))
 
 (define-class-mapping user ("users" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (name (value ("name" "varchar")))
   (login (value ("login" "varchar")))
   (password (value ("password" "varchar")))
@@ -411,7 +269,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 		      #'alexandria:hash-table-values))
 
 (define-class-mapping project ("projects" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (name (value ("name" "varchar")))
   (begin-date (value ("begin_date" "date")))
   (main-plan (many-to-one project-plan "main_plan_id"))
@@ -427,7 +285,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 
 (define-class-mapping project-task
     ("project_tasks" "project_id" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (project (many-to-one project "project_id"))
   (name (value ("name" "varchar")))
   (description (value ("description" "varchar"))))
@@ -443,7 +301,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 
 (define-class-mapping project-plan
     ("project_plans" "project_id" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (project (many-to-one project "project_id"))
   (name (value ("name" "varchar")))
   (user (many-to-one user "user_id"))
@@ -456,7 +314,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 
 (define-class-mapping tasks-alteration
     ("tasks_alterations" "project_id" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (project (many-to-one project "project_id"))
   (timestamp (value "date" "timestamp"))
   (task-list-tree-node
@@ -465,7 +323,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 
 (define-class-mapping task-list-tree-node
     ("task-list-tree-node" "project_id" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (project (many-to-one project "project_id"))
   (key (value ("key" "integer")))
   (value (many-to-one project-task "task_id"))
@@ -475,7 +333,7 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 		      "project_id" "right_node_id")))
 
 (define-class-mapping plan-object ("plan_objects" "project_id" "id")
-  (id (value ("id" "serial")))
+  (id (value ("id" "integer")))
   (project (many-to-one project "project_id"))
   (name (value ("name" "varchar")))
   (description (value ("description" "varchar")))
@@ -489,34 +347,3 @@ value-mappings (mapcar #'(lambda (slot-mapping-definition))
 ;;     (project "id")
 ;;     (project-participation "project_id" "user_id")))
 
-(defmacro value (slot-name (column &rest columns)
-		 &optional marshaller unmarshaller))
-
-(defmacro many-to-one (slot-name class-name (column &rest columns)
-		       &optional marshaller unmarshaller))
-
-(defmacro one-to-many (slot-name class-name (column &rest columns)
-		       &optional marshaller unmarshaller))
-
-;; (defmacro indexed-one-to-many
-;;(indexed-one-to-many project-members
-;;		     project-member ("project_id")
-;;		     user ("user_id")) =>  alist
-
-(defmacro define-class-mappings ((class-name table-name)
-				 (&key primary-key)
-				 (&key superclasses)
-				 &rest slot-mapppings)
-  (let ((slot-mappings (mapcar #'(lambda (slot-mapping)
-				   (destructuring-bind (slot-name (
-								   (appply #'compute-slot-mapping-definition))
-								  slot-mapppings)))
-    `(make-instance 'class-mapping-definition
-		    :mapped-class (find-class (quote ,class-name))
-		    :table-name ,table-name
-		    :primary-key (list* ,primary-key-column ,primary-key-columns)
-		    :slot-mappings ,(loop for (slot-name (mapping-type &rest args) marshaller unmarshaller)
-					 (case 
-					     (compute-slot-mapping-definition mapping-type slot-name marshaller unmarshaller
-									      dolist (mapping slot-mapppings)
-									      (destruc

@@ -28,7 +28,7 @@
 (defclass project-manager (project-member)
   ())
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
+(eval-when (:load-toplevel :execute)
   (define-mapping test-mapping)
   
   (use-mapping test-mapping)

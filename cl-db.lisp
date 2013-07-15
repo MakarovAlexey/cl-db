@@ -10,7 +10,7 @@
 
 (defclass column ()
   ((name :initarg :name :reader name-of)
-   (type-name :initarg :type-name :reader type-name-of)))
+   (sql-type :initarg :sql-type :reader sql-type-of)))
 
 (defclass foreign-key ()
   ((name :initarg :name

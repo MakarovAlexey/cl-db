@@ -89,7 +89,7 @@
 				 mapped-class column &rest columns)
   (make-instance 'many-to-one-mapping-definition
 		 :slot-name slot-name
-		 :mapped-class (find-class mapped-class)
+		 :mapped-class mapped-class
 		 :columns (list* column columns)
 		 :marshaller marshaller
 		 :unmarshaller unmarshaller))
@@ -98,7 +98,7 @@
 				 mapped-class column &rest columns)
   (make-instance 'one-to-many-mapping-definition
 		 :slot-name slot-name
-		 :mapped-class (find-class mapped-class)
+		 :mapped-class mapped-class
 		 :columns (list* column columns)
 		 :marshaller marshaller
 		 :unmarshaller unmarshaller))
@@ -118,7 +118,7 @@
 
 (defmacro define-class-mapping ((class-name table-name) options
 				&rest slot-mappings)
-  (let ((mapped-class (find-class class-name)))
+  (let ((mapped-class class-name))
     (multiple-value-bind (mapping presentp)
 	(gethash mapped-class (class-mappings-of *mapping-definition*))
       (declare (ignore mapping))
@@ -130,9 +130,8 @@
 			 :table-name table-name
 			 :primary-key (apply #'compile-option
 					     :primary-key options)
-			 :superclasses (mapcar #'find-class
-					       (apply #'compile-option
-						      :superclasses options))
+			 :superclasses (apply #'compile-option
+					      :superclasses options)
 			 :value-mappings (apply #'compile-slot-mappings
 						:value
 						#'make-value-mapping
@@ -207,7 +206,7 @@
 	    (get-reference-column-type column-position
 				       (first superclasses)))
 	(error "For mapping of class ~a not specified primary key or superclasses"
-	       (class-name mapped-class)))))
+	       mapped-class))))
 
 (defun get-value-mapping-columns (class-mapping-definition)
   (loop for value-mapping
@@ -281,7 +280,7 @@
      in (get-columns class-mapping-definition)
      collect `(make-instance 'column
 			     :name ,column-name
-			     :type-name ,column-type)))
+			     :sql-type ,column-type)))
 
 (defun compile-table (class-mapping-definition)
   `(,(table-symbol class-mapping-definition)
@@ -419,7 +418,7 @@
 
 (defun get-class-mapping-name (mapped-class)
   (alexandria:ensure-symbol
-   (lisp-name (format nil "~a-mapping" (class-name mapped-class)))))
+   (lisp-name (format nil "~a-mapping" mapped-class))))
 
 (defun compile-reference-mapping (mapping-type fk-name mapping)
   (with-slots (slot-name columns mapped-class marshaller unmarshaller)
@@ -501,8 +500,7 @@
     `(,(get-class-mapping-name mapped-class)
        (make-instance 'class-mapping
 		      :mapped-class (find-class
-				     (quote
-				      ,(class-name mapped-class)))
+				     (quote ,mapped-class))
 		      :table ,(table-name-of class-mapping-definition)
 		      :value-mappings (list
 				       ,@(compile-value-mappings

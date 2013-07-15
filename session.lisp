@@ -17,12 +17,15 @@
 	  ,@(when default
 		  `((setf *default-session* (function ,name))))))
 
+(defvar *session*)
 
+(defun call-with-session (session function)
+  (let ((*session* session))
+    (funcall function)))
 
-(defun make-clos-session (connector mapping-schema)
-  (make-instance 'clos-session
-		 :connection (funcall connector)
-		 :mapping-schema mapping-schema))
+(defmacro with-session ((&optional (session *default-session*))
+			&body body)
+  `(call-with-session ,session #'(lambda () ,@body)))
 
 (defclass joined-superclass ()
   ((class-mapping :initarg :class-mapping
@@ -73,11 +76,3 @@
 		 :joined-superclasses (compute-joined-superclasses
 				       (superclasses-mappings-of class-mapping))))
 
-(defvar *session*)
-
-(defun call-with-session (session function)
-  (let ((*session* session))
-    (funcall function)))
-
-(defmacro with-session ((session) &body body)
-  `(call-with-session ,session #'(lambda () ,@body)))
