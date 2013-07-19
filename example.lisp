@@ -1,18 +1,18 @@
 (in-package #:cl-db)
 
-(define-database-interface (cl-db.cl-postgres postgresql) ;;as package
-    ()
-  (:open-connection #'postmodern:connect)
-  (:close-connection #'postmodern:disconnect)
+(define-configuration (projects test-mapping)
+    ((:default t)
+     (:update-schema t))
+  (:open-connection #'(lambda ()
+			(cl-postgres:open-database "projects"
+						   "makarov" "zxcvb"
+						   "localhost")))
+  (:close-connection #'cl-postgres:close-database)
   (:prepare #'cl-postgres:prepare-query)
-  (:execute (lambda (connection name &rest params)
+  (:execute #'(lambda (connection name &rest params)
 	      (cl-postgres:exec-prepared connection name params
-					 cl-postgres:alist-row-reader))))
-
-(define-configuration (projects test-mapping cl-db.cl-postgres)
-    ;; as function that produce sesssion object
-    (:default t)
-  ("projects" "makarov" "zxcvb" "localhost"))
+					 cl-postgres:alist-row-reader)))
+  (:list-metadata #'cl-db:list-postgresql-metadata))
 
 (with-session () ;; or (with-session (projects)
   (db-read :all 'project-manager

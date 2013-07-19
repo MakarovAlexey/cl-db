@@ -1,21 +1,22 @@
 (in-package #:cl-db)
 
 (defclass clos-session ()
-  ((mappings :initarg :mappings :reader mappings-of)
-   (connection :initarg :connection :reader connection-of)
-   (loaded-objects :initarg :loaded-objects :reader loaded-objects-of)))
+  ((mappings :initarg :mappings
+	     :reader mappings-of)
+   (connection :initarg :connection
+	       :reader connection-of)
+   (loaded-objects :initarg :loaded-objects
+		   :reader loaded-objects-of)
+   (prepared-statement-number :initform 0
+			      :accessor prepared-statement-number-of)))
 
-(defvar *default-session*)
-
-(defmacro define-session ((name mapping-schema)
-			  (&key (default t)) &body body)
-  `(progn (defun ,name ()
-	    (make-instance 'clos-session
-			   :mappings (funcall
-				      (function ,mapping-schema))
-			   :connection ,@body))
-	  ,@(when default
-		  `((setf *default-session* (function ,name))))))
+;; connection name parameters
+(defun prepare-statement (session query)
+  (funcall
+   (prepare-statement-function-of
+    (configuration-of session))
+   (connection-of session)
+   query))
 
 (defvar *session*)
 

@@ -3,14 +3,30 @@
 (in-package #:cl-db)
 
 (defclass table ()
-  ((name :initarg :name :reader name-of)
-   (columns :initarg :columns :reader columns-of)
-   (primary-key :initarg :primary-key :reader primary-key-of)
-   (foreign-keys :initform (list) :reader foreign-keys-of)))
+  ((name :initarg :name
+	 :reader name-of)
+   (columns :initarg :columns
+	    :reader columns-of)
+   (schema-name :initarg :schema-name
+		:reader schema-name-of)
+   (primary-key :initarg :primary-key
+		:reader primary-key-of)
+   (foreign-keys :initform (list)
+		 :reader foreign-keys-of)
+   (unique-constraints :initform (list)
+		       :reader unique-constraints-of)))
 
 (defclass column ()
-  ((name :initarg :name :reader name-of)
-   (sql-type :initarg :sql-type :reader sql-type-of)))
+  ((name :initarg :name
+	 :reader name-of)
+   (sql-type :initarg :sql-type
+	     :reader sql-type-of)))
+
+(defclass unique-constraint ()
+  ((name :initarg :name
+	 :reader name-of)
+   (columns :initarg :columns
+	    :reader columns-of)))
 
 (defclass foreign-key ()
   ((name :initarg :name

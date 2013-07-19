@@ -6,13 +6,12 @@
   :author "Makarov Alexey <alexeys@@yandex.ru>"
   :license "Specify license here"
   :depends-on (#:alexandria
-	       #:postmodernx
+	       #:cl-postgres
 	       #:ironclad
 	       #:closer-mop)
   :serial t
   :components ((:file "package")
 	       (:file "cl-db")
-	       (:file "database-interface")
 	       (:file "mapping-dsl")
 	       (:file "session")))
 
