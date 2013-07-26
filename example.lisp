@@ -250,100 +250,380 @@
 
 ;;;;;;;;;;;;;;;;;;
 
-
-(define-class-mapping organization ("organizations" "id")
-  (id (value ("id" "integer")))
-  (name (value ("name" "varchar"))))
-
-(define-class-mapping user ("users" "id")
-  (id (value ("id" "integer")))
-  (name (value ("name" "varchar")))
-  (login (value ("login" "varchar")))
-  (password (value ("password" "varchar")))
-  (project-managments (one-to-many project-managment ("project_id"))
+(define-class-mapping (user "users")
+    ((:primary-key "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (login (:value ("login" "varchar")))
+  (password (:value ("password" "varchar")))
+  (project-managments (:one-to-many project-managment "user_id")
 		      #'(lambda (&rest roles)
 			  (alexandria:alist-hash-table
 			   (mapcar #'(lambda (role)
 				       (cons (project-of role) role))
 				   roles)))
-		      #'alexandria:hash-table-values))
+		      #'alexandria:hash-table-values)
+  (project-participations (:one-to-many project-managment "user_id")
+			  #'(lambda (&rest roles)
+			      (alexandria:alist-hash-table
+			       (mapcar #'(lambda (role)
+					   (cons (project-of role) role))
+				       roles)))
+			  #'alexandria:hash-table-values))
 
-(define-class-mapping project ("projects" "id")
-  (id (value ("id" "integer")))
-  (name (value ("name" "varchar")))
-  (begin-date (value ("begin_date" "date")))
-  (main-plan (many-to-one project-plan "main_plan_id"))
-  (project-plans (one-to-many project-plan "project_id"))
-  (project-members (one-to-many project-member ("project_id"))
+(define-class-mapping (project-participation "project_memebers")
+    ((:primary-key "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+
+(define-class-mapping (project-managment "project_managers")
+    ((:superclasses project-participation))
+  (project-participation "project_id" "user_id"))
+
+(define-class-mapping (project "projects")
+    ((:primary-key "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (begin-date (:value ("begin_date" "date")))
+  (objects (:many-to-one project-root-object "project_id"))
+  (document-directories
+   (:many-to-one root-document-directory "project_id"))
+  (document-registrations
+   (:one-to-many document-registration "project_id")
+   #'(lambda (&rest registrations)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (registration)
+		    (cons (document-of registration)
+			  registration))
+		registrations)))
+   #'alexandria:hash-table-values)
+  (project-members (:one-to-many project-member ("project_id"))
 		   #'(lambda (&rest roles)
 		       (alexandria:alist-hash-table
 			(mapcar #'(lambda (role)
 				    (cons (user-of role) role))
 				roles)))
-		   #'alexandria:hash-table-values)
-  (tasks (one-to-many task "project_id")))
+		   #'alexandria:hash-table-values))
+;;  (main-plan (:many-to-one project-plan "main_plan_id"))
+;;  (project-plans (:one-to-many project-plan "project_id"))
+;;  (tasks (:one-to-many task "project_id")))
+;;  (axes (:one-to-many object-axis "project_id" "object_id")))
 
-(define-class-mapping project-task
-    ("project_tasks" "project_id" "id")
-  (id (value ("id" "integer")))
-  (project (many-to-one project "project_id"))
-  (name (value ("name" "varchar")))
-  (description (value ("description" "varchar"))))
+(define-class-mapping (project-object "project_objects")
+    ((:primary-key "project_id" "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (project (:many-to-one project "project_id"))
+  (subobjects (:one-to-many project-subobject "project_id" "parent_id")))
 
-(define-class-mapping project-participation
-    ("project_memebers" "project_id" "user_id")
-  (project (many-to-one project "project_id"))
-  (user (many-to-one user "user_id")))
+(define-class-mapping (project-root-object "project_root_objects")
+    ((:superclasses project-object)))
 
-(define-class-mapping project-managment
-    ("project_managers"
-     (project-participation "project_id" "user_id")))
+(define-class-mapping (project-subobject "project_subobjects")
+    ((:superclasses project-object))
+  (parent (:many-to-one project-object "parent_id")))
 
-(define-class-mapping project-plan
-    ("project_plans" "project_id" "id")
-  (id (value ("id" "integer")))
-  (project (many-to-one project "project_id"))
-  (name (value ("name" "varchar")))
-  (user (many-to-one user "user_id"))
-  (tasks
-   (many-to-one tasks-alteration "tasks_alteration_id"))
-  (tasks-alterations
-   (one-to-many tasks-alteration "project_id" "plan_id")))
+(define-class-mapping (project-task "project_tasks")
+    ((:primary-key "project_id" "object_id" "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (description (:value ("description" "varchar")))
+  (object (:many-to-one object "project_id" "object_id")))
+
+;;(define-class-mapping (root-object-axis "root_object_axes")
+;;    ((:primary-key "project_id" "root_object_id" "id"))
+;;  (id (:value ("id" "uuid")))
+;;  (name (:value ("name" "varchar"))))
+
+(define-class-mapping (document-directory "document_directories")
+    ((:primary-key "project_id" "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (project (:many-to-one project "project_id"))
+  (document-classes
+   (:one-to-many document "project_id" "parent_id"))
+  (subdirectories
+   (:one-to-many document-subdirectory "project_id" "parent_id")))
+
+(define-class-mapping
+    (document-root-directory "document_class_root_directories")
+    ((:superclasses document-directory)))
+
+(define-class-mapping
+    (document-subdirectory "document_class_subdirectories")
+    ((:superclasses document-class-directory))
+  (parent-directory (:many-to-one document-directory "parent_id")))
+
+(define-class-mapping (document "documents")
+    ((:primary-key "project_id" "id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (project (:many-to-one project "project_id"))
+  (parent-directory (:many-to-one document-directory "parent_id")))
+
+(define-class-mapping (document-registration "project_documents")
+    ((:primary-key "project_id" "document_id"))
+  (id (:value ("id" "uuid")))
+  (name (:value ("name" "varchar")))
+  (document (:many-to-one document "document_id"))
+  (files (:one-to-many document-file "document_id")))
+
+(define-class-mapping (document-file "document_files")
+    ((:primary-key "project_id" "document_id"
+		   "large_object_descriptor"))
+  (name (:value ("name" "varchar")))
+  (mime-type (:value ("mime_type" "varchar")))
+  (large-object-descriptor
+   (:value ("large_object_descriptor" "integer"))))
+
+(defmacro db-query (class-name (&key alias) &body body))
+
+(defmacro db-query (name parameters bindings options &body row))
+
+Structure of a Query
+
+Simple Expressions
+
+(db-query cat) => list all cats
+
+IList<Cat> cats =
+    session.QueryOver<Cat>()
+        .Where(c => c.Name == "Max")
+
+Macro:
+
+(db-query ((cat cat))
+    ((:where (:eq (name-of cat) "Max"))))
+
+Function:
+
+(make-query
+ (make-root 'cat :where (expression cats := #'name-of name)))
+
+(let ((cat (make-root 'cat)))
+  (make-query cat
+	      :where (expression := (value-of cats #'name-of) "Max")))
+
+Additional Restrictions
+
+var catNames = session.QueryOver<Cat>()
+        .WhereRestrictionOn(c => c.Age).IsBetween(2).And(8)
+        .Select(c => c.Name)
+        .OrderBy(c => c.Name).Asc
+        .List<string>();
+
+(db-query ((cat cat))
+    ((:where
+      (:between (age-of cat) 2 8))
+     (:order-by
+      ((name-of cat) :asc)))
+  (name-of cat))
+
+(make-query 'cat
+	    :select #'name-of
+	    :where (expression :betweenp #'age-of 2 8)
+	    :order-by (expression :asc #'name-of))
+
+(let* ((cat (make-root 'cat))
+       (name (make-alias cat #'name-of)))
+  (make-query cat
+	      :select name
+	      :order-by (asc name)
+	      :where (expression :betweenp
+				 (value-of cat #'age-of) 2 8)))
+
+var cats =
+    session.QueryOver<Cat>()
+        .Where(c => c.Name == "Max")
+        .And(c => c.Age > 4)
+        .List();
+
+(db-query ((cat cat))
+    ((:where
+      (:eq (name-of cat) "Max")
+      (:> (age-of cat) 4))))
+
+(let ((cat (make-root 'cat)))
+  (make-query cat
+	      :where (list
+		      (expression := (value-of cat #'name-of) "Max")
+		      (expression :> (value-of cat #'age-of) 2 8))))
+Associations
+
+IQueryOver<Cat,Kitten> catQuery =
+    session.QueryOver<Cat>()
+        .JoinQueryOver(c => c.Kittens)
+            .Where(k => k.Name == "Tiddles");
+
+(db-query ((cat cat)
+	   (kitten (kittens-of cat)))
+    ((:where (:eq (name-of kitten) "Tiddles"))))
+
+(let* ((cat (make-root 'cat))
+       (kitten (join-association cat #'kittens-of)))
+  (make-query (list cat kitten)
+	      :where (expression := (value-of #'name-of) "Tiddles")))
+
+=> (list cat kitten)
+
+(db-query ((cat cat)
+	   (kitten (kittens-of cat)))
+    ((:where (:eq (name-of kitten) "Tiddles")))
+  cat)
+
+(let* ((cat (make-root 'cat))
+       (kitten (join-association cat #'kittens-of)))
+  (make-query cat :where (expression := (value-of #'name-of)
+				     "Tiddles")))
+
+=> cats
+
+Aliases
+
+Cat catAlias = null;
+Kitten kittenAlias = null;
+
+IQueryOver<Cat,Cat> catQuery =
+    session.QueryOver<Cat>(() => catAlias)
+        .JoinAlias(() => catAlias.Kittens, () => kittenAlias)
+        .Where(() => catAlias.Age > 5)
+        .And(() => kittenAlias.Name == "Tiddles");
+
+(db-query ((cat cat)
+	   (kitten (kittens-of cat)))
+    ((:where
+      (:> (age-of cat) 5)
+      (:eq (name-of kitten) "Tiddles")))
+  cat)
+
+(let* ((cat (make-root 'cat))
+       (kitten (join-association cat #'kitten-of)))
+  (make-query cat :where (list
+			  (expression := (value-of cat #'age-of) 5)
+			  (expression := (value-of kitten #'name-of)
+				      "Tiddles"))))
+
+Projections
+
+IList selection =
+    session.QueryOver<Cat>()
+        .Select(
+            c => c.Name,
+            c => c.Age)
+        .List<object[]>();
+
+(db-query ((cat cat))
+    ()
+  (name-of cat)
+  (age-of cat))
+
+(let ((cat (make-root 'cat)))
+  (make-query (list (value-of cat #'name-of)
+		    (value-of cat #'age-of))))
+
+IList selection =
+    session.QueryOver<Cat>()
+        .Select(Projections.ProjectionList()
+            .Add(Projections.Property<Cat>(c => c.Name))
+            .Add(Projections.Avg<Cat>(c => c.Age)))
+        .List<object[]>();
+
+(db-query ((cat cat))
+    ()
+  (name-of cat)
+  (:avg #'age-of cat))
+
+(query 'cat :select (list #'name-of (expression :avg #'age-of)))
+
+(let* ((cat (make-root 'cat)))
+  (make-query (list (value-of #'name-of cats)
+		    (expression :avg (value-of cat #'age-of)))))
+
+Subqueries
+
+QueryOver<Cat> maximumAge =
+    QueryOver.Of<Cat>()
+        .SelectList(p => p.SelectMax(c => c.Age));
+
+IList<Cat> oldestCats =
+    session.QueryOver<Cat>()
+        .WithSubquery.WhereProperty(c => c.Age).Eq(maximumAge)
+        .List();
+
+(db-query ((cat cat)
+	   (maximum-age-cat cat))
+    ((:having
+      (:= (age-of cat)
+	  (:max (age-of maximum-age-cat)))))
+  cat)
+
+(let* ((cat (make-root 'cat))
+       (maximum-age-cat (make-root 'cat)))
+  (make-query cat :where
+	      (expression := (value-of cat #'age-of)
+			  (make-subquery
+			   (expression :max (slot-of maximum-age-cat
+						     #'age-of))))))
+
+or without subquery
+
+(let* ((cat (make-root 'cat))
+       (maximum-age-cat (make-root 'cat)))
+  (make-query cat :having
+	      (expression := (value-of cat #'age-of)
+			  (expression :max
+				      (value-of maximum-age-cat
+						#'age-of)))))
+
+Limit, offset
+
+(db-query ((cat cat)
+	   (maximum-age-cat cat))
+    ((:having
+      (:eq (age-of cat)
+	   (:max (age-of maximum-age-cat))))
+     (:limit 10)
+     (:offset 100))
+  cat)
+
+(make-query
+ (make-root 'cat) :limit 100 :offset 100))
+
+Fetching
+
+(db-query ((cat cat))
+    ((:fetch (cat #'kittens-of))))
+
+(db-query ((cat (cat 35))
+	   (kitten (kittens-of cat)))
+    ((:fetch (cat #'kittens-of)
+	     (kitten #'parents-of)))
+  cat)
+
+(query 'cat
+       :fetch #'kittens-of
+       :join (join-association #'kittens-of
+			       :fetch #'parents-of))
+
+Single instance
+
+(db-query ((cat (cat 35)))
+    ((:single t)))
+
+(let ((cat (make-root 'cat)))
+  (make-query cat :where (expression := (value-of cat #'id-of) 23)
+	      :fetch (fetch cat #'kittens)
+	      :single t))
+	      
 
 
 
-(define-class-mapping tasks-alteration
-    ("tasks_alterations" "project_id" "id")
-  (id (value ("id" "integer")))
-  (project (many-to-one project "project_id"))
-  (timestamp (value "date" "timestamp"))
-  (task-list-tree-node
-   (many-to-one task-list-tree-node
-		"project_id" "tasks_alteration_id")))
 
-(define-class-mapping task-list-tree-node
-    ("task-list-tree-node" "project_id" "id")
-  (id (value ("id" "integer")))
-  (project (many-to-one project "project_id"))
-  (key (value ("key" "integer")))
-  (value (many-to-one project-task "task_id"))
-  (left (many-to-one (or task-list-tree-node null)
-		     "project_id" "left_node_id"))
-  (right (many-to-one (or task-list-tree-node null)
-		      "project_id" "right_node_id")))
 
-(define-class-mapping plan-object ("plan_objects" "project_id" "id")
-  (id (value ("id" "integer")))
-  (project (many-to-one project "project_id"))
-  (name (value ("name" "varchar")))
-  (description (value ("description" "varchar")))
-  (child-objects (one-to-many plan-subobject "project_id" "plan_id")))
+----------------
 
-(define-class-mapping plan-subobject ("plan_subobjects" plan-object)
-  (parent-object (many-to-one plan-object "project_id" "id")))
-
-;;(define-subclass-mapping project-managment
-;;    ("project_managers"
-;;     (project "id")
-;;     (project-participation "project_id" "user_id")))
-
+(make-query 'cat
+	    
+	    :select (list #'name-of #'age-of)
+	    :where (expression := #'name-of "Max")
+	    :having (expression :< #'age-of (expression :avg #'age-of))

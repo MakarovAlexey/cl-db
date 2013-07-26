@@ -1,3 +1,6 @@
+;; implement (or class-name null) - type form
+;; implement type declaration for values
+
 (in-package #:cl-db)
 
 (defvar *mappings* (make-hash-table))

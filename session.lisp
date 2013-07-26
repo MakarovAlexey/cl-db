@@ -1,5 +1,7 @@
 (in-package #:cl-db)
 
+;; query language
+
 (defclass clos-session ()
   ((mappings :initarg :mappings
 	     :reader mappings-of)
@@ -7,15 +9,16 @@
 	       :reader connection-of)
    (loaded-objects :initarg :loaded-objects
 		   :reader loaded-objects-of)
-   (prepared-statement-number :initform 0
-			      :accessor prepared-statement-number-of)))
+   (prepared-statement-counter :initform 0
+			     :accessor prepared-statement-counter-of)))
 
-;; connection name parameters
 (defun prepare-statement (session query)
   (funcall
    (prepare-statement-function-of
     (configuration-of session))
    (connection-of session)
+   (format nil "prepaired_statement_~a"
+	   (incf (prepared-statement-counter-of session)))
    query))
 
 (defvar *session*)
@@ -28,6 +31,12 @@
 			&body body)
   `(call-with-session ,session #'(lambda () ,@body)))
 
+;; (defmacro db-query (bindings options &body row))
+;; bindings => from clause
+;; row => select list
+;; options => optional 
+
+;; connection name parameters
 (defclass joined-superclass ()
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
