@@ -14,20 +14,6 @@
 					 cl-postgres:alist-row-reader)))
   (:list-metadata #'cl-db:list-postgresql-metadata))
 
-(with-session () ;; or (with-session (projects)
-  (db-read :all 'project-manager
-	   :where #'(lambda (manager)
-		      (eq (login-of manager) "makarov"))
-	   :also-fetch #'project-of
-	   :order-by #'name-of))
-
-;;(list (where (query-over 'project)
-;;       #'(lambda (project)
-;;	   (eq project 1))))
-;;		       
-;;		   (
-;;	    :where (and-expression )
-
 ;; сделать db-read макросом? или оставить как функцию, а переделывать выражение в with-session?
 ;; осталось написать
 
@@ -83,14 +69,8 @@
 
 ;;(defun db-get (class-name &rest primary-key)
 
-;;
-
 ;;(with-session (*session*)
 ;;  (db-read :all 'project))
-
-
-
-
 
 ;;(defun db-find-all (session class &rest fetch) 
 ;;  (let* ((class-mapping (get-class-mapping session class))
@@ -376,15 +356,16 @@
   (large-object-descriptor
    (:value ("large_object_descriptor" "integer"))))
 
-(defmacro db-query (class-name (&key alias) &body body))
-
-(defmacro db-query (name parameters bindings options &body row))
-
 Structure of a Query
 
 Simple Expressions
 
 (db-query cat) => list all cats
+
+=>
+
+(load (make-loader 'cat)
+      (funcall (prepare "SELECT name, age FROM cats")))
 
 IList<Cat> cats =
     session.QueryOver<Cat>()
@@ -402,7 +383,7 @@ Function:
 
 (let ((cat (make-root 'cat)))
   (make-query cat
-	      :where (expression := (value-of cats #'name-of) "Max")))
+	      :where (expression := (slot-of cats #'name-of) "Max")))
 
 Additional Restrictions
 
@@ -430,7 +411,7 @@ var catNames = session.QueryOver<Cat>()
 	      :select name
 	      :order-by (asc name)
 	      :where (expression :betweenp
-				 (value-of cat #'age-of) 2 8)))
+				 (slot-of cat #'age-of) 2 8)))
 
 var cats =
     session.QueryOver<Cat>()
@@ -446,8 +427,8 @@ var cats =
 (let ((cat (make-root 'cat)))
   (make-query cat
 	      :where (list
-		      (expression := (value-of cat #'name-of) "Max")
-		      (expression :> (value-of cat #'age-of) 2 8))))
+		      (expression := (slot-of cat #'name-of) "Max")
+		      (expression :> (slot-of cat #'age-of) 2 8))))
 Associations
 
 IQueryOver<Cat,Kitten> catQuery =
@@ -462,7 +443,7 @@ IQueryOver<Cat,Kitten> catQuery =
 (let* ((cat (make-root 'cat))
        (kitten (join-association cat #'kittens-of)))
   (make-query (list cat kitten)
-	      :where (expression := (value-of #'name-of) "Tiddles")))
+	      :where (expression := (slot-of #'name-of) "Tiddles")))
 
 => (list cat kitten)
 
@@ -473,7 +454,7 @@ IQueryOver<Cat,Kitten> catQuery =
 
 (let* ((cat (make-root 'cat))
        (kitten (join-association cat #'kittens-of)))
-  (make-query cat :where (expression := (value-of #'name-of)
+  (make-query cat :where (expression := (slot-of #'name-of)
 				     "Tiddles")))
 
 => cats
@@ -499,8 +480,8 @@ IQueryOver<Cat,Cat> catQuery =
 (let* ((cat (make-root 'cat))
        (kitten (join-association cat #'kitten-of)))
   (make-query cat :where (list
-			  (expression := (value-of cat #'age-of) 5)
-			  (expression := (value-of kitten #'name-of)
+			  (expression := (slot-of cat #'age-of) 5)
+			  (expression := (slot-of kitten #'name-of)
 				      "Tiddles"))))
 
 Projections
@@ -518,8 +499,8 @@ IList selection =
   (age-of cat))
 
 (let ((cat (make-root 'cat)))
-  (make-query (list (value-of cat #'name-of)
-		    (value-of cat #'age-of))))
+  (make-query (list (slot-of cat #'name-of)
+		    (slot-of cat #'age-of))))
 
 IList selection =
     session.QueryOver<Cat>()
@@ -536,8 +517,8 @@ IList selection =
 (query 'cat :select (list #'name-of (expression :avg #'age-of)))
 
 (let* ((cat (make-root 'cat)))
-  (make-query (list (value-of #'name-of cats)
-		    (expression :avg (value-of cat #'age-of)))))
+  (make-query (list (slot-of #'name-of cats)
+		    (expression :avg (slot-of cat #'age-of)))))
 
 Subqueries
 
@@ -560,7 +541,7 @@ IList<Cat> oldestCats =
 (let* ((cat (make-root 'cat))
        (maximum-age-cat (make-root 'cat)))
   (make-query cat :where
-	      (expression := (value-of cat #'age-of)
+	      (expression := (slot-of cat #'age-of)
 			  (make-subquery
 			   (expression :max (slot-of maximum-age-cat
 						     #'age-of))))))
@@ -570,9 +551,9 @@ or without subquery
 (let* ((cat (make-root 'cat))
        (maximum-age-cat (make-root 'cat)))
   (make-query cat :having
-	      (expression := (value-of cat #'age-of)
+	      (expression := (slot-of cat #'age-of)
 			  (expression :max
-				      (value-of maximum-age-cat
+				      (slot-of maximum-age-cat
 						#'age-of)))))
 
 Limit, offset
@@ -611,14 +592,9 @@ Single instance
     ((:single t)))
 
 (let ((cat (make-root 'cat)))
-  (make-query cat :where (expression := (value-of cat #'id-of) 23)
+  (make-query cat :where (expression := (slot-of cat #'id-of) 23)
 	      :fetch (fetch cat #'kittens)
 	      :single t))
-	      
-
-
-
-
 
 ----------------
 
@@ -627,3 +603,52 @@ Single instance
 	    :select (list #'name-of #'age-of)
 	    :where (expression := #'name-of "Max")
 	    :having (expression :< #'age-of (expression :avg #'age-of))
+
+;; Criteria API
+
+ICriteria crit = sess.CreateCriteria(typeof(Cat));
+crit.SetMaxResults(50);
+List cats = crit.List();
+
+(db-list (make-query 'cat :limit 50))
+
+IList cats = sess.CreateCriteria(typeof(Cat))
+    .Add(Expression.Like("Name", "Fritz%"))
+    .Add(Expression.Between("Weight", minWeight, maxWeight))
+    .List();
+
+(db-list
+ (make-query 'cat :where (list
+			  (expression :like #'name-of "Fritz%")
+			  (expression :between #'weignt-of
+				      min-weight max-weight))))
+
+IList cats = sess.CreateCriteria(typeof(Cat))
+    .Add(Expression.Like("Name", "Fritz%"))
+    .Add(Expression.Or(
+        Expression.Eq("Age", 0),
+        Expression.IsNull("Age"))).List();
+
+(db-list
+ (make-query 'cat :where (list
+			  (expression :like #'name-of "Fritz%")
+			  (expression :or
+				      (expression :eq #'age-of 0)
+				      (expression :is-null #'age-of)))))
+
+IList cats = sess.CreateCriteria(typeof(Cat))
+    .Add( Expression.In( "Name", new String[] { "Fritz", "Izi", "Pk" } ) )
+    .Add( Expression.Disjunction()
+        .Add( Expression.IsNull("Age") )
+    	.Add( Expression.Eq("Age", 0 ) )
+    	.Add( Expression.Eq("Age", 1 ) )
+    	.Add( Expression.Eq("Age", 2 ) )
+    ) )
+    .List();
+
+(db-list
+ (make-query 'cat :where (list
+			  (expression :in #'name-of "Fritz", "Izi", "Pk")
+			  (expression :or
+				      (expression :eq #'age-of 0)
+				      (expression :is-null #'age-of)))))
