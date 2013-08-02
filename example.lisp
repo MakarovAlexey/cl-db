@@ -1,18 +1,31 @@
 (in-package #:cl-db)
 
-(define-configuration (projects test-mapping)
-    ((:default t)
-     (:update-schema t))
-  (:open-connection #'(lambda ()
-			(cl-postgres:open-database "projects"
-						   "makarov" "zxcvb"
-						   "localhost")))
-  (:close-connection #'cl-postgres:close-database)
-  (:prepare #'cl-postgres:prepare-query)
-  (:execute #'(lambda (connection name &rest params)
-	      (cl-postgres:exec-prepared connection name params
-					 cl-postgres:alist-row-reader)))
-  (:list-metadata #'cl-db:list-postgresql-metadata))
+:define-mapping-schema - определяем схему
+:use-mapping-schema - переключаемся на текущую схему отображения
+:make-configuration
+:with-session
+Контекст для работы с объектами из БД.
+:db-persist
+:db-remove
+:db-query
+Макрос для запросов объектов из БД.
+Содержит механизм ленивой компиляции отображения.
+Сам компилируется в вызов обращения к БД с запросом и 
+создание объекта-загрузчика результата.
+
+
+(setf cl-db:*default-configuration*
+      (make-configuration
+       :open-connection #'(lambda ()
+			    (cl-postgres:open-database "projects"
+						       "makarov" "zxcvb"
+						       "localhost"))
+       :close-connection #'cl-postgres:close-database
+       :prepare #'cl-postgres:prepare-query
+       :execute #'(lambda (connection name &rest params)
+		    (cl-postgres:exec-prepared connection name params
+					       cl-postgres:alist-row-reader))
+       :list-metadata #'cl-db:list-postgresql-metadata))
 
 ;; сделать db-read макросом? или оставить как функцию, а переделывать выражение в with-session?
 ;; осталось написать
@@ -364,8 +377,11 @@ Simple Expressions
 
 =>
 
-(load (make-loader 'cat)
-      (funcall (prepare "SELECT name, age FROM cats")))
+(let ((cat (make-root 'cat mapping-schema)))
+  (db-list cat))
+
+(with-session (:mapping mapping-name :configuration session-config)
+  (db-query cat))
 
 IList<Cat> cats =
     session.QueryOver<Cat>()
@@ -588,13 +604,64 @@ Fetching
 
 Single instance
 
-(db-query ((cat (cat 35)))
-    ((:single t)))
+(db-query ((cat cat))
+    ((:where (:eq (id-of cat) 35))
+     (:single t)))
+
+Проблема рекурсивных ключей. Идентификатор объекта не может идентифицироваться в дереве своим родителем.
+В противном случае нуобходимо рекурсиное построение запроса.
+
+If PK (user id and project id)
+
+(db-query ((project-manager project-manager)
+	   (project (project-of project-manager))
+	   (user (user-of project-manager)))
+    ((:single t)
+     (:where
+      (:eq (id-of user) 1)
+      (:eq (id-of project) 1)))
+  project-manager)
+
+;; select roots only?
+
+(db-query ((project-manager project-manager)
+	   (project (project-of project-manager))
+	   (user (user-of project-manager)))
+  (:select project-manager)
+  (:single t)
+  (:where
+   (:eq (id-of user) 1)
+   (:eq (id-of project) 1))))
+
+(let* ((project-manager (make-root 'project-manager))
+       (project (join-association project-manager #'project-of))
+       (user (join-association project-manager #'user-of)))
+  (make-query (list project-manager project user)
+	      
+
+(defmacro db-query (bindings &body clauses)
+  (
+
+(load
+ () <- loader
+ (execute
+  (ensure-prepared session
+		   "SELECT t_1.project_id, t_1.user_id
+   FROM project_managers as t_1
+  INNER JOIN projects as t_2
+     ON t_1.project_id = t_2.id
+  INNER JOIN users as t_3
+     ON t_1.user_id = t_3.user_id
+  WHERE t_2.id = $1
+    AND t_3.id = $2")
+ 1 1)
+
+----------------
 
 (let ((cat (make-root 'cat)))
-  (make-query cat :where (expression := (slot-of cat #'id-of) 23)
+  (make-query cat :single t
 	      :fetch (fetch cat #'kittens)
-	      :single t))
+	      :where (expression := (slot-of cat #'id-of) 23)))
 
 ----------------
 
@@ -650,5 +717,43 @@ IList cats = sess.CreateCriteria(typeof(Cat))
  (make-query 'cat :where (list
 			  (expression :in #'name-of "Fritz", "Izi", "Pk")
 			  (expression :or
-				      (expression :eq #'age-of 0)
-				      (expression :is-null #'age-of)))))
+				      (expression 'eq #'age-of 0)
+				      (expression 'null #'age-of)))))
+
+
+;; биарные операции применимы только для значений схожего типа
+;; унарные применимы только для одного значения или выражения
+;; таким образом возможно построение совокупности операций для стобцов
+Expressions
+
+(define-expression (:eq) (column-name column-name) ;; ???
+  (format "\{ ~a+ \}" obj1 obj2)))
+
+(define-expression :+ (&rest expressions)
+  (format "\{ ~a+ \}" expressions))
+
+(define-expression :sum (column)
+  (format "sum(~a)" column))
+
+
+;;;;
+
+Form:
+
+(db-query ((cat cat)
+	   (kitten (kittens-of cat)))
+  (:select cat kitten
+	   (- (age-of cat)
+	      (age-of kitten))))
+
+Expand into:
+
+(let ((cat (make-root 'cat))
+      (kitten (join-reference cat #'kittens-of)))
+  (make-query
+   (list cat kitten
+	 (expression :-
+		     (property cat #'age-of)
+		     (property kitten #'age-of)))))
+		     
+

@@ -12,8 +12,8 @@
   :serial t
   :components ((:file "package")
 	       (:file "cl-db")
-	       (:file "mapping-dsl")
-	       (:file "session")))
+	       (:file "mapping-dsl")))
+	       ;;(:file "session")))
 
 (asdf:defsystem #:cl-db.tests
   :serial t

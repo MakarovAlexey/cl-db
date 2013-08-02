@@ -2,12 +2,10 @@
 
 (defpackage #:cl-db
   (:use #:closer-common-lisp)
-  (:export :table :column :foreign-key
-	   :map-class
-	   :map-slot
-	   :value
-	   :one-to-many
-	   :many-to-one
-	   :make-clos-session
-	   :with-session))
-
+  (:export :*default-configuration*
+	   :define-mapping-schema
+	   :use-mapping-schema
+	   :with-session
+	   :db-persist
+	   :db-remove
+	   :db-query))
