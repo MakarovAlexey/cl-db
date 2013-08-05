@@ -429,12 +429,13 @@
 (defun compile-reference-mapping (mapping-type fk-name mapping)
   (with-slots (slot-name columns mapped-class marshaller unmarshaller)
       mapping
-    `(make-instance (quote ,mapping-type)
-		    :slot-name (quote ,slot-name)
-		    :class-mapping ,(get-class-mapping-name mapped-class)
-		    :foreign-key ,fk-name
-		    :marshaller ,marshaller
-		    :unmarshaller ,unmarshaller)))
+    `(cons (quote ,slot-name)
+	   (make-instance (quote ,mapping-type)
+			  :slot-name (quote ,slot-name)
+			  :class-mapping ,(get-class-mapping-name mapped-class)
+			  :foreign-key ,fk-name
+			  :marshaller ,marshaller
+			  :unmarshaller ,unmarshaller))))
 
 (defun compile-reference-mappings (class-mapping-definition)
   (let ((mapped-class
@@ -443,31 +444,32 @@
 	 (get-class-mapping-name
 	  (mapped-class-of class-mapping-definition))))
     `((reference-mappings-of ,class-mapping-bind-name)
-      (list
-       ,@(mapcar #'(lambda(mapping)
-		     (let ((one-to-many-mapping
-			    (get-one-to-many-mapping mapped-class mapping)))
-		       (compile-reference-mapping
-			'many-to-one-mapping
-			(make-foreign-key-symbol
-			 (if (not (null one-to-many-mapping))
-			     (make-one-to-many-foreign-key-name
-			      (find-class-mapping (mapped-class-of mapping))
-			      one-to-many-mapping)
-			     (make-many-to-one-foreign-key-name
-			      class-mapping-definition
-			      mapping)))
-			mapping)))
-		 (many-to-one-mappings-of class-mapping-definition))
-       ,@(mapcar #'(lambda(mapping)
-		     (compile-reference-mapping
-		      'one-to-many-mapping
-		      (make-foreign-key-symbol
-		       (make-one-to-many-foreign-key-name
-			class-mapping-definition
-			mapping))
-		      mapping))
-		 (one-to-many-mappings-of class-mapping-definition))))))
+      (alexandria:alist-hash-table
+       (list
+	,@(mapcar #'(lambda(mapping)
+		      (let ((one-to-many-mapping
+			     (get-one-to-many-mapping mapped-class mapping)))
+			(compile-reference-mapping
+			 'many-to-one-mapping
+			 (make-foreign-key-symbol
+			  (if (not (null one-to-many-mapping))
+			      (make-one-to-many-foreign-key-name
+			       (find-class-mapping (mapped-class-of mapping))
+			       one-to-many-mapping)
+			      (make-many-to-one-foreign-key-name
+			       class-mapping-definition
+			       mapping)))
+			 mapping)))
+		  (many-to-one-mappings-of class-mapping-definition))
+	,@(mapcar #'(lambda(mapping)
+		      (compile-reference-mapping
+		       'one-to-many-mapping
+		       (make-foreign-key-symbol
+			(make-one-to-many-foreign-key-name
+			 class-mapping-definition
+			 mapping))
+		       mapping))
+		  (one-to-many-mappings-of class-mapping-definition)))))))
 
 (defun compile-superclass-mappings (subclass-mapping-definition)
   `((superclasses-mappings-of

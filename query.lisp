@@ -1,13 +1,10 @@
 (in-package #:cl-db)
 
-(defclass binding ()
-  ())
-
-(defclass root-binding (binding)
+(defclass root-binding ()
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)))
 
-(defclass reference-binding (binding)
+(defclass reference-binding ()
   ((parent-binding :initarg :parent-binding
 		   :reader parent-binding-of)
    (reference-mapping :initarg :reference-mapping
@@ -22,6 +19,113 @@
 		    :reader expression-type-of)
    (arguments :initarg :arguments
 	      :reader arguments-of)))
+
+(defclass root-binding-mapping ()
+  )
+
+(defclass reference-binding-mapping ()
+  )
+
+(defun bind-root (class-name &optional
+		  (mapping-schema *mapping-schema*))
+  (make-instance 'root-binding
+		 :class-mapping (get-class-mapping
+				 (find-class class-name)
+				 mapping-schema)))
+
+(defun bind-reference (parent-binding accessor)
+  (make-instance 'reference-binding
+		 :parent-binding parent-binding
+		 :reference-mapping (get-reference-mapping
+				     (class-mapping-of parent-binding)
+				     accessor)))
+
+(defgeneric append-root-bindings (root-bindings select-items))
+
+(defmethod append-root-bindings (root-bindings (select-items list))
+  (reduce #'append-root-bindings select-items
+	  :initial-value root-bindings))
+
+(defmethod append-root-bindings (root-bindings (binding root-binding))
+  (list* binding root-bindings))
+
+(defmethod append-root-bindings (root-bindings (binding reference-binding))
+  (append-root-bindings root-bindings (parent-binding-of binding)))
+
+(defmethod append-root-bindings (root-bindings (value value))
+  (append-root-bindings root-bindings (parent-binding-of value)))
+
+(defmethod append-root-bindings (root-bindings (expression expression))
+  (append-root-bindings root-bindings (arguments-of expression)))
+
+(defun list-root-bindings (&rest select-items)
+  (remove-duplicates
+   (append-root-bindings (list) select-items)))
+
+(defgeneric append-reference-bindings (reference-bindings select-items))
+
+(defmethod append-reference-bindings (reference-bindings
+				      (select-items list))
+  (reduce #'append-reference-bindings select-items
+	  :initial-value reference-bindings))
+
+(defmethod append-reference-bindings (reference-bindings
+				      (binding root-binding))
+  nil)
+
+(defmethod append-reference-bindings (reference-bindings
+				      (binding reference-binding))
+  (list* binding reference-bindings))
+
+(defmethod append-reference-bindings (reference-bindings (value value))
+  (append-reference-bindings reference-bindings
+			     (parent-binding-of value)))
+
+(defmethod append-reference-bindings (reference-bindings
+				      (expression expression))
+  (append-reference-bindings reference-bindings
+			     (arguments-of expression)))
+
+(defun list-reference-bindings (&rest select-items)
+  (remove-duplicates
+   (append-reference-bindings (list) select-items)))
+
+(defun find-reference-bindings (binding &rest reference-bindings)
+  (remove binding reference-bindings
+	  :key #'parent-binding-of :test-not #'eq))
+
+(defun make-query-mapping (binding &rest reference-bindings)
+  (make-instance 'query-mapping :binding binding
+		 :reference-mappings 
+		 (mapcar #'(lambda (binding)
+			     (apply #'make-query-mapping
+				    binding
+				    reference-bindings))
+			 (apply #'find-reference-bindings
+				binding reference-bindings))))
+
+(defun make-query (select-list)
+  (let* ((root-bindings (apply #'list-root-bindings select-items))
+	 (reference-bindings (apply #'list-reference-bindings
+				    select-items))
+	 (query-mappings (mapcar #'(lambda (root-binding)
+				     (apply #'make-query-mapping
+					    root-binding
+					    reference-bindings))
+				 root-bindings))
+	 (
+    
+    ( (make-loaders e-loader select-list)))
+    (
+
+=> make-loaders
+
+(defun sql-query (query)
+  ("SELECT"
+   (select-list-of query)
+   "FROM"
+   (tquery-mappings-of query)
+
 
 ;; у любого выражения (expression) загружается только результат - значение
 ;; у любого связывания (binding), объхекта или ассоциций загружается объект
@@ -106,44 +210,15 @@
 		 :reference-binding binding
 		 :parent-loader (ensure-loader (parent-
 
-(defgeneric append-bindings (bindings-list select-items))
 
-(defmethod append-bindings ((bindings-list select-items))
-  (reduce #'append-bindings select-items
-	  :initial-value bindings-list))
 
-(defmethod append-bindings (bindings-list (binding binding))
-  (list* binding bindings-list))
 
-(defmethod append-bindings (bindings-list (value value))
-  (list* (binding-of value) bindings-list))
-
-(defmethod append-bindings (bindings-list (expression expression))
-  (append-bindings bindings-list (arguments-of expression)))
-
-(defun list-bindings (&rest select-items)
-  (remove-duplicates
-   (append-bindings (list) select-items)))
-
-(defun make-query-mappings (&rest select-items)
-  (mapcar #'(lambda (root-binding)
-	      (let ((reference-bindings
-		     (apply #'list-reference-bindings root-binding
-			    select-items)))
-		(make-instance 'query-mapping
-			       :binding root-binding
-			       :reference-binings reference-bindings)))
-	  (apply #'list-root-bindings select-items)))
 
 
 	     
   
 
-(defun make-query (select-list)
-  (let* ((bindings (apply #'make-query-mappings select-list)))
 
-	 (loaders (make-loaders e-loader select-list)))
-    (
     
 
 
@@ -249,4 +324,6 @@
 
 ;; (db-persist object)
 ;; (db-remove object)
+
+
 

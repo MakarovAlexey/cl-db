@@ -68,7 +68,9 @@
     (user (:many-to-one user "user_id")))
   
   (define-class-mapping (project-manager "project_managers")
-      ((:superclasses project-member))))
+      ((:superclasses project-member)))
+
+  (compile-mapping test-mapping))
 
 (lift:deftestsuite compilation ()
   ())
@@ -103,3 +105,13 @@
    (length (apply #'compile-reference-foreign-keys
 		  (list-class-mappings)))
    3))
+
+(lift:addtest getting-reference
+  (lift:ensure
+   (bind-reference (bind-root 'project) #'project-members-of)))
+
+(lift:deftestsuite query ()
+  ((mapping-shema (test-mapping)))
+  (:test (lift:ensure (bind-root 'project mapping-schema)))
+  (:test (bind-reference (bind-root 'project) #'project-members-of)))
+

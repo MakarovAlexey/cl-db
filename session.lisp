@@ -1,5 +1,7 @@
 (in-package #:cl-db)
 
+(defvar *mapping-schema*)
+
 (defvar *default-configuration*)
 
 (defclass mapping-configuration ()
@@ -30,7 +32,7 @@
    (loaded-objects :initarg :loaded-objects
 		   :reader loaded-objects-of)
    (prepared-statement-counter :initform 0
-			     :accessor prepared-statement-counter-of)))
+			       :accessor prepared-statement-counter-of)))
 
 (defun prepare-statement (session query)
   (funcall

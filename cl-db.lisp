@@ -102,12 +102,31 @@
     (with-slots (class-mappings) instance
       (setf class-mappings mappings-table))))
 
-(defun get-mapping (mapped-class mapping-schema)
+(defun get-class-mapping (mapped-class mapping-schema)
   (multiple-value-bind (mapping present-p)
       (gethash mapped-class (class-mappings-of mapping-schema))
     (if (not present-p)
 	(error "Mapping for class ~a not found" mapped-class)
 	mapping)))
+
+(defun get-slot-name (class reader)
+  (let ((reader-name (generic-function-name reader)))
+    (loop for slot in (class-slots class)
+       when (find reader-name (slot-definition-readers slot))
+       return (slot-definition-name slot)
+       finally (error "Slot for reader ~a not found" reader-name))))
+
+(defun get-reference-mapping (class-mapping reference-reader)
+  (multiple-value-bind (reference-mapping presentp)
+      (gethash
+       (get-slot-name (mapped-class-of class-mapping)
+		      reference-reader)
+       (reference-mappings-of class-mapping))
+    (if (not presentp)
+	(error "Mapped reference for accessor ~a not found"
+	       reference-reader)
+	reference-mapping)))
+
 
 ;;(defclass association (foreign-key-mapping)
 ;;  ())
