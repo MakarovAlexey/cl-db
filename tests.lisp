@@ -28,6 +28,13 @@
 (defclass project-manager (project-member)
   ())
 
+(defvar *mapping*
+  (make-mapping-schema
+   (make-instance 'class-mapping-definition
+		  :mapped-class (find-class 'project)
+		  :primary-key (list "id")
+		  :slots (list))))
+
 (eval-when (:load-toplevel :execute)
   (define-mapping test-mapping)
   

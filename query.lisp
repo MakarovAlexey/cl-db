@@ -20,11 +20,64 @@
    (arguments :initarg :arguments
 	      :reader arguments-of)))
 
-(defclass root-binding-mapping ()
-  )
+(defclass table-reference ()
+  ((table :initarg :table :reader table-of)
+   (joins :initarg :joins :reader joins-of)
+   (references :initarg :references :reader references-of)
+   (slot-accesses :initarg :slot-accesses :reader slot-accesses-of)
+   (expressions :initarg :expressions :reader expressions-of)))
 
-(defclass reference-binding-mapping ()
-  )
+(defclass join (table-reference)
+  ((join-columns :initarg :on :reader join-columns-of)))
+
+(defclass inner-join (join)
+  ())
+
+(defclass left-join (join)
+  ())
+
+Собираем информацию о данных участвующих в запросе. Строим query-info.
+
+Затем создаем структуру запроса отражая связи между таблицами
+(table-reference). Попутно указываем ссылки и выражения на основе
+которых создана связь.
+
+Анализ связей для загрузочников объектов.
+ 
+В таком случае, при загрузке ассоциаций вместе с объектами некоторой
+иерархии. Загрузка ассоциации будет проводиться по свом объекдинениям
+таблиц, а сам класс по своим.
+
+Необходимо реализовать возможность использования таблиц иерархии
+наследования для обращений к значениям слотов и ассоциациям.
+
+Таким образом в запросах не будет избыточного количества объединений
+таблиц.
+
+Поэтому, query-node суперкласс иерархии подклассами которой будет
+структура запроса в каноническом виде - от корня к листям
+(в противоположность переданных в запрос выражения в обычном виде, от
+листьев к корням). Данный граф можно будет использовать для генерации 
+всех частей запроса (FROM, WHERE, ORDER BY, HAVING) и для загрузки
+результатов запроса (select list loaders).
+
+Подклассы: object-loader, value-access-loader,
+expression-result-loader.
+
+NB: данные подклассы используются только для отметки мест загрузки
+результата (select list).
+
+****
+
+Создаем query-loader. Здесь, root-bindings и refrence-bindings,
+как связующие звенья, снимаются и предстают в виде отношений таблиц.
+Ссылки на них могут остаться только, как резултат. Здесь отношения
+таблиц можно переводить в SQL как выражение "FROM". Осталось создать
+загрузочники для select-list.
+
+Для этого необходимо собрать загружаему информацию по дереву.
+Делается это обходом дерева до нижнего уровня.
+В ходе этого необходимо собрать информацию о таблицах ... какую информацию и в какой форме?
 
 (defun bind-root (class-name &optional
 		  (mapping-schema *mapping-schema*))
@@ -40,59 +93,86 @@
 				     (class-mapping-of parent-binding)
 				     accessor)))
 
-(defgeneric append-root-bindings (root-bindings select-items))
+(defclass query-info ()
+  ((roots :initarg :roots :accessor roots-of)
+   (references :initarg :references :accessor references-of)
+   (expressions :initarg :expressions :accessor expressions-of)
+   (values-access :initarg :values-access :accessor values-access-of)))
 
-(defmethod append-root-bindings (root-bindings (select-items list))
-  (reduce #'append-root-bindings select-items
-	  :initial-value root-bindings))
+(defun accumulate (query-info &key root reference expression value-access)
+  (with-accessors ((roots roots-of)
+		   (references references-of)
+		   (expression expressions-of)
+		   (values-access values-access-of))
+      query-info
+    (make-instance 'query-info
+		   :roots (list* root roots)
+		   :values-access (list* value-access values-access)
+		   :references (list* reference references)
+		   :expression (list* expression expressions))))
 
-(defmethod append-root-bindings (root-bindings (binding root-binding))
-  (list* binding root-bindings))
+(defun append-accumulated (&rest query-info)
+  (make-instance 'query-info
+		 :roots (reduce #'append query-info
+				:key #'roots-of)
+		 :references (reduce #'append query-info
+				     :key #'references-of)
+		 :expressions (reduce #'append query-info
+				      :key #'expressions-of)
+		 :values-access (reduce #'append query-info
+					:key #'values-access-of)))
 
-(defmethod append-root-bindings (root-bindings (binding reference-binding))
-  (append-root-bindings root-bindings (parent-binding-of binding)))
+(defgeneric visit (instance visitor))
 
-(defmethod append-root-bindings (root-bindings (value value))
-  (append-root-bindings root-bindings (parent-binding-of value)))
+(defmethod visit ((instance root-binding)
+		  &optional (visitor (make-query-info)))
+  (accumulate visitor :root instance))
 
-(defmethod append-root-bindings (root-bindings (expression expression))
-  (append-root-bindings root-bindings (arguments-of expression)))
+(defmethod visit ((instance reference-binding)
+		  &optional (visitor (make-query-info)))
+  (visit (parent-binding-of instance)
+	 (accumulate visitor :reference instance)))
 
-(defun list-root-bindings (&rest select-items)
-  (remove-duplicates
-   (append-root-bindings (list) select-items)))
+(defmethod visit ((instance value-access)
+		  &optional (visitor (make-query-info)))
+  (visit (parent-binding-of value)
+	 (accumulate visitor :value-access instance)))
 
-(defgeneric append-reference-bindings (reference-bindings select-items))
+(defmethod visit ((instance expression)
+		  &optional (visitor (make-query-info)))
+  (apply #'append-accumulated
+	 (accumulate visitor :expression instance)
+	 (mapcar #'visit (arguments-of expression))))
 
-(defmethod append-reference-bindings (reference-bindings
-				      (select-items list))
-  (reduce #'append-reference-bindings select-items
-	  :initial-value reference-bindings))
+(defun make-query-info (select-list where-clause
+			order-by-clause having-clause)
+  (apply #'append-accumulated
+	 (append
+	  (mapcar #'visit select-items)
+	  (mapcar #'visit where-clause)
+	  (mapcar #'visit order-by-clause)
+	  (mapcar #'visit having-clause))))
 
-(defmethod append-reference-bindings (reference-bindings
-				      (binding root-binding))
-  nil)
-
-(defmethod append-reference-bindings (reference-bindings
-				      (binding reference-binding))
-  (list* binding reference-bindings))
-
-(defmethod append-reference-bindings (reference-bindings (value value))
-  (append-reference-bindings reference-bindings
-			     (parent-binding-of value)))
-
-(defmethod append-reference-bindings (reference-bindings
-				      (expression expression))
-  (append-reference-bindings reference-bindings
-			     (arguments-of expression)))
-
-(defun list-reference-bindings (&rest select-items)
-  (remove-duplicates
-   (append-reference-bindings (list) select-items)))
-
-(defun find-reference-bindings (binding &rest reference-bindings)
-  (remove binding reference-bindings
-	  :key #'parent-binding-of :test-not #'eq))
+(defun make-query-path (select-list where-clause
+			order-by-clause having-clause)
+  (let ((root-bindings
+	 (list-root-bindings select-list where-clause
+			     order-by-clause having-clause))
+	(reference-bindings
+	 (list-reference-bindings select-list where-clause
+				  order-by-clause having-clause))
+	(slots-access
+	 (list-slots-access select-list where-clause
+			    order-by-clause having-clause))
+	(expressions
+	 (list-expressions select-list where-clause
+			   order-by-clause having-clause)))
+    (mapcar #'(lambda (root-binding)
+		(make-query-path-node root-binding
+				      reference-bindings
+				      slots-access
+				      expressions))
+	    root-bindings)))
 
 (defun make-query-mapping (binding &rest reference-bindings)
   (make-instance 'query-mapping :binding binding
@@ -104,15 +184,40 @@
 			 (apply #'find-reference-bindings
 				binding reference-bindings))))
 
-(defun make-query (select-list)
-  (let* ((root-bindings (apply #'list-root-bindings select-items))
-	 (reference-bindings (apply #'list-reference-bindings
-				    select-items))
-	 (query-mappings (mapcar #'(lambda (root-binding)
-				     (apply #'make-query-mapping
-					    root-binding
-					    reference-bindings))
-				 root-bindings))
+;; 1) полиморфные запросы - вычисление таблиц и связей до подклассов
+;;    если такоевые указаны.
+;; 2) вычисление таблиц и связей необходимых только для загрузки 
+;;    указанного в спеске выбора
+
+
+
+;; Для анализа таблиц и связей необходимо локализовать оборащения из
+;; выражений из select-list where having order-by в
+;; дерево отображения root-mappings
+
+;; Это даст возможность определить таблицы и их связи для формирования FROM-выражения
+
+; аналог FROM содержится в select-list как корневые объекты для запроса
+;; локализовать условия из  в дерево?
+	 
+(defun make-query (select-list &key where order-by having
+		   limit offset singlep)
+  (let ((root-mappings
+	 (make-root-mappings select-list where order-by having)))
+    (make-instance 'db-query
+		   :root-mappings root-mappings
+		   :select-items (mapcar #'(lambda (select-item)
+					     (apply #'make-select-item
+						    select-item
+						    root-mappings))
+					select-list)
+		   :where
+		   :having
+		   :order-by
+
+
+		   
+		    
 	 (
     
     ( (make-loaders e-loader select-list)))

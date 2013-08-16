@@ -40,43 +40,6 @@
 (define-condition class-mapping-redefinition (style-warning)
   ((mapped-class :initarg :mapped-class :reader mapped-class)))
 
-(defclass class-mapping-definition ()
-  ((mapped-class :initarg :mapped-class
-		 :reader mapped-class-of)
-   (table-name :initarg :table-name
-	       :reader table-name-of)
-   (primary-key :initarg :primary-key
-		:reader primary-key-of)
-   (superclasses :initarg :superclasses
-		 :reader superclasses-of)
-   (value-mappings :initarg :value-mappings
-		   :reader value-mappings-of)
-   (many-to-one-mappings :initarg :many-to-one-mappings
-			 :reader many-to-one-mappings-of)
-   (one-to-many-mappings :initarg :one-to-many-mappings
-			 :reader one-to-many-mappings-of)))
-
-(defclass slot-mapping-definition ()
-  ((slot-name :initarg :slot-name :reader slot-name-of)
-   (columns :initarg :columns :reader columns-of)
-   (unmarshaller :initarg :unmarshaller :reader unmarshaller-of)
-   (marshaller :initarg :marshaller :reader marshaller-of)))
-
-(defclass value-mapping-definition
-    (slot-mapping-definition)
-  ())
-
-(defclass reference-mapping-definition (slot-mapping-definition)
-  ((mapped-class :initarg :mapped-class :reader mapped-class-of)))
-
-(defclass many-to-one-mapping-definition
-    (reference-mapping-definition)
-  ())
-
-(defclass one-to-many-mapping-definition
-    (reference-mapping-definition)
-  ())
-
 (defun reference-class-mapping (reference-mapping)
   (find-class-mapping (mapped-class-of reference-mapping)))
 

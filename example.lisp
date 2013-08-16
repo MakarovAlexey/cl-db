@@ -757,3 +757,12 @@ Expand into:
 		     (property kitten #'age-of)))))
 		     
 
+(let ((project-mapping
+       (map-class 'project (list "id")
+		  (map-value 'id (column "id" "uuid"))))
+      (user-mapping
+       (map-class 'user (list "id")
+		  (map-value 'id (column "id" "uuid"))))
+      (project-member-mapping
+       (map-subclass 'project-member (list "user_id" "prject_id")
+		  (map-value
