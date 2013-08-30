@@ -21,11 +21,11 @@
    (project-members :initarg :project-members
 		    :accessor project-members-of)))
 
-(defclass project-member ()
+(defclass project-participation ()
   ((project :initarg :project :reader project-of)
    (user :initarg :user :reader user-of)))
 
-(defclass project-manager (project-member)
+(defclass project-managment (project-participation)
   ())
 
 (defvar *mapping*

@@ -17,8 +17,12 @@
 		:reader primary-key-of)
    (superclasses :initarg :superclasses
 		 :reader superclasses-of)
-   (slot-mappings :initarg :slot-mappings
-		  :reader slot-mappings-of)))
+   (value-mappings :initarg :value-mappings
+		   :reader value-mappings-of)
+   (many-to-one-mappings :initarg :many-to-one-mappings
+			 :reader many-to-one-mappings-of)
+   (one-to-many-mappings :initarg :one-to-many-mappings
+			 :reader one-to-many-mappings-of)))
 
 (defclass slot-mapping-definition ()
   ((slot-name :initarg :slot-name
@@ -206,16 +210,14 @@
 (defun get-column-type (column-name class-mapping-definition)
   (let ((column-type
 	 (loop for slot-mapping-definition
-	    in (slot-mappings-of class-mapping-definition)
-	    thereis (and
-		     (value-mapping-p slot-mapping-definition)
-		     (find-column-type column-name slot-mapping-definition)))))
+	    in (value-mappings-of class-mapping-definition)
+	    thereis (and (find-column-type column-name
+					   slot-mapping-definition)))))
     (if (null column-type)
 	(loop for slot-mapping-definition
-	   in (slot-mappings-of class-mapping-definition)
-	   thereis (and
-		    (many-to-one-mapping-p slot-mapping-definition)
-		    (find-column-type column-name slot-mapping-definition)))
+	   in (many-to-one-mappings-of class-mapping-definition)
+	   thereis (and (find-column-type column-name
+					  slot-mapping-definition)))
 	column-type)))
 
 (defun get-reference-column-type (column-position mapped-class)
@@ -234,15 +236,13 @@
 
 (defun get-value-mapping-columns (class-mapping-definition)
   (loop for slot-mapping-definition
-     in (slot-mappings-of class-mapping-definition)
-     when (value-mapping-p slot-mapping-definition)
+     in (value-mappings-of class-mapping-definition)
      append (columns-of slot-mapping-definition)))
 
 (defun get-many-to-one-columns (class-mapping-definition)
   (loop for slot-mapping-definition
-     in (slot-mappings-of class-mapping-definition)
+     in (many-to-one-mappings-of class-mapping-definition)
      for columns = (columns-of slot-mapping-definition)
-     when (many-to-one-mapping-p slot-mapping-definition)
      append (mapcar #'(lambda (column-name)
 			(make-instance 'column :name column-name
 				       :sql-type
@@ -258,9 +258,8 @@
     (loop for class-mapping-definition in class-mapping-definitions
        append
 	 (loop for slot-mapping-definition
-	    in (slot-mappings-of class-mapping-definition)
+	    in (one-to-many-mappings-of class-mapping-definition)
 	    for columns = (columns-of slot-mapping-definition)
-	    when (one-to-many-mapping-p slot-mapping-definition)
 	    when (eq mapped-class
 		     (mapped-class-of slot-mapping-definition))
 	    append (mapcar #'(lambda(column-name)
@@ -306,15 +305,8 @@
 			     (mapped-class-of class-mapping-definition)))
 	  class-mapping-definitions))
 
-(defgeneric make-association (slot-mapping-definition class-mapping-definition))
-
-(defmethod make-asociation ((slot-mapping-definition value-mapping-definition)
-			    class-mapping-definition)
-  (declare (ignore slot-mapping-definition class-mapping-definition))
-  nil)
-
-(defmethod make-association ((slot-mapping-definition many-to-one-mapping-definition)
-			     class-mapping-definition)
+(defun make-one-to-many-association (slot-mapping-definition
+				     class-mapping-definition)
   (let* ((many-to-one (get-class-mapping
 		       (mapped-class-of class-mapping-definition)))
 	 (table (table-of many-to-one)))
@@ -326,8 +318,8 @@
 					(get-column column-name table))
 				    (columns-of slot-mapping-definition)))))
 
-(defmethod make-association ((slot-mapping-definition one-to-many-mapping-definition)
-			     class-mapping-definition)
+(defun make-many-to-one-association (slot-mapping-definition
+				     class-mapping-definition)
   (let* ((many-to-one (get-class-mapping
 		       (mapped-class-of slot-mapping-definition)))
 	 (table (table-of many-to-one)))
@@ -340,11 +332,19 @@
 				    (columns-of slot-mapping-definition)))))
 
 (defun make-associations (class-mapping-definition)
-  (loop for slot-mapping
-     in (slot-mappings-of class-mapping-definition)
-     for association = (make-association slot-mapping class-mapping-definition)
+  (append
+   (loop for slot-mapping
+      in (many-to-one-mappings-of class-mapping-definition)
+      for association = (make-many-to-one-association slot-mapping
+						      class-mapping-definition)
      when (not (null association))
-     collect association))
+      collect association)
+   (loop for slot-mapping
+      in (one-to-many-mappings-of class-mapping-definition)
+      for association = (make-one-to-many-association slot-mapping
+						      class-mapping-definition)
+      when (not (null association))
+      collect association)))
 
 (defun compute-associations (class-mapping-definitions)
   (remove-duplicates
@@ -421,8 +421,7 @@
 (defun compute-value-mappings (class-mapping-definition path)
   (let ((table (get-table (table-name-of class-mapping-definition))))
     (loop for slot-mapping-definition
-       in (slot-mappings-of class-mapping-definition)
-       when (value-mapping-p slot-mapping-definition)
+       in (value-mappings-of class-mapping-definition)
        collect (with-slots (slot-name columns marshaller unmarshaller)
 		   slot-mapping-definition
 		 (make-instance 'value-mapping 
@@ -436,10 +435,7 @@
 				:marshaller marshaller
 				:unmarshaller unmarshaller)))))
 
-(defgeneric compute-reference-mapping (slot-mapping-definition table path))
-
-(defmethod compute-reference-mapping
-    ((slot-mapping-definition many-to-one-mapping-definition) table path)
+(defun compute-one-to-many-mapping (slot-mapping-definition table path)
   (with-slots (slot-name columns marshaller unmarshaller referenced-class)
       slot-mapping-definition
     (make-instance 'many-to-one-mapping
@@ -450,10 +446,10 @@
 				    columns)
 		   :marshaller marshaller
 		   :unmarshaller unmarshaller
-		   :referenced-class-mapping (get-class-mapping referenced-class))))
+		   :referenced-class-mapping
+		   (get-class-mapping referenced-class))))
 
-(defmethod compute-reference-mapping
-    ((slot-mapping-definition many-to-one-mapping-definition) table path)
+(defun compute-many-to-one-mapping (slot-mapping-definition table path)
   (with-slots (slot-name columns marshaller unmarshaller referenced-class)
       slot-mapping-definition
     (make-instance 'one-to-many-mapping
@@ -464,14 +460,18 @@
 				    columns)
 		   :marshaller marshaller
 		   :unmarshaller unmarshaller
-		   :referenced-class-mapping (get-class-mapping referenced-class))))
+		   :referenced-class-mapping
+		   (get-class-mapping referenced-class))))
 
 (defun compute-reference-mappings (class-mapping-definition path)
   (let ((table (get-table (table-name-of class-mapping-definition))))
     (loop for slot-mapping-definition
-       in (slot-mappings-of class-mapping-definition)
-       when (reference-mapping-p slot-mapping-definition)
-       collect (compute-reference-mapping slot-mapping-definition 
+       in (many-to-one-mappings-of class-mapping-definition)
+       collect (compute-many-to-one-mapping slot-mapping-definition 
+					    table path))
+    (loop for slot-mapping-definition
+       in (one-to-many-mappings-of class-mapping-definition)
+       collect (compute-one-to-many-mapping slot-mapping-definition 
 					  table path))))
 
 (defun compute-slot-mappings (class-mapping &optional

@@ -369,6 +369,22 @@
   (large-object-descriptor
    (:value ("large_object_descriptor" "integer"))))
 
+(define-configuration ()
+    (:open-connection #'(lambda ()
+			  (cl-postgres:open-database "projects"
+						     "makarov" "zxcvb"
+						     "localhost")))
+  (:close-connection #'cl-postgres:close-database)
+  (:prepare #'cl-postgres:prepare-query)
+  (:execute #'(lambda (connection name &rest params)
+		(cl-postgres:exec-prepared connection name params
+					   cl-postgres:alist-row-reader))))
+
+(with-session ()
+  (do-query ...)
+  (persist-object ...)
+  (remove-object ...))
+
 Structure of a Query
 
 Simple Expressions
