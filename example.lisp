@@ -1,39 +1,32 @@
 (in-package #:cl-db)
 
-:define-mapping-schema - определяем схему
-:use-mapping-schema - переключаемся на текущую схему отображения
-:make-configuration
-:with-session
-Контекст для работы с объектами из БД.
-:db-persist
-:db-remove
-:db-query
-Макрос для запросов объектов из БД.
-Содержит механизм ленивой компиляции отображения.
-Сам компилируется в вызов обращения к БД с запросом и 
-создание объекта-загрузчика результата.
+;; для библиотеки подключений (унификация)
+(define-database-interface postgresql-postmodern
+  (:open-connection #'(lambda (&rest args)
+			(apply #'cl-postgres:open-database args)))
+  (:close-connection #'cl-postgres:close-database)
+  (:prepare #'cl-postgres:prepare-query)
+  (:execute
+   #'(lambda (connection name &rest params)
+       (cl-postgres:exec-prepared connection name params
+				  'cl-postgres:alist-row-reader))))
 
+(define-database-interface name &options options)
+(define-mapping-schema name) - определяем схему (текущая)
+;; нет необходимости, компиляция будет ленивой
+;; (compile-mapping-schema)- копилируем текущую схему отображения
+(with-session (connection-args) &body body) - Контекст для работы с объектами из БД.
+(db-persist object) - добавление объектав контекст работы с БД
+(db-remove object) - удаление коневого объекта из контекста
+(db-query (&rest bindings) (&rest options) (&rest cortesian-product))
 
-(setf cl-db:*default-configuration*
-      (make-configuration
-       :open-connection #'(lambda ()
-			    (cl-postgres:open-database "projects"
-						       "makarov" "zxcvb"
-						       "localhost"))
-       :close-connection #'cl-postgres:close-database
-       :prepare #'cl-postgres:prepare-query
-       :execute #'(lambda (connection name &rest params)
-		    (cl-postgres:exec-prepared connection name params
-					       cl-postgres:alist-row-reader))
-       :list-metadata #'cl-db:list-postgresql-metadata))
+;; Макрос для запросов объектов из БД.
+;; Содержит механизм ленивой компиляции отображения.
+;; Сам компилируется в вызов обращения к БД с запросом и 
+;; создание объекта загрузчика результата.
 
-;; сделать db-read макросом? или оставить как функцию, а переделывать выражение в with-session?
-;; осталось написать
-
-;;(make-instance 'registry
-;;	       :mappers (list (make-instance 'mapper :class (find-class 'project)
-;;					     :select-all '(:select id name :from projects)
-;;					     :select
+;; сделать db-read макросом? или оставить как функцию, а переделывать
+;; выражение в with-session?  осталось написать
 
 ;;(defvar *session*)
 
@@ -197,9 +190,9 @@
 
 ;; load
 
-;; наследование и инициализация слотов
-;; объект какого класса создавать? При условии, что нет абстрактных классов
-;; объекты по иерархии загружаются снизу-вверх из исключенных записей нижнего уровня
+;; наследование и инициализация слотов объект какого класса создавать?
+;; При условии, что нет абстрактных классов объекты по иерархии
+;; загружаются снизу-вверх из исключенных записей нижнего уровня
 
 
 ;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
@@ -242,6 +235,8 @@
 			  "SELECT t_1.user_id, t_1.project_id, t_2.user_id, t_2.project_id FROM project_members as t_1 INNER JOIN project_managers as t_2 ON t_1.user_id = t_2.user_id AND t_1.project_id = t_2.project_id"))))
 
 ;;;;;;;;;;;;;;;;;;
+
+(define-mapping-schema projects-managment)
 
 (define-class-mapping (user "users")
     ((:primary-key "id"))
@@ -369,21 +364,32 @@
   (large-object-descriptor
    (:value ("large_object_descriptor" "integer"))))
 
-(define-configuration ()
-    (:open-connection #'(lambda ()
-			  (cl-postgres:open-database "projects"
-						     "makarov" "zxcvb"
-						     "localhost")))
-  (:close-connection #'cl-postgres:close-database)
-  (:prepare #'cl-postgres:prepare-query)
-  (:execute #'(lambda (connection name &rest params)
-		(cl-postgres:exec-prepared connection name params
-					   cl-postgres:alist-row-reader))))
+(with-session ((:mapping-schema project-managment)
+	       (:database-interface postgresql-postmodern)
+	       (:connecion-args "projects" "makarov" "zxcvb" "localhost"))
+  (do-query ...)
+  (persist-object ...)
+  (remove-object ...))
+
+(defparameter *default-mapping-schema* 'project-managment)
+(defparameter *default-database-interface* 'postgresql-postmodern)
+(defparameter *default-connection-args*
+  '("projects" "makarov" "zxcvb" "localhost"))
 
 (with-session ()
   (do-query ...)
   (persist-object ...)
   (remove-object ...))
+
+(defun smthn (name password)
+  (let ((*default-connection-args*
+	 (list "projects" name password "localhost")))
+    (with-session ()
+    ...)))
+
+(defun smthn (name password)
+  (with-session ((:connection-args "projects" name password "localhost"))
+    ...))
 
 Structure of a Query
 
@@ -624,8 +630,9 @@ Single instance
     ((:where (:eq (id-of cat) 35))
      (:single t)))
 
-Проблема рекурсивных ключей. Идентификатор объекта не может идентифицироваться в дереве своим родителем.
-В противном случае нуобходимо рекурсиное построение запроса.
+;; Проблема рекурсивных ключей. Идентификатор объекта не может
+;; идентифицироваться в дереве своим родителем. В противном случае
+;; необходимо рекурсиное построение запроса.
 
 If PK (user id and project id)
 
@@ -782,3 +789,4 @@ Expand into:
       (project-member-mapping
        (map-subclass 'project-member (list "user_id" "prject_id")
 		  (map-value
+

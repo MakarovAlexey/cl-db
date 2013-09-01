@@ -1,8 +1,15 @@
 (in-package #:cl-db)
 
-(defvar *mapping-schema*)
+(defvar *default-database-interface*)
+(defvar *default-connection-args*)
+(defvar *default-mapping-schema*)
 
-(defvar *default-configuration*)
+(defmacro with-session ((&rest options) &body body)
+  `(call-with-session
+    (quote ,@(compile-option :database-interface options))
+    (quote ,@(compile-option :mapping-schema options))
+    (list ,@(compile-option :connection-args options))
+    #'(lambda () ,@body)))
 
 (defclass mapping-configuration ()
   ((mapping-schema :initarg :mapping-schema
@@ -49,6 +56,4 @@
   (let ((*session* session))
     (funcall function)))
 
-(defmacro with-session ((&optional (session *default-session*))
-			&body body)
-  `(call-with-session ,session #'(lambda () ,@body)))
+

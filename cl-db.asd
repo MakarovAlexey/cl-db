@@ -5,14 +5,14 @@
   :description "common lisp object-relational mapping system"
   :author "Makarov Alexey <alexeys@@yandex.ru>"
   :license "Specify license here"
+  :serial t
   :depends-on (#:alexandria
 	       #:cl-postgres
 	       #:ironclad
 	       #:closer-mop)
-  :serial t
   :components ((:file "package")
-	       (:file "cl-db")))
-	       ;;(:file "mapping-dsl")))
+	       (:file "cl-db")
+	       (:file "database-interface")))
 	       ;;(:file "session")))
 
 (asdf:defsystem #:cl-db.tests

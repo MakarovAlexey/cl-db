@@ -2,10 +2,13 @@
 
 (defpackage #:cl-db
   (:use #:closer-common-lisp)
-  (:export :*default-configuration*
+  (:export :define-database-interface
 	   :define-mapping-schema
-	   :use-mapping-schema
+	   :define-class-mapping
 	   :with-session
+	   :*default-database-interface*
+	   :*default-connection-args*
+	   :*default-mapping-schema*
 	   :db-persist
 	   :db-remove
 	   :db-query))
