@@ -59,7 +59,7 @@
 (define-condition mapping-schema-redefinition (style-warning)
   ((name :initarg :name :reader name-of)))
 
-(defun compile-option (option options &optional default)
+(defun compile-option (option options)
   (rest (assoc option options)))
 
 (defun ensure-mapping-schema (name &optional
@@ -152,12 +152,15 @@
   `(ensure-class-mapping-definition
     (find-class (quote ,class-name))
     ,table-name
-    (quote ,(apply #'compile-option :primary-key options))
+    (quote ,(compile-option :primary-key options))
     (mapcar #'find-class
-	    (quote ,(apply #'compile-option :superclasses options)))
-    (list ,@(apply #'compile-slot-mappings :value
-		   #'make-value-mapping slot-mappings))
-    (list ,@(apply #'compile-slot-mappings :many-to-one
-		   #'make-many-to-one-mapping slot-mappings))
-    (list ,@(apply #'compile-slot-mappings :one-to-many
-		   #'make-one-to-many-mapping slot-mappings))))
+	    (quote ,(compile-option :superclasses options)))
+    (list
+     ,@(apply #'compile-slot-mappings :value
+	      #'make-value-mapping slot-mappings))
+    (list
+     ,@(apply #'compile-slot-mappings :many-to-one
+	      #'make-many-to-one-mapping slot-mappings))
+    (list
+     ,@(apply #'compile-slot-mappings :one-to-many
+	      #'make-one-to-many-mapping slot-mappings))))

@@ -21,11 +21,14 @@
    (project-members :initarg :project-members
 		    :accessor project-members-of)))
 
-(defclass project-participation ()
+(defclass project-role ()
   ((project :initarg :project :reader project-of)
    (user :initarg :user :reader user-of)))
 
-(defclass project-managment (project-participation)
+(defclass project-participation (project-role)
+  ())
+
+(defclass project-managment (project-role)
   ())
 
 (define-mapping-schema test-mapping)
@@ -36,22 +39,32 @@
   (name (:value ("name" "varchar")))
   (login (:value ("login" "varchar")))
   (password (:value ("password" "varchar")))
-  (project-manager-roles (:one-to-many project-managment "user_id")
+  (project-participations
+   (:one-to-many project-participation "user_id")
 			 #'(lambda (&rest roles)
 			     (reduce #'(lambda (table role)
 					 (setf (gethash (project-of role) table) role)
 					 table)
 				     roles
 				     :initial-value (make-hash-table :size (length roles))))
-			 #'alexandria:hash-table-values))
+			 #'alexandria:hash-table-values)
+  (project-managments
+   (:one-to-many project-managment "user_id")
+   #'(lambda (&rest roles)
+       (reduce #'(lambda (table role)
+		   (setf (gethash (project-of role) table) role)
+		   table)
+	       roles
+	       :initial-value (make-hash-table :size (length roles))))
+   #'alexandria:hash-table-values))
 
 (define-class-mapping (project "projects")
     ((:primary-key "id"))
   (id (:value ("id" "integer")))
   (name (:value ("name" "varchar")))
   (begin-date (:value ("begin_date" "timestamp")))
-  (project-participations
-   (:one-to-many project-participation "project_id")
+  (project-roles
+   (:one-to-many project-role "project_id")
    #'(lambda (&rest roles)
        (reduce #'(lambda (table role)
 		   (setf (gethash (user-of role) table) role)
@@ -60,13 +73,16 @@
 	       :initial-value (make-hash-table :size (length roles))))
    #'alexandria:hash-table-values))
 
-(define-class-mapping (project-participation "project_participations")
+(define-class-mapping (project-role "project_roles")
     ((:primary-key "project_id" "user_id"))
   (project (:many-to-one project "project_id"))
   (user (:many-to-one user "user_id")))
   
+(define-class-mapping (project-participation "project_participations")
+    ((:superclasses project-role)))
+
 (define-class-mapping (project-managment "project_managments")
-    ((:superclasses project-participation)))
+    ((:superclasses project-role)))
 
 (lift:deftestsuite compilation ()
   ())

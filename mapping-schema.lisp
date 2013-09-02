@@ -18,10 +18,12 @@
   ((table :reader table-of)
    (mapped-class :initarg :mapped-class
 		 :reader mapped-class-of)
-   (value-mappings :reader value-mappings-of)
-   (reference-mappings :reader reference-mappings-of)
+   (value-mappings :initform nil
+		   :reader value-mappings-of)
+   (reference-mappings :initform nil
+		       :reader reference-mappings-of)
    (subclasses-inheritance-mappings :reader subclasses-inheritance-mappings-of)
-   (superclasses-inhertance :reader superclasses-inheritance-mappings-of)))
+   (superclasses-inheritance-mappings :reader superclasses-inheritance-mappings-of)))
 
 (defclass inheritance-mapping ()
   ((columns :initarg :columns
@@ -51,8 +53,8 @@
 (defclass reference-mapping (slot-mapping)
   ((association :initarg :association
 		:reader association-of)
-   (class-mapping :initarg :class-mapping
-		  :reader class-mapping-of)))
+   (referenced-class-mapping :initarg :referenced-class-mapping
+			     :reader referenced-class-mapping-of)))
 
 (defclass many-to-one-mapping (reference-mapping)
   ())
@@ -63,8 +65,8 @@
 (defclass mapping-schema ()
   ((tables :initarg :tables
 	   :reader tables-of)
-   (associations :initarg :associations
-		 :reader associations-of)
+   (association-mappings :initarg :association-mappings
+			 :reader association-mappings-of)
    (class-mappings :initarg :class-mappings
 		   :reader class-mappings-of)
    (inheritance-mappings :initarg :inheritance-mappings
@@ -93,7 +95,7 @@
 (defun find-class-mapping-definition (mapped-class &optional
 				      (class-mapping-definitions
 				       *class-mapping-definitions*))
-  (find mapped-class class-mapping-definitions :key #'mapped-class-of))
+  (gethash mapped-class class-mapping-definitions))
 
 (defvar *mapping-schema*)
 
@@ -114,10 +116,21 @@
 
 (defun get-column (name table)
   (multiple-value-bind (column present-p)
-      (gethash name table)
+      (gethash name (columns-of table))
     (if (not present-p)
 	(error "Column ~a for table ~a not found" name (name-of table))
 	column)))
+
+(defun find-association (mapped-class referenced-class columns)
+  (find (list mapped-class referenced-class columns)
+	(association-mappings-of *mapping-schema*)
+	:test #'equal
+	:key #'(lambda (association)
+		 (list (mapped-class-of
+			(many-to-one-mapping-of association))
+		       (mapped-class-of
+			(one-to-many-mapping-of association))
+		       (columns-of association)))))
 
 (defun list-inhritance-mappings (&optional
 				 (mapping-schema *mapping-schema*))
@@ -140,17 +153,19 @@
 
 (defmethod find-column-type (column-name
 			     (slot-mapping value-mapping-definition))
-  (let ((column (assoc column-name (columns-of slot-mapping)
-		       :test #'equal)))
+  (let ((column
+	 (find column-name (columns-of slot-mapping)
+	       :key #'column-name-of :test #'string=)))
     (when (not (null column))
-      (sql-type-of column))))
+      (column-type-of column))))
 
 (defmethod find-column-type (column-name
 			     (slot-mapping many-to-one-mapping-definition))
-  (let ((column-position (position column-name (columns-of slot-mapping))))
+  (let ((column-position
+	 (position column-name (columns-names-of slot-mapping))))
     (when (not (null column-position))
       (get-reference-column-type column-position
-				 (mapped-class-of slot-mapping)))))
+				 (referenced-class-of slot-mapping)))))
 
 (defmethod find-column-type (column-name
 			     (slot-mapping one-to-many-mapping-definition))
@@ -187,37 +202,43 @@
 (defun get-value-mapping-columns (class-mapping-definition)
   (loop for slot-mapping-definition
      in (value-mappings-of class-mapping-definition)
-     append (columns-of slot-mapping-definition)))
+     append (mapcar #'(lambda (column-definition)
+			(with-slots (column-name column-type)
+			    column-definition
+			  (make-instance 'column :name column-name
+					 :sql-type column-type)))
+		    (columns-of slot-mapping-definition))))
 
 (defun get-many-to-one-columns (class-mapping-definition)
   (loop for slot-mapping-definition
      in (many-to-one-mappings-of class-mapping-definition)
-     for columns = (columns-of slot-mapping-definition)
+     for columns = (columns-names-of slot-mapping-definition)
      append (mapcar #'(lambda (column-name)
 			(make-instance 'column :name column-name
 				       :sql-type
 				       (get-reference-column-type
 					(position column-name columns)
-					(mapped-class-of slot-mapping-definition))))
+					(referenced-class-of slot-mapping-definition))))
 		    columns)))
 				 
 (defun get-one-to-many-columns (class-mapping-definition &optional
 				(class-mapping-definitions
-				 *class-mapping-definitions*))
+				 (alexandria:hash-table-values
+				  *class-mapping-definitions*)))
   (let ((mapped-class (mapped-class-of class-mapping-definition)))
     (loop for class-mapping-definition in class-mapping-definitions
        append
 	 (loop for slot-mapping-definition
 	    in (one-to-many-mappings-of class-mapping-definition)
-	    for columns = (columns-of slot-mapping-definition)
+	    for columns = (columns-names-of slot-mapping-definition)
 	    when (eq mapped-class
-		     (mapped-class-of slot-mapping-definition))
+		     (referenced-class-of slot-mapping-definition))
 	    append (mapcar #'(lambda(column-name)
 			       (make-instance 'column
 					      :name column-name :sql-type
 					      (get-reference-column-type
 					       (position column-name columns)
-					       class-mapping-definition)))
+					       (mapped-class-of class-mapping-definition))))
 			   columns)))))
 
 (defun get-primary-key-columns (class-mapping-definition)
@@ -230,23 +251,30 @@
 
 (defun get-superclasses-columns (class-mapping-definition)
   (loop for superclass in (superclasses-of class-mapping-definition)
-       for superclass-mapping = (find-class-mapping-definition superclass)
-       append (get-primary-key-columns superclass-mapping)))
+     for superclass-mapping = (find-class-mapping-definition superclass)
+     append (get-primary-key-columns superclass-mapping)))
 
 (defun make-columns (class-mapping-definition)
-  (remove-duplicates
-   (append
-    (get-value-mapping-columns class-mapping-definition)
-    (get-superclasses-columns class-mapping-definition)
-    (get-many-to-one-columns class-mapping-definition)
-    (get-one-to-many-columns class-mapping-definition)
-    :key #'name-of :test #'string=)))
+  (alexandria:alist-hash-table
+   (mapcar #'(lambda (column)
+	       (cons (name-of column) column))
+	   (remove-duplicates
+	    (append
+	     (get-value-mapping-columns class-mapping-definition)
+	     (get-superclasses-columns class-mapping-definition)
+	     (get-many-to-one-columns class-mapping-definition)
+	     (get-one-to-many-columns class-mapping-definition))
+	    :key #'name-of :test #'string=))
+   :test #'equal))
 
 (defun compute-tables (class-mapping-definitions)
-    (mapcar #'(lambda (class-mapping-definition)
-		(make-instance 'table :name
-			       (table-name-of class-mapping-definition)
-			       :columns (make-columns class-mapping-definition)))
+  (mapcar #'(lambda (class-mapping-definition)
+	      (make-instance 'table :name
+			     (table-name-of class-mapping-definition)
+			     :columns
+			     (make-columns class-mapping-definition)
+			     :primary-key
+			     (primary-key-of class-mapping-definition)))
 	    class-mapping-definitions))
 
 (defun make-class-mappings (class-mapping-definitions)
@@ -255,31 +283,37 @@
 			     (mapped-class-of class-mapping-definition)))
 	  class-mapping-definitions))
 
-(defun make-one-to-many-association (slot-mapping-definition
-				     class-mapping-definition)
-  (let* ((many-to-one (get-class-mapping
-		       (mapped-class-of class-mapping-definition)))
-	 (table (table-of many-to-one)))
-    (make-instance 'association
-		   :many-to-one many-to-one
-		   :one-to-many (get-class-mapping
-				 (mapped-class-of slot-mapping-definition))
-		   :columns (mapcar #'(lambda (column-name)
-					(get-column column-name table))
-				    (columns-of slot-mapping-definition)))))
-
 (defun make-many-to-one-association (slot-mapping-definition
 				     class-mapping-definition)
-  (let* ((many-to-one (get-class-mapping
-		       (mapped-class-of slot-mapping-definition)))
-	 (table (table-of many-to-one)))
+  (let ((table (get-table (table-name-of class-mapping-definition))))
     (make-instance 'association
-		   :many-to-one many-to-one
-		   :one-to-many (get-class-mapping
-				 (mapped-class-of class-mapping-definition))
+		   :many-to-one-mapping
+		   (get-class-mapping
+		    (mapped-class-of class-mapping-definition))
+		   :one-to-many-mapping
+		   (get-class-mapping
+		    (referenced-class-of slot-mapping-definition))
 		   :columns (mapcar #'(lambda (column-name)
 					(get-column column-name table))
-				    (columns-of slot-mapping-definition)))))
+				    (columns-names-of slot-mapping-definition)))))
+
+(defun make-one-to-many-association (slot-mapping-definition
+				     class-mapping-definition)
+  (let* ((referenced-class
+	  (referenced-class-of slot-mapping-definition))
+	 (table
+	  (get-table
+	   (table-name-of
+	    (find-class-mapping-definition referenced-class)))))
+    (make-instance 'association
+		   :many-to-one-mapping
+		   (get-class-mapping referenced-class)
+		   :one-to-many-mapping
+		   (get-class-mapping
+		    (mapped-class-of class-mapping-definition))
+		   :columns (mapcar #'(lambda (column-name)
+					(get-column column-name table))
+				    (columns-names-of slot-mapping-definition)))))
 
 (defun make-associations (class-mapping-definition)
   (append
@@ -287,7 +321,7 @@
       in (many-to-one-mappings-of class-mapping-definition)
       for association = (make-many-to-one-association slot-mapping
 						      class-mapping-definition)
-     when (not (null association))
+      when (not (null association))
       collect association)
    (loop for slot-mapping
       in (one-to-many-mappings-of class-mapping-definition)
@@ -298,74 +332,82 @@
 
 (defun compute-associations (class-mapping-definitions)
   (remove-duplicates
-   (mapcar #'make-associations class-mapping-definitions)
+   (apply #'append (mapcar #'make-associations
+			   class-mapping-definitions))
    :test #'equal
-   :key #'(lambda (association)
-	    (list (many-to-one-mapping-of association)
-		  (one-to-many-mapping-of association)
-		  (columns-of association)))))
+   :key (lambda (association)
+	  (list (many-to-one-mapping-of association)
+		(one-to-many-mapping-of association)
+		(columns-of association)))))
 
 (defun compute-mapping-presedence-list (mapped-class superclass)
   (list* superclass
-	 (mapcar #'(lambda (superclass)
-		     (when (eq mapped-class superclass)
-		       (error "Superclass ~a inherit from subclass ~a"
-			      superclass mapped-class))
-		     (compute-mapping-presedence-list mapped-class
-						      superclass)) 
-		 (superclasses-of
-		  (find-class-mapping-definition superclass)))))
+	 (apply #'append
+		(mapcar #'(lambda (superclass)
+			    (when (eq mapped-class superclass)
+			      (error "Superclass ~a inherit from subclass ~a"
+				     superclass mapped-class))
+			    (compute-mapping-presedence-list mapped-class
+							     superclass)) 
+			(superclasses-of
+			 (find-class-mapping-definition superclass))))))
 
 (defun class-mapping-presedence-list (class-mapping)
   (let ((mapped-class (mapped-class-of class-mapping)))
     (sort (compute-mapping-presedence-list mapped-class mapped-class)
-	  #'string< :key #'symbol-name)))
+	  #'string< :key #'(lambda (class)
+			     (symbol-name (class-name class))))))
 
 (defun symbol< (a b)
-  (string< (symbol-name a) (symbol-name b)))
+  (string< (symbol-name (class-name a))
+	   (symbol-name (class-name b))))
 
-(defun presedence-list< (a b predicate)
-  (if (not (null (symbol< (first a) (first b))))
-      (presedence-list< (rest a) (rest b) predicate)))
+(defun presedence-list< (a b)
+  (let ((rest-a (rest a)))
+    (if (and (not (null (symbol< (first a) (first b))))
+	     (not (null rest-a)))
+	(presedence-list< rest-a (rest b)))))
 
 (defun compute-inheritance-mapping (class-mapping-definition)
   (let* ((class-mapping
-	  (get-class-mapping class-mapping-definition))
-	 (table (table-of class-mapping)))
+	  (get-class-mapping (mapped-class-of class-mapping-definition)))
+	 (table (get-table (table-name-of class-mapping-definition))))
     (loop for superclass in (superclasses-of class-mapping-definition)
        collect (make-instance 'inheritance-mapping
 			      :columns (mapcar #'(lambda (name)
 						   (get-column name table))
-					       (columns-of class-mapping-definition))
+					       (primary-key-of class-mapping-definition))
 			      :superclass-mapping (get-class-mapping superclass)
 			      :subclass-mapping class-mapping))))
 
 (defun compute-inheritance-mappings (class-mapping-definitions)
   (apply #'append
-	 (mapcar #'compute-inheritance-mappings
+	 (mapcar #'compute-inheritance-mapping
 		 class-mapping-definitions)))
 
 (defun compute-superclass-inheritance-mappings (class-mapping-definition)
-  (remove (get-class-mapping
-	   (mapped-class-of class-mapping-definition))
-	  (list-inhritance-mappings)
-	  :key #'subclass-mapping-of))
+  (loop for inhritance-mapping in (list-inhritance-mappings)
+     when (eq (mapped-class-of
+	       (subclass-mapping-of inhritance-mapping))
+	      (mapped-class-of class-mapping-definition))
+     collect inhritance-mapping))
 
 (defun compute-subclass-inheritance-mappings (class-mapping-definition)
-  (remove (get-class-mapping
-	   (mapped-class-of class-mapping-definition))
-	  (list-inhritance-mappings)
-	  :key #'superclass-mapping-of))
+  (loop for inhritance-mapping in (list-inhritance-mappings)
+     when (eq (mapped-class-of
+	       (superclass-mapping-of inhritance-mapping))
+	      (mapped-class-of class-mapping-definition))
+     collect inhritance-mapping))
 
 (defun compute-class-mapping (class-mapping class-mapping-definition)
-  (with-slots (superclasses-inheritance-mappings
-	       subclass-inheritance-mappings table)
+  (with-slots (subclasses-inheritance-mappings
+	       superclasses-inheritance-mappings table)
       class-mapping
     (setf table
 	  (get-table (table-name-of class-mapping-definition))
 	  superclasses-inheritance-mappings
 	  (compute-superclass-inheritance-mappings class-mapping-definition)
-	  subclass-inheritance-mappings
+	  subclasses-inheritance-mappings
 	  (compute-subclass-inheritance-mappings class-mapping-definition))))
 
 (defun compute-value-mappings (class-mapping-definition path)
@@ -385,45 +427,57 @@
 				:marshaller marshaller
 				:unmarshaller unmarshaller)))))
 
-(defun compute-one-to-many-mapping (slot-mapping-definition table path)
+(defun compute-one-to-many-mapping (slot-mapping-definition path
+				    class-mapping-definition)
   (with-slots (slot-name columns marshaller unmarshaller referenced-class)
       slot-mapping-definition
-    (make-instance 'many-to-one-mapping
-		   :slot-name slot-name
-		   :path path
-		   :columns (mapcar #'(lambda (name)
-					(get-column name table))
-				    columns)
-		   :marshaller marshaller
-		   :unmarshaller unmarshaller
-		   :referenced-class-mapping
-		   (get-class-mapping referenced-class))))
+    (let ((table (get-table
+		  (table-name-of
+		   (find-class-mapping-definition referenced-class)))))
+      (make-instance 'one-to-many-mapping
+		     :slot-name slot-name
+		     :path path
+		     :association (find-association
+				   referenced-class
+				   (mapped-class-of class-mapping-definition)
+				   (mapcar #'(lambda (name)
+					       (get-column name table))
+					   (columns-names-of slot-mapping-definition)))
+		     :marshaller marshaller
+		     :unmarshaller unmarshaller
+		     :referenced-class-mapping
+		     (get-class-mapping referenced-class)))))
 
-(defun compute-many-to-one-mapping (slot-mapping-definition table path)
-  (with-slots (slot-name columns marshaller unmarshaller referenced-class)
-      slot-mapping-definition
-    (make-instance 'one-to-many-mapping
-		   :slot-name slot-name
-		   :path path
-		   :columns (mapcar #'(lambda (name)
-					(get-column name table))
-				    columns)
-		   :marshaller marshaller
-		   :unmarshaller unmarshaller
-		   :referenced-class-mapping
-		   (get-class-mapping referenced-class))))
+(defun compute-many-to-one-mapping (slot-mapping-definition path
+				    class-mapping-definition)
+  (let ((table (get-table (table-name-of class-mapping-definition))))
+    (with-slots (slot-name columns marshaller unmarshaller referenced-class)
+	slot-mapping-definition
+      (make-instance 'many-to-one-mapping
+		     :slot-name slot-name
+		     :path path
+		     :association (find-association
+				   (mapped-class-of class-mapping-definition)
+				   referenced-class
+				   (mapcar #'(lambda (name)
+					       (get-column name table))
+					   (columns-names-of slot-mapping-definition)))
+		     :marshaller marshaller
+		     :unmarshaller unmarshaller
+		     :referenced-class-mapping
+		     (get-class-mapping referenced-class)))))
 
 (defun compute-reference-mappings (class-mapping-definition path)
-  (let ((table (get-table (table-name-of class-mapping-definition))))
-    (loop for slot-mapping-definition
-       in (many-to-one-mappings-of class-mapping-definition)
-       collect (compute-many-to-one-mapping slot-mapping-definition 
-					    table path))
-    (loop for slot-mapping-definition
-       in (one-to-many-mappings-of class-mapping-definition)
-       collect (compute-one-to-many-mapping slot-mapping-definition 
-					  table path))))
-
+  (append
+   (loop for slot-mapping-definition
+      in (many-to-one-mappings-of class-mapping-definition)
+      collect (compute-many-to-one-mapping slot-mapping-definition path
+					   class-mapping-definition))
+   (loop for slot-mapping-definition
+      in (one-to-many-mappings-of class-mapping-definition)
+      collect (compute-one-to-many-mapping slot-mapping-definition path
+					   class-mapping-definition))))
+  
 (defun compute-slot-mappings (class-mapping &optional
 			      (class-mapping-definition
 			       (find-class-mapping-definition
@@ -450,19 +504,22 @@
 ;; проинициализировать отображения, инициализируем в порядке
 ;; наследования (presedence-list)
 
-(defun make-mapping-schema (&rest class-mapping-definitions)
-  (let* ((*class-mapping-definitions* class-mapping-definitions)
+(defun make-mapping-schema (name)
+  (let* ((class-mapping-definitions
+	  (gethash name *mapping-schema-definitions*))
+	 (*class-mapping-definitions* class-mapping-definitions)
 	 (tables
-	  (compute-tables class-mapping-definitions))
+	  (compute-tables
+	   (alexandria:hash-table-values class-mapping-definitions)))
 	 (class-mappings
-	  (make-class-mappings class-mapping-definitions))
+	  (make-class-mappings
+	   (alexandria:hash-table-values class-mapping-definitions)))
 	 (*mapping-schema*
 	  (make-instance 'mapping-schema
 			 :tables (alexandria:alist-hash-table
-				  (mapcar #'(lambda (class-mapping)
-					      (let ((table (table-of class-mapping)))
-						(cons (name-of table)
-						      table)))
+				  (mapcar #'(lambda (table)
+					      (cons (name-of table)
+						    table))
 					  tables))
 			 :class-mappings (alexandria:alist-hash-table
 					  (mapcar #'(lambda (class-mapping)
@@ -473,14 +530,17 @@
     (with-slots (association-mappings inheritance-mappings)
 	*mapping-schema*
       (setf association-mappings
-	    (compute-associations class-mapping-definitions)
+	    (compute-associations
+	     (alexandria:hash-table-values class-mapping-definitions))
 	    inheritance-mappings
-	    (compute-inheritance-mappings class-mapping-definitions)))
+	    (compute-inheritance-mappings
+	     (alexandria:hash-table-values class-mapping-definitions))))
     (dolist (class-mapping
 	      (sort class-mappings #'presedence-list<
 		    :key #'class-mapping-presedence-list)
 	     *mapping-schema*)
       (compute-class-mapping class-mapping
 			     (find-class-mapping-definition
-			      (mapped-class-of class-mapping)))
+			      (mapped-class-of class-mapping))))
+    (dolist (class-mapping class-mappings *mapping-schema*)
       (compute-slot-mappings class-mapping))))

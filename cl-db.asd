@@ -11,8 +11,9 @@
 	       #:ironclad
 	       #:closer-mop)
   :components ((:file "package")
+	       (:file "database-interface")
 	       (:file "cl-db")
-	       (:file "database-interface")))
+	       (:file "mapping-schema")))
 	       ;;(:file "session")))
 
 (asdf:defsystem #:cl-db.tests
