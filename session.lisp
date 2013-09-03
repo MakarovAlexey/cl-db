@@ -1,34 +1,39 @@
 (in-package #:cl-db)
 
-(defvar *default-database-interface*)
+(defvar *default-database-interface-name*)
 
 (defvar *default-connection-args*)
 
-(defvar *default-mapping-schema*)
+(defvar *default-mapping-schema-name*)
 
 (defvar *session*)
 
 (defclass clos-session ()
-  ((database-interface :initarg :database-interface
-		       :reader database-interface-of)
-   (mapping-schema :initarg :mapping-schema
+  ((mapping-schema :initarg :mapping-schema
 		   :reader mapping-schema-of)
-   (connection :initarg :connection
-	       :reader connection-of)
-   (loaded-objects :initarg :loaded-objects
-		   :reader loaded-objects-of)))
+   (database-interface :initarg :database-interface
+		       :reader database-interface-of)
+   (database-connection :initarg :database-connection
+			:reader database-connection-of)
+   (loaded-objects :initform (make-hash-table)
+		   :reader loaded-objects-of)
+   (new-objects :initform (make-hash-table)
+		:accessor new-objects-of)
+   (removed-objects :initform (make-hash-table)
+		    :accessor removed-objects-of)))
 
 (defun open-session (mapping-schema
 		     database-interface &rest connection-args)
   (make-instance 'clos-session
 		 :mapping-schema mapping-schema
-		 :databse-interface database-interface
-		 :connection (apply #'open-connection
-				    database-interface
-				    connection-args)))
+		 :database-interface database-interface
+		 :database-connection (apply #'open-connection
+					     database-interface
+					     connection-args)))
 
 (defun close-session (session)
-  (close-connection session))
+  (close-connection (database-interface-of session)
+		    (database-connection-of session)))
 
 (defun call-with-session (function database-interface-name
 			  mapping-schema-name &rest connection-args)
@@ -49,14 +54,7 @@
 	  (quote ,(or (first
 		       (compile-option :mapping-schema options))
 		      *default-mapping-schema*))
-	  ,(or (compile-option :connection-args options)
-	       *default-connection-args*)))
+	  (list ,@(or (compile-option :connection-args options)
+		      *default-connection-args*))))
 
 ;; 1. надо проверять открытие и закрытие соединения
-
-;; 2. продумать: сессия только открывает соединение и собирает объекты
-;; транзакции (единицы работы (unit of work)) являются контекстом
-;; работы с объектами т.е. вне транзации не производится отслеживания
-;; состояния объектов, но можно их загружать (stateless session в
-;; nhibernate)
-
