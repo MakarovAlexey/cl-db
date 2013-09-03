@@ -17,9 +17,9 @@
 			:reader database-connection-of)
    (loaded-objects :initform (make-hash-table)
 		   :reader loaded-objects-of)
-   (new-objects :initform (make-hash-table)
+   (new-objects :initform (list)
 		:accessor new-objects-of)
-   (removed-objects :initform (make-hash-table)
+   (removed-objects :initform (list)
 		    :accessor removed-objects-of)))
 
 (defun open-session (mapping-schema
@@ -57,4 +57,9 @@
 	  (list ,@(or (compile-option :connection-args options)
 		      *default-connection-args*))))
 
-;; 1. надо проверять открытие и закрытие соединения
+;; implement cascade operations
+(defun persist-object (object &key (cascadep nil) (session *session*))
+  (pushnew object (new-objects-of session)))
+
+(defun remove-object (object &key (cascadep nil) (session *session*))
+  (pushnew object (removed-objects-of session)))
