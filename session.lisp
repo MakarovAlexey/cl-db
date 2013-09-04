@@ -6,12 +6,12 @@
 
 (defvar *default-mapping-schema-name*)
 
+(defvar *mapping-schema*)
+
 (defvar *session*)
 
 (defclass clos-session ()
-  ((mapping-schema :initarg :mapping-schema
-		   :reader mapping-schema-of)
-   (database-interface :initarg :database-interface
+  ((database-interface :initarg :database-interface
 		       :reader database-interface-of)
    (database-connection :initarg :database-connection
 			:reader database-connection-of)
@@ -22,10 +22,8 @@
    (removed-objects :initform (list)
 		    :accessor removed-objects-of)))
 
-(defun open-session (mapping-schema
-		     database-interface &rest connection-args)
+(defun open-session (database-interface &rest connection-args)
   (make-instance 'clos-session
-		 :mapping-schema mapping-schema
 		 :database-interface database-interface
 		 :database-connection (apply #'open-connection
 					     database-interface
@@ -37,9 +35,10 @@
 
 (defun call-with-session (function database-interface-name
 			  mapping-schema-name &rest connection-args)
-  (let* ((*session*
+  (let* ((*mapping-schema*
+	  (ensure-mapping-schema mapping-schema-name))
+	 (*session*
 	  (apply #'open-session
-		 (ensure-mapping-schema mapping-schema-name)
 		 (get-database-interface database-interface-name)
 		 connection-args)))
     (funcall function)
@@ -50,16 +49,16 @@
 	  #'(lambda () ,@body)
 	  (quote ,(or (first
 		       (compile-option :database-interface options))
-		      *default-database-interface*))
+		      *default-database-interface-name*))
 	  (quote ,(or (first
 		       (compile-option :mapping-schema options))
-		      *default-mapping-schema*))
+		      *default-mapping-schema-name*))
 	  (list ,@(or (compile-option :connection-args options)
 		      *default-connection-args*))))
 
 ;; implement cascade operations
-(defun persist-object (object &key (cascadep nil) (session *session*))
+(defun persist-object (object &optional (session *session*))
   (pushnew object (new-objects-of session)))
 
-(defun remove-object (object &key (cascadep nil) (session *session*))
+(defun remove-object (object &optional (session *session*))
   (pushnew object (removed-objects-of session)))

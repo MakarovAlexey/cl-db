@@ -62,9 +62,9 @@
 (defun compile-option (option options)
   (rest (assoc option options)))
 
-(defun ensure-mapping-schema (name &optional
-			      (mapping-schema-definitions
-			       *mapping-schema-definitions*))
+(defun ensure-mapping-schema-definition (name &optional
+					 (mapping-schema-definitions
+					  *mapping-schema-definitions*))
   (multiple-value-bind (mapping-schema presentp)
       (gethash name mapping-schema-definitions)
     (declare (ignore mapping-schema))
@@ -78,7 +78,7 @@
   name)
 
 (defmacro define-mapping-schema (name)
-  `(ensure-mapping-schema (quote ,name)))
+  `(ensure-mapping-schema-definition (quote ,name)))
 
 (defun assert-duplicate-slot-mappings (slot-mappings)
   (reduce #'(lambda (slot-names slot-name)

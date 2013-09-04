@@ -6,9 +6,9 @@
 	   :define-mapping-schema
 	   :define-class-mapping
 	   :with-session
-	   :*default-database-interface*
+	   :*default-database-interface-name*
+	   :*default-mapping-schema-name*
 	   :*default-connection-args*
-	   :*default-mapping-schema*
 	   :db-persist
 	   :db-remove
 	   :db-query))

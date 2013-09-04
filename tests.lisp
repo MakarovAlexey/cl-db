@@ -1,88 +1,52 @@
 (in-package #:cl-db)
 
-(defclass user ()
-  ((name :initarg :name
+(defclass cat ()
+  ((id :initarg :id
+       :reader id-of)
+   (age :initarg :age
+	:accessor age-of)
+   (name :initarg :name
 	 :accessor name-of)
-   (login :initarg :login
-	  :accessor login-of)
-   (password :initarg :password
-	     :accessor password-of)
-   (email :initarg :email
-	  :accessor email-of)
-   (project-manager-roles :initarg :project-manager-roles
-			  :accessor project-manager-roles-of))
-  (:documentation "Пользователь системы, ответственный исполнитель"))
+   (kittens :initarg :kittens
+	    :accessor kittens-of)))
 
-(defclass project ()
-  ((name :initarg :name
-	 :accessor name-of)
-   (begin-date :initarg :begin-date
-	       :accessor begin-date-of)
-   (project-members :initarg :project-members
-		    :accessor project-members-of)))
+(define-database-interface postgresql-postmodern
+  (:open-connection #'cl-postgres:open-database)
+  (:close-connection #'cl-postgres:close-database)
+  (:prepare #'cl-postgres:prepare-query)
+  (:execute
+   #'(lambda (connection name &rest params)
+       (cl-postgres:exec-prepared connection name params
+				  'cl-postgres:alist-row-reader))))
 
-(defclass project-role ()
-  ((project :initarg :project :reader project-of)
-   (user :initarg :user :reader user-of)))
+(define-mapping-schema cats-mapping)
 
-(defclass project-participation (project-role)
-  ())
-
-(defclass project-managment (project-role)
-  ())
-
-(define-mapping-schema test-mapping)
-
-(define-class-mapping (user "users")
+(define-class-mapping (cat "cats")
     ((:primary-key "id"))
   (id (:value ("id" "integer")))
   (name (:value ("name" "varchar")))
-  (login (:value ("login" "varchar")))
-  (password (:value ("password" "varchar")))
-  (project-participations
-   (:one-to-many project-participation "user_id")
-			 #'(lambda (&rest roles)
-			     (reduce #'(lambda (table role)
-					 (setf (gethash (project-of role) table) role)
-					 table)
-				     roles
-				     :initial-value (make-hash-table :size (length roles))))
-			 #'alexandria:hash-table-values)
-  (project-managments
-   (:one-to-many project-managment "user_id")
-   #'(lambda (&rest roles)
-       (reduce #'(lambda (table role)
-		   (setf (gethash (project-of role) table) role)
-		   table)
-	       roles
-	       :initial-value (make-hash-table :size (length roles))))
-   #'alexandria:hash-table-values))
+  (age (:value ("age" "integer")))
+  (kittens
+   (:one-to-many cat "parent_id")))
 
-(define-class-mapping (project "projects")
-    ((:primary-key "id"))
-  (id (:value ("id" "integer")))
-  (name (:value ("name" "varchar")))
-  (begin-date (:value ("begin_date" "timestamp")))
-  (project-roles
-   (:one-to-many project-role "project_id")
-   #'(lambda (&rest roles)
-       (reduce #'(lambda (table role)
-		   (setf (gethash (user-of role) table) role)
-		   table)
-	       roles
-	       :initial-value (make-hash-table :size (length roles))))
-   #'alexandria:hash-table-values))
+(lift:deftestsuite session ()
+  ())
 
-(define-class-mapping (project-role "project_roles")
-    ((:primary-key "project_id" "user_id"))
-  (project (:many-to-one project "project_id"))
-  (user (:many-to-one user "user_id")))
-  
-(define-class-mapping (project-participation "project_participations")
-    ((:superclasses project-role)))
+(lift:addtest session-open-and-close
+  (lift:ensure-no-warning
+    (with-session ((:mapping-schema cats-mapping)
+		   (:database-interface postgresql-postmodern)
+		   (:connection-args "projects" "makarov"
+				     "zxcvb" "localhost")))))
 
-(define-class-mapping (project-managment "project_managments")
-    ((:superclasses project-role)))
+(lift:deftestsuite query ()
+  ())
+
+(lift:addtest query-building
+  (lift:ensure-no-warning
+   (let* ((*mapping-schema* (ensure-mapping-schema 'cats-mapping))
+	  (cat (bind-root 'cat)))
+     (make-query cat))))
 
 (lift:deftestsuite compilation ()
   ())

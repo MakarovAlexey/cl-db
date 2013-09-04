@@ -499,11 +499,6 @@
 			     (superclass-mapping-of inheritance-mapping)))
 			   (list* inheritance-mapping path))))
 
-;; сначала созадем таблицы, затем создаем, но не инициализируем,
-;; отображения, создаем асциации, теперь есть все, чтобы
-;; проинициализировать отображения, инициализируем в порядке
-;; наследования (presedence-list)
-
 (defun make-mapping-schema (name)
   (let* ((class-mapping-definitions
 	  (gethash name *mapping-schema-definitions*))

@@ -366,7 +366,7 @@
 
 (with-session ((:mapping-schema project-managment)
 	       (:database-interface postgresql-postmodern)
-	       (:connecion-args "projects" "makarov" "zxcvb" "localhost"))
+	       (:connection-args "projects" "makarov" "zxcvb" "localhost"))
   (do-query ...)
   (persist-object ...)
   (remove-object ...))
@@ -382,12 +382,6 @@
   (remove-object ...))
 
 (defun smthn (name password)
-  (let ((*default-connection-args*
-	 (list "projects" name password "localhost")))
-    (with-session ()
-    ...)))
-
-(defun smthn (name password)
   (with-session ((:connection-args "projects" name password "localhost"))
     ...))
 
@@ -399,10 +393,11 @@ Simple Expressions
 
 =>
 
-(let ((cat (make-root 'cat mapping-schema)))
-  (db-list cat))
+(let ((cat (bind-root 'cat)))
+  (make-query cat))
 
-(with-session (:mapping mapping-name :configuration session-config)
+(with-session ((:mapping-schema mapping-name)
+	       (:database-interface session-config))
   (db-query cat))
 
 IList<Cat> cats =
@@ -790,3 +785,55 @@ Expand into:
        (map-subclass 'project-member (list "user_id" "prject_id")
 		  (map-value
 
+;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-class-mapping (user "users")
+    ((:primary-key "id"))
+  (id (:value ("id" "integer")))
+  (name (:value ("name" "varchar")))
+  (login (:value ("login" "varchar")))
+  (password (:value ("password" "varchar")))
+  (project-participations
+   (:one-to-many project-participation "user_id")
+			 #'(lambda (&rest roles)
+			     (reduce #'(lambda (table role)
+					 (setf (gethash (project-of role) table) role)
+					 table)
+				     roles
+				     :initial-value (make-hash-table :size (length roles))))
+			 #'alexandria:hash-table-values)
+  (project-managments
+   (:one-to-many project-managment "user_id")
+   #'(lambda (&rest roles)
+       (reduce #'(lambda (table role)
+		   (setf (gethash (project-of role) table) role)
+		   table)
+	       roles
+	       :initial-value (make-hash-table :size (length roles))))
+   #'alexandria:hash-table-values))
+
+(define-class-mapping (project "projects")
+    ((:primary-key "id"))
+  (id (:value ("id" "integer")))
+  (name (:value ("name" "varchar")))
+  (begin-date (:value ("begin_date" "timestamp")))
+  (project-roles
+   (:one-to-many project-role "project_id")
+   #'(lambda (&rest roles)
+       (reduce #'(lambda (table role)
+		   (setf (gethash (user-of role) table) role)
+		   table)
+	       roles
+	       :initial-value (make-hash-table :size (length roles))))
+   #'alexandria:hash-table-values))
+
+(define-class-mapping (project-role "project_roles")
+    ((:primary-key "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+  
+(define-class-mapping (project-participation "project_participations")
+    ((:superclasses project-role)))
+
+(define-class-mapping (project-managment "project_managments")
+    ((:superclasses project-role)))

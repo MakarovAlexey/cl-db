@@ -7,14 +7,13 @@
   :license "Specify license here"
   :serial t
   :depends-on (#:alexandria
-	       #:cl-postgres
 	       #:ironclad
 	       #:closer-mop)
   :components ((:file "package")
 	       (:file "database-interface")
 	       (:file "cl-db")
-	       (:file "mapping-schema")))
-	       ;;(:file "session")))
+	       (:file "mapping-schema")
+	       (:file "session")))
 
 (asdf:defsystem #:cl-db.tests
   :serial t
@@ -22,5 +21,6 @@
   :author "Your Name <your.name@example.com>"
   :license "Specify license here"
   :depends-on (#:cl-db
+	       #:cl-postgres
 	       #:lift)
   :components ((:file "tests")))
