@@ -20,6 +20,34 @@
    (arguments :initarg :arguments
 	      :reader arguments-of)))
 
+(defclass query-info ()
+  ((root-bindings :initarg :root-bindings
+		  :accessor root-bindings-of)
+   (reference-bindings :initarg :reference-bindings
+		       :accessor reference-bindings-of)
+   (values-access :initarg :values-access
+		  :accessor values-access-of)
+   (expressions :initarg :expressions
+		:accessor expressions-of)))
+
+(defclass query-node ()
+  ((superclass-inheritance-nodes :initarg :superclass-inheritance-nodes
+				 :reader superclass-inheritance-nodes-of)
+   (subclass-extension-nodes :initarg :subclass-extension-nodes
+			     :reader subclass-extension-nodes-of)
+   (reference-nodes :initarg :reference-nodes
+		    :reader reference-nodes-of)
+   (values-access :initarg :values-access
+		  :reader values-access-of)))
+
+(defclass query-binding-node (query-node)
+  ((query-binding :initarg :query-binding
+		  :reader query-binding-of)))
+
+(defclass inheritance-node (query-node)
+  ((inheritance-mapping :initarg :inheritance-mapping
+			:reader inheritance-mapping-of)))
+
 ;;(defclass select-item ())
 
 ;;(defclass where-clause ())
@@ -27,32 +55,6 @@
 ;;(defclass order-by-clause ())
 
 ;;(defclass having-clause ())
-
-(defclass query-info ()
-  ((roots :initarg :roots
-	  :accessor roots-of)
-   (references :initarg :references
-	       :accessor references-of)
-   (expressions :initarg :expressions
-		:accessor expressions-of)
-   (values-access :initarg :values-access
-		  :accessor values-access-of)))
-
-(defclass query-node ()
-  ((reference-nodes :initarg :reference-nodes
-		    :reader reference-nodes-of)
-   (subclass-extension-nodes :initarg :subclass-extension-nodes
-			     :reader subclass-extension-nodes-of)
-   (superclass-inheritance-nodes :initarg :superclass-inheritance-nodes
-				 :reader superclass-inheritance-nodes-of)))
-
-(defclass query-object-node (query-node)
-  ((query-object :initarg :query-object
-		 :reader query-object-of)))
-
-(defclass inheritance-node (query-node)
-  ((inheritance-mapping :initarg :inheritance-mapping
-			:reader inheritance-mapping-of)))
 
 (defun bind-root (class-name &optional
 		  (mapping-schema *mapping-schema*))
@@ -124,54 +126,140 @@
 	  (slot-value query-info 'where-clause) where-clause
 	  (slot-value query-info 'select-list) select-list)))
 
-(defun get-superclass-inheritance (parent-object query-info)
-  ;; select-list
-  ;; inherited slot value-access
-  ;; inherited slot reference
+(defun get-reference-bindings (query-binding query-info)
+  (remove query-binding
+	  (reference-bindings-of query-info)
+	  :key #'parent-binding-of
+	  :test-not #'eq))
+
+(defun get-values-access (query-binding query-info)
+  (remove query-binding
+	  (values-access-of query-info)
+	  :key #'parent-binding-of
+	  :test-not #'eq))
+
+(defun get-direct-values-access (query-binding query-info path)
+  (remove-if-not #'(lambda (value-access)
+		     (equal
+		      (path-of (value-mapping-of value-access))
+		      path))
+		 (get-values-access query-binding query-info)))
+
+(defun get-direct-reference-bindings (parent-object query-info path)
+  (remove-if-not #'(lambda (reference-binding)
+		     (equal
+		      (path-of (reference-mapping-of reference-binding))
+		      path))
+		 (get-reference-bindings query-binding query-info)))
+
+(defun filter-inheritance-mappings (query-binding root-binding
+				    inheritance-mappings
+				    &optional path)
+  (if (not (member query-binding (select-list-of query-info)))
+      (remove-if-not
+       #'(lambda (inheritance-mapping)
+	   (let ((inheritance-path (list* inheritance-mapping path)))
+	     (null
+	      (and
+	       (get-direct-values-access query-binding
+					 inheritance-path)
+	       (get-direct-reference-bindings query-binding
+					      inheritance-path)))))
+       inheritance-mappings)
+      inheritance-mappings))
+
+;; фильтровать суперклассы суперкласса тоже нужно
+(defun make-superclass-node (parent-object query-info
+			     &optional inheritance-mapping &rest path)
+  (let ((mapping-path (list* inheritance-mapping path)))
+    (make-instance 'query-inheritance-node
+		   :inheritance-mapping inheritance-mapping
+		   :inheritance-nodes
+		   (mapcar #'(lambda (inheritance-mapping)
+			       (apply #'make-superclass-node
+				      parent-object
+				      query-info
+				      inheritance-mapping
+				      mapping-path))
+			   (superclass-inheritance-mappings-of
+			    (subclass-mapping-of inheritance-mapping)))
+		   :values-access-nodes
+		   (mapcar #'make-reference-node
+			   (get-direct-values-access parent-object
+						     query-info
+						     mapping-path))
+		   :reference-binding-nodes
+		   (mapcar #'make-reference-node
+			   (get-direct-references parent-object
+						  query-info
+						  mapping-path)))))
+
+(defun make-binding-node (query-binding query-info
+			  class-mapping &optional path)
+  (make-instance 'query-binding-node
+		 :query-binding query-binding
+		 :superclass-inheritance-nodes
+		 (mapcar #'make-superclass-node
+			 (filter-inheritance-mappings
+			  query-binding query-info
+			  (superclass-inheritance-mappings-of
+			   class-mapping)))
+		 :subclass-extension-nodes
+		 (when (member query-binding
+			       (select-list-of query-info))
+		   (mapcar #'make-subclass-node
+			   (subclasses-inheritance-mappings-of class-mapping)))
+		 :reference-binding-nodes
+		 (mapcar #'make-reference-node
+			 (get-direct-references query-binding
+						query-info
+						class-mapping
+						path))
+		 :value-access-nodes
+		 (get-direct-values-access query-binding
+					   query-info
+					   class-mapping
+					   path)))
+
+(defun make-root-node (root-binding query-info)
+  (make-binding-node root-binding
+		     query-info
+		     (class-mapping-of query-binding)))
+
+(defmethod get-superclass-inheritance-mappings
+    ((query-binding reference-binding))
+  (superclass-inheritance-mappings-of
+   (referenced-class-mapping-of query-binding)))
+
+
+
+(defun get-superclass-inheritance (query-binding query-info))
+  
+
+(defun get-subclass-inheritance (query-binding query-info)
+  (when (not (null (member query-binding
+			   (select-list-of query-info))))
+    (get-subclass-inheritance-mappings query-binding query-info)))
+
+
+
+
+		 
+
+(defun make-subclass-node (parent-object query-info
+			   ignored-superclass-mapping)
+  (
+
+  ;; заполнить все суперклассы кроме ignored-superclass-mapping
   )
 
-(defun get-subclass-inheritance (parent-object query-info)
-  ;; select-list
-  )
-
-(defun get-values-access (parent-object query-info)
-  ;; direct slot value access
+(defun make-reference-node (parent-object query-info)
+  ;; проверить наличиве в select-list, при наличии заполнить
+  ;; superclasess и subclases
   )
 
 (defun get-expressions (parent-object query-info)
   ;; участие в выражении непосредственно
-  )
-
-(defun get-references (parent-object query-info)
-  ;; direct slot reference
-  )
-
-(defun make-superclass-node (parent-object query-info
-			     &optional inheritance-mapping &rest path)
-  ;; заполнить все суперклассы
-  (mapcar #'(lambda (superclass-inheritance-mapping)
-	      (apply #'make-superclass-node parent-object query-info
-		     superclass-inheritance-mapping
-		     (list* inheritance-mapping path)))
-	  ...)
-  )
-
-(defun make-subclass-node (parent-object query-info
-			   ignored-superclass-mapping)
-  ;; заполнить все суперклассы кроме ignored-superclass-mapping
-  )
-
-(defun make-value-access-node (parent-object query-info)
-  ;; value-mapping может участвовать в выражениях
-  )
-
-(defun make-expression-node (parent-object query-info)
-  ;; в выражении могут быть подвыражения, value assess, reference и root
-  )
-
-(defun make-reference-node (parent-object query-info)
-  ;; проекрить наличиве в select-list, при наличии заполнить
-  ;; superclasess и subclases
   )
 
 ;; 1. Создаем query-tree - анализируем что нужно загрузить (какие
@@ -187,31 +275,10 @@
 ;; having-clause.
 
 ;; добавить fetch-also
-  
 
-(defun make-query-node (query-object query-info)
-  (make-instance 'query-node
-		 :query-object query-object
-		 :superclass-inheritance-nodes
-		 (mapcar #'make-superclass-node
-			 (get-superclass-inheritance query-object
-						     query-info))
-		 :subclass-extension-nodes
-		 (mapcar #'make-subclass-node
-			 (get-subclass-inheritance query-object
-						   query-info))
-		 :value-nodes
-		 (mapcar #'make-value-node
-			 (get-values-access query-object
-					    query-info))
-		 :expression-nodes
-		 (mapcar #'make-expression-node
-			 (get-expressions query-object
-					  query-info))
-		 :reference-nodes
-		 (mapcar #'make-reference-node
-			 (get-references query-object
-					 query-info))))
+
+
+
 
 (defun make-query (select-list &key where order-by
 		   having limit offset single)
@@ -219,7 +286,7 @@
 	 (make-query-info select-list where order-by having))
 	(query-trees
 	 (mapcar #'(lambda (root-binding)
-		     (make-query-node root-binding query-info))
+		     (make-binding-node root-binding query-info))
 		 (root-bindings-of query-info)))
 	(table-tree
 	 (mapcar #'make-table-tree query-trees)))
