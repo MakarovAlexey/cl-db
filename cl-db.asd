@@ -13,7 +13,8 @@
 	       (:file "database-interface")
 	       (:file "cl-db")
 	       (:file "mapping-schema")
-	       (:file "session")))
+	       (:file "session")
+	       (:file "query")))
 
 (asdf:defsystem #:cl-db.tests
   :serial t

@@ -65,29 +65,38 @@
 (defclass mapping-schema ()
   ((tables :initarg :tables
 	   :reader tables-of)
-   (association-mappings :initarg :association-mappings
-			 :reader association-mappings-of)
    (class-mappings :initarg :class-mappings
 		   :reader class-mappings-of)
    (inheritance-mappings :initarg :inheritance-mappings
-			 :reader inheritance-mappings-of)))
+			 :reader inheritance-mappings-of)
+   (association-mappings :initarg :association-mappings
+			 :reader association-mappings-of)))
 
 (defun get-slot-name (class reader)
   (let ((reader-name (generic-function-name reader)))
-    (loop for slot in (class-slots class)
-       when (find reader-name (slot-definition-readers slot))
-       return (slot-definition-name slot)
-       finally (error "Slot for reader ~a not found" reader-name))))
+    (slot-definition-name
+     (loop for class in (class-precedence-list class)
+	thereis (find-if #'(lambda (direct-slot-definition)
+			     (member reader-name
+				     (slot-definition-readers
+				      direct-slot-definition)))
+			 (class-direct-slots class))
+	finally (error "Slot for reader ~a not found" reader-name)))))
 
-(defun get-reference-mapping (class-mapping reference-reader)
-  (multiple-value-bind (reference-mapping presentp)
-      (gethash
-       (get-slot-name (mapped-class-of class-mapping)
-		      reference-reader)
-       (reference-mappings-of class-mapping))
+(defun get-value-mapping (class-mapping reader)
+  (multiple-value-bind (value-mapping presentp)
+      (gethash (get-slot-name (mapped-class-of class-mapping) reader)
+	       (value-mappings-of class-mapping))
     (if (not presentp)
-	(error "Mapped reference for accessor ~a not found"
-	       reference-reader)
+	(error "Mapped reference for accessor ~a not found" reader)
+	value-mapping)))
+
+(defun get-reference-mapping (class-mapping reader)
+  (multiple-value-bind (reference-mapping presentp)
+      (gethash (get-slot-name (mapped-class-of class-mapping) reader)
+	       (reference-mappings-of class-mapping))
+    (if (not presentp)
+	(error "Mapped reference for accessor ~a not found" reader)
 	reference-mapping)))
 
 (defvar *class-mapping-definitions*)
@@ -477,7 +486,7 @@
       in (one-to-many-mappings-of class-mapping-definition)
       collect (compute-one-to-many-mapping slot-mapping-definition path
 					   class-mapping-definition))))
-  
+;; value-mappings reference-mappings - from list to hash-table 
 (defun compute-slot-mappings (class-mapping &optional
 			      (class-mapping-definition
 			       (find-class-mapping-definition

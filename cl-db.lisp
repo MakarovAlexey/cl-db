@@ -136,6 +136,7 @@
     (class table-name primary-key superclasses value-mappings
      many-to-one-mappings one-to-many-mappings &optional
      (class-mapping-definitions *class-mapping-definitions*))
+  (finalize-inheritance class)
   (setf (gethash class class-mapping-definitions)
 	(make-instance 'class-mapping-definition
 		       :mapped-class class
