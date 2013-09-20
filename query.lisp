@@ -42,7 +42,10 @@
    (order-by-clause :accessor order-by-clause-of)
    (having-clause :accessor having-clause-of)
    (where-clause :accessor where-clause-of)
-   (select-list :accessor select-list-of)))
+   (select-list :accessor select-list-of)
+   (limit :reader limit-of)
+   (offset :reader offset-of)
+   (single-instance :reader single-instance-p)))
 
 (defclass query-node ()
   ((inheritance-nodes :initform (make-hash-table)
@@ -71,6 +74,9 @@
 (defclass extension-node (extension-inheritance-node)
   ((extension-nodes :initform (list)
 		    :accessor extension-nodes-of)))
+
+(defclass db-query ()
+  ((sql-string :initarg :sql-string :reader sql-string-of)))
 
 ;;(defclass select-item ())
 
@@ -145,7 +151,8 @@
 	 (mapcar #'visit (arguments-of instance))))
 
 (defun make-query-info (select-list where-clause order-by-clause
-			having-clause fetched-references)
+			having-clause fetched-references
+			limit offset single-instance)
   (let ((query-info (apply #'append-accumulated
 			   (append
 			    (mapcar #'visit select-list)
@@ -157,13 +164,19 @@
 		 (where-clause-slot where-clause)
 		 (order-by-clause-slot order-by-clause)
 		 (having-clause-slot having-clause)
-		 (fetched-references-slot fetched-references))
+		 (fetched-references-slot fetched-references)
+		 (limit-slot limit)
+		 (offset-slot offset)
+		 (single-instance-slot single-instance))
 	query-info
       (setf fetched-references-slot fetched-references
 	    order-by-clause-slot order-by-clause
 	    having-clause-slot having-clause
 	    where-clause-slot where-clause
-	    select-list-slot select-list))
+	    select-list-slot select-list
+	    single-instance-slot single-instance
+	    offset-slot offset
+	    limit-slot limit))
     query-info))
 
 (defun get-reference-bindings (query-binding query-info)
@@ -246,17 +259,22 @@
 		 :query-binding root-binding
 		 :query-info query-info))
 
+
+(defun make-sql-query (query-trees query-info)
+  
+)  
+
 (defun make-query (select-list &key where order-by having
-		   limit offset single fetch-also)
-  (let ((query-info (make-query-info select-list where order-by
-				     having fetch-also)))
-    (mapcar #'(lambda (root-binding)
-		(make-root-node root-binding query-info))
-	    (root-bindings-of query-info))))
-;;    (make-instance 'db-query
-;;		   :sql-query (make-sql-query table-tree select-list
-;;					      where order-by having
-;;					      limit offset)
+		   fetch-also limit offset single)
+  (let* ((query-info
+	  (make-query-info select-list where order-by having
+			   fetch-also limit offset single))
+	 (query-tree
+	  (mapcar #'(lambda (root-binding)
+		      (make-root-node root-binding query-info))
+		  (root-bindings-of query-info))))
+    (make-instance 'db-query
+		   :sql-string (make-sql-query query-tree query-info)
 ;;		   :parameters (make-parameters select-list where
 ;;						order-by having
 ;;						limit offset)

@@ -84,11 +84,13 @@
 	finally (error "Slot for reader ~a not found" reader-name)))))
 
 (defun get-value-mapping (class-mapping reader)
-  (multiple-value-bind (value-mapping presentp)
-      (gethash (get-slot-name (mapped-class-of class-mapping) reader)
-	       (value-mappings-of class-mapping))
-    (if (not presentp)
-	(error "Mapped reference for accessor ~a not found" reader)
+  (let* ((slot-name
+	  (get-slot-name (mapped-class-of class-mapping) reader))
+	 (value-mapping
+	  (find slot-name (value-mappings-of class-mapping)
+		:key #'slot-name-of)))
+    (if (null value-mapping)
+	(error "Mapped value for slot ~a not found" slot-name)
 	value-mapping)))
 
 (defun get-reference-mapping (class-mapping reader)
