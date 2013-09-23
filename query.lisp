@@ -32,9 +32,9 @@
    (reference-bindings :initarg :reference-bindings
 		       :initform (list)
 		       :accessor reference-bindings-of)
-   (values-access :initarg :values-access
+   (value-bindings :initarg :value-bindings
 		  :initform (list)
-		  :accessor values-access-of)
+		  :accessor value-bindings-of)
    (expressions :initarg :expressions
 		:initform (list)
 		:accessor expressions-of)
@@ -52,8 +52,8 @@
 		      :reader inheritance-nodes-of)
    (reference-nodes :initform (list)
 		    :accessor reference-nodes-of)
-   (values-access :initform (list)
-		  :accessor values-access-of)))
+   (value-bindings :initform (list)
+		  :accessor value-bindings-of)))
 
 (defclass binding-node (query-node)
   ((query-binding :initarg :query-binding
@@ -108,10 +108,10 @@
 				 accessor)))
 
 (defun accumulate (query-info &key roots references
-		   expressions values-access)
+		   expressions value-bindings)
   (make-instance 'query-info
-		 :values-access
-		 (append (values-access-of query-info) values-access)
+		 :value-bindings
+		 (append (value-bindings-of query-info) value-bindings)
 		 :expressions
 		 (append (expressions-of query-info) expressions)
 		 :reference-bindings
@@ -125,7 +125,7 @@
 			  :roots (root-bindings-of query-info-2)
 			  :references (reference-bindings-of query-info-2)
 			  :expressions (expressions-of query-info-2)
-			  :values-access (values-access-of query-info-2)))
+			  :value-bindings (value-bindings-of query-info-2)))
 	  query-infos :initial-value query-info))
 
 (defgeneric visit (instance &optional visitor))
@@ -142,7 +142,7 @@
 (defmethod visit ((instance value-binding)
 		  &optional (visitor (make-instance 'query-info)))
   (visit (parent-binding-of instance)
-	 (accumulate visitor :values-access (list instance))))
+	 (accumulate visitor :value-bindings (list instance))))
 
 (defmethod visit ((instance expression)
 		  &optional (visitor (make-instance 'query-info)))
@@ -185,9 +185,9 @@
 	  :key #'parent-binding-of
 	  :test-not #'eq))
 
-(defun get-values-access (query-binding query-info)
+(defun get-value-bindings (query-binding query-info)
   (remove query-binding
-	  (values-access-of query-info)
+	  (value-bindings-of query-info)
 	  :key #'parent-binding-of
 	  :test-not #'eq))
 
@@ -211,7 +211,7 @@
 
 (defun add-value-binding (query-node value-binding)
   (push value-binding
-	(values-access-of
+	(value-bindings-of
 	 (apply #'ensure-inheritance-node query-node
 		(path-of (value-mapping-of value-binding))))))
 
@@ -245,7 +245,7 @@
 (defmethod initialize-instance :after ((instance binding-node)
 				       &key query-binding query-info
 				       class-mapping)
-  (dolist (value-binding (get-values-access query-binding query-info))
+  (dolist (value-binding (get-value-bindings query-binding query-info))
     (add-value-binding instance value-binding))
   (dolist (reference-binding (get-reference-bindings query-binding query-info))
     (add-reference-node instance reference-binding query-info))
@@ -259,10 +259,18 @@
 		 :query-binding root-binding
 		 :query-info query-info))
 
-
 (defun make-sql-query (query-trees query-info)
-  
-)  
+  (format t (concatenate 'string
+			 "~@[SELECT ~<~{~w~^, ~:_~}~:>~]"
+			 "~@[~%  FROM ~<~{~w~^, ~:_~}~:>~]"
+			 "~@[~% ORDER BY ~<~{~w~^, ~:_~}~:>~]"
+			 "~@[~%HAVING ~<~{~w~^, ~:_~}~:>~]"
+			 "~@[~% GROUP BY ~<~{~w~^, ~:_~}~:>~]")
+	  (list (make-list 100))
+	  (list (make-list 100))
+	  (list (make-list 100))
+	  (list (make-list 10))
+	  (list (make-list 10))))
 
 (defun make-query (select-list &key where order-by having
 		   fetch-also limit offset single)
