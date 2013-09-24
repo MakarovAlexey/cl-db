@@ -261,16 +261,16 @@
 
 (defun make-sql-query (query-trees query-info)
   (format t (concatenate 'string
-			 "~@[SELECT ~<~{~w~^, ~:_~}~:>~]"
-			 "~@[~%  FROM ~<~{~w~^, ~:_~}~:>~]"
-			 "~@[~% ORDER BY ~<~{~w~^, ~:_~}~:>~]"
-			 "~@[~%HAVING ~<~{~w~^, ~:_~}~:>~]"
-			 "~@[~% GROUP BY ~<~{~w~^, ~:_~}~:>~]")
-	  (list (make-list 100))
-	  (list (make-list 100))
-	  (list (make-list 100))
-	  (list (make-list 10))
-	  (list (make-list 10))))
+			 "~@[SELECT ~<~@{~w~^, ~:_~}~:>~]"
+			 "~@[~%  FROM ~<~@{~w~^, ~:_~}~:>~]"
+			 "~@[~% ORDER BY ~<~@{~w~^, ~:_~}~:>~]"
+			 "~@[~%HAVING ~<~@{~w~^, ~:_~}~:>~]"
+			 "~@[~% GROUP BY ~<~@{~w~^, ~:_~}~:>~]"
+			 (make-list 100)
+			 (make-list 100)
+			 (make-list 20)
+			 (make-list 10)
+			 (make-list 10))))
 
 (defun make-query (select-list &key where order-by having
 		   fetch-also limit offset single)
