@@ -52,8 +52,8 @@
 		      :reader inheritance-nodes-of)
    (reference-nodes :initform (list)
 		    :accessor reference-nodes-of)
-   (value-bindings :initform (list)
-		  :accessor value-bindings-of)))
+   (value-node :initform (list)
+	       :accessor value-bindings-of)))
 
 (defclass binding-node (query-node)
   ((query-binding :initarg :query-binding
@@ -75,16 +75,25 @@
   ((extension-nodes :initform (list)
 		    :accessor extension-nodes-of)))
 
-(defclass db-query ()
-  ((sql-string :initarg :sql-string :reader sql-string-of)))
+;; Query AST
 
-;;(defclass select-item ())
+(defclass fetch-query ()
+  ((select-list :initarg :select-list
+		:reader select-list-of)
+   (from-clause :initarg :from
+		:reader from-clause-of)))
 
-;;(defclass where-clause ())
-
-;;(defclass order-by-clause ())
-
-;;(defclass having-clause ())
+(defclass sql-query (fetch-query)
+  ((where-clause :initarg :where
+		 :reader where-clause-of)
+   (order-by-clause :initarg :order-by
+		    :reader order-by-clause-of)
+   (having-clause :initarg :having
+		  :reader having-clause-of)
+   (limit :initarg :limit
+	  :reader limit-of)
+   (offset :offset :offset
+	   :reader offset-of)))
 
 (defun bind-root (class-name &optional
 		  (mapping-schema *mapping-schema*))
@@ -259,14 +268,45 @@
 		 :query-binding root-binding
 		 :query-info query-info))
 
+;; query-tree -> loaders -> sql-query
+???(defun compute-sql-select-list (select-list query-trees)
+  (reduce #'(lambda (sql-select-list object-select-item)
+	      (list* (compute-sql-select-item object-select-item)
+		     sql-select-list))
+	  select-list))
+
 (defun make-sql-query (query-trees query-info)
+  (make-instance 'sql-query
+		 :select-list
+		 (compute-select-items query-tree select-list)
+		 :from-clause
+		 (compute-from-clause query-tree)
+		 :where-clause
+		 (compute-where-clause query-tree where)
+		 :group-by-clause
+		 (compute-group-by-clause query-tree query-info)
+		 :having-clause
+		 (compute-having-clause query-tree having)
+		 :order-by-clause
+		 (compute-order-by-clause query-tree order-by)
+		 :limit limit :offset offset))
+
+(defun append-fetch (sql-query fetch-reference-bindings)
+  (if (not (null (or (limit-of sql-query)
+		     (offset-of sql-query))))
+      ;;wrap query as subquery
+      ;;make query with additional joins
+      (make-instance 'sql-query
+
+  (let ((
   (format t (concatenate 'string
 			 "~@[SELECT ~<~@{~w~^, ~:_~}~:>~]"
 			 "~@[~%  FROM ~<~@{~w~^, ~:_~}~:>~]"
 			 "~@[~% ORDER BY ~<~@{~w~^, ~:_~}~:>~]"
 			 "~@[~%HAVING ~<~@{~w~^, ~:_~}~:>~]"
 			 "~@[~% GROUP BY ~<~@{~w~^, ~:_~}~:>~]"
-			 (make-list 100)
+			 (compute-sql-select-list
+			  (select-list-of query-info) query-trees)
 			 (make-list 100)
 			 (make-list 20)
 			 (make-list 10)
@@ -280,11 +320,13 @@
 	 (query-tree
 	  (mapcar #'(lambda (root-binding)
 		      (make-root-node root-binding query-info))
-		  (root-bindings-of query-info))))
+		  (root-bindings-of query-info)))
+	 (sql-query
+	  (append-fetch (make-sql-query query-info query-tree)
+			fetch-also)))
     (make-instance 'db-query
-		   :sql-string (make-sql-query query-tree query-info)
-;;		   :parameters (make-parameters select-list where
-;;						order-by having
-;;						limit offset)
-;;		   :loader (make-loader table-tree select-list
-;;					sinlge))))
+		   :sql-query sql-query
+		   :parameters (compute-parameters query-info)
+		   :query-loader (compute-query-loader sql-query
+						       single
+						       query-tree))))

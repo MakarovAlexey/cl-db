@@ -93,10 +93,80 @@
     NB: данные подклассы используются только для отметки мест загрузки
     результата (select list).
 *** SQL Query
+**** Fetch-also
+     При наличии загружаемых ассоциации, создается объединение с
+     подзапросом - в котором загружается основная информация.
+
+     Псевдонимы полей запроса уникальны во всем запросе.
+**** limit and offset
+     LIMIT - ограничение количества загружаемых объектов. OFFSET -
+     загрузить только объекты начинающиеся с определенной позиции.
+     Необходимо предусмотреть, чтобы трансляция в SQL была адекватной
+     этим установкам.
+**** Single instance
+     Single - имеет смысл только при поиске одного объекта. Надо
+     сделать так, чтобы single работал с fetch-also (учесть в запросе)
 **** FROM clause
 **** Select list
 **** Other clauses
-**** Single instance, limit and offset
+
+**** Варианты построения запроса
+
+     1) Строится основной запрос.
+     2) Если fetch-ассоциации которые не получается загрузить с
+        основными даннымии (узлы reference-node содержат только узлы
+        из fetch) и указан параметр limit, то строится над-запрос
+        который присоединяет данные ассоциации к основному запросу.
+     3) Если параметр limit не указан, то созхдается новый запрос
+        который ключает в себя ассоциации
+
+	Получается, что построение запроса происходит в два этапа. На
+        первом строится AST за вычетом fetch-ассоциаций. Вторым, AST
+        достраивается с учетом этих ассоциаций.
+	
+	Короче. При обходе структурного дерева запроса нужно
+        пропускать добавление в select-list полей для fetch-ассоциаци
+        при заданном параметре limit, в from избегать добавления
+        улозов относящихся только к fetch-ассоциациям.
+	
+	Таким образом, нужно построить отдельное дерево, без узлов с
+        fetch-ассоциациями. Тут, скорее всего, речь идет уже о
+        построении основной части AST запроса.
+
+	AST запроса - это список источников с указанием элементов для
+        включения в select-list.
+
+	;; Query plan
+(defclass object-node ()
+  ((superclass-nodes :initarg :superclass-nodes
+		     :reader superclass-nodes-of)
+   (reference-nodes :initarg :reference-nodes
+		    :reader reference-nodes-of)
+   (value-nodes :initarg :value-nodes
+		:reader value-nodes-of)))
+
+(defclass root-binding-node (object-node)
+  ((root-binding :initarg :root-binding
+		 :reader root-binding-of)))
+
+(defclass reference-node (object-node)
+  ((reference-mapping :initarg :reference-mapping
+		      :reader reference-mapping-of)
+   (reference-bindings :initarg :reference-bindings
+		       :reader reference-bindings-of)))
+
+(defclass superclass-node (object-node)
+  ((inheritance-mapping :initarg :inheritance-mapping
+			:reader inheritance-mapping-of)))
+
+(defclass value-node ()
+  ((value-mapping :initarg :value-mapping
+		  :reader value-mapping-of)
+   (value-bindings :initarg :value-bindings
+		   :accessor value-bindings-of)))
+
+
+
 ** Result loading (loaders)
    Результат запроса обрабатывается двумя загрузчиками:
    1. объектный загрузчик (object loader). Нужны все данные по
@@ -115,4 +185,10 @@
       Для этого необходимо собрать загружаему информацию по дереву.
       Делается это обходом дерева до нижнего уровня. В ходе этого
       необходимо собрать информацию о таблицах.
+      
+      Для загрузки результата-объекта необходима иерархическая
+      структура. Причем загрузка происходит от самых частных классов
+      объектов к самым общим. Следовательно, нужно создать загрузочники
+      результата (select item).
 ** Parameters
+    
