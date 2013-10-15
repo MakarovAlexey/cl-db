@@ -47,33 +47,45 @@
    (offset :reader offset-of)
    (single-instance :reader single-instance-p)))
 
-(defclass query-node ()
-  ((inheritance-nodes :initform (make-hash-table)
-		      :reader inheritance-nodes-of)
-   (reference-nodes :initform (list)
-		    :accessor reference-nodes-of)
-   (value-node :initform (list)
-	       :accessor value-bindings-of)))
+(defclass value-node ()
+  ((value-mapping :initarg :value-mapping
+		  :reader value-mapping)))
 
-(defclass binding-node (query-node)
-  ((query-binding :initarg :query-binding
-		  :reader query-binding-of)
-   (extension-nodes :initform (list)
-		    :accessor extension-nodes-of)))
+(defclass object-node ()
+  ((superclass-nodes :initarg :superclass-nodes
+		     :reader superclass-nodes-of)
+   (reference-nodes :initarg :reference-nodes
+		    :reader reference-nodes-of)
+   (value-nodes :initarg :value-nodes
+	       :reader value-nodes-of)))
 
-(defclass binding-inheritance-node (query-node)
+(defclass binding-node (object-node)
+  ((subclass-nodes :initarg :subclass-nodes
+		   :reader subclass-nodes-of)))
+
+(defclass root-node (binding-node)
+  ((root-binding :initarg :root-binding
+		 :reader root-binding-of)))
+
+(defclass reference-node (binding-node)
+  ((reference-binding :initarg :reference-binding
+		      :reader reference-binding-of)))
+
+(defclass inheritance-node ()
   ((inheritance-mapping :initarg :inheritance-mapping
 			:reader inheritance-mapping-of)))
 
-(defclass extension-inheritance-node ()
-  ((inheritance-mapping :initarg :inheritance-mapping
-			:reader inheritance-mapping-of)
-   (extension-inheritance-nodes :initform (make-hash-table)
-				:reader extension-inheritance-nodes-of)))
+(defclass superclass-node (inheritance-node)
+  ((superclass-nodes :initarg :superclass-nodes
+		     :reader superclass-nodes-of)))
 
-(defclass extension-node (extension-inheritance-node)
-  ((extension-nodes :initform (list)
-		    :accessor extension-nodes-of)))
+(defclass binding-superclass-node (superclass-node object-node)
+  ())
+
+(defclass subclass-node (superclass-node)
+  ((subclass-nodes :initarg :subclass-nodes
+		   :reader subclass-nodes-of)))
+
 
 ;; Query AST
 
@@ -92,7 +104,7 @@
 		  :reader having-clause-of)
    (limit :initarg :limit
 	  :reader limit-of)
-   (offset :offset :offset
+   (offset :initarg :offset
 	   :reader offset-of)))
 
 (defun bind-root (class-name &optional
@@ -188,129 +200,193 @@
 	    limit-slot limit))
     query-info))
 
-(defun get-reference-bindings (query-binding query-info)
-  (remove query-binding
-	  (reference-bindings-of query-info)
-	  :key #'parent-binding-of
-	  :test-not #'eq))
+(defun find-reference-bindings (parent-binding query-info)
+  (remove-if-not #'(lambda (binding)
+		     (and (eq (parent-binding-of binding)
+			      parent-binding)
+			  (null (path-of
+				 (reference-mapping-of binding)))))
+		 (reference-bindings-of query-info)))
 
-(defun get-value-bindings (query-binding query-info)
-  (remove query-binding
-	  (value-bindings-of query-info)
-	  :key #'parent-binding-of
-	  :test-not #'eq))
+(defun find-value-bindings (parent-binding query-info)
+  (remove-if-not #'(lambda (binding)
+		     (and (eq (parent-binding-of binding)
+			      parent-binding)
+			  (null (path-of
+				 (value-mapping-of binding)))))
+		 (value-bindings-of query-info)))
 
-(defun ensure-inheritance-node (query-node inheritance-mapping)
-  (let ((inheritance-nodes (inheritance-nodes-of query-node)))
-    (multiple-value-bind (inheritance-node presentp)
-	(gethash inheritance-mapping inheritance-nodes)
-      (if (not presentp)
-	  (setf (gethash inheritance-mapping inheritance-nodes)
-		(make-instance 'binding-inheritance-node
-			       :inheritance-mapping
-			       inheritance-mapping))
-	  inheritance-node))))
+(defun compute-value-superclass-node (value-binding
+				      inheritance-mapping &rest path)
+  (make-instance 'binding-superclass-node
+		 :inheritance-mapping
+		 inheritance-mapping
+		 :value-bindings
+		 (when (null path)
+		   (list (make-value-node value-binding)))
+		 :superclass-nodes
+		 (when (not (null path))
+		   (apply #'compute-value-superclass-node
+			  value-binding path))))
 
-(defun ensure-path-node (query-node inheritance-mapping &rest path)
-  (let ((inheritance-node
-	 (ensure-inheritance-node query-node inheritance-mapping)))
-    (if (not (null path))
-	(apply #'ensure-path-node inheritance-node path)
-	inheritance-node)))
+(defun compute-value-superclass-nodes (query-info binding)
+  (mapcar #'(lambda (value-binding)
+	      (apply #'compute-value-superclass-node
+		     value-binding (path-of value-binding)))
+	  (find-value-bindings binding query-info)))
 
-(defun add-value-binding (query-node value-binding)
-  (push value-binding
-	(value-bindings-of
-	 (apply #'ensure-inheritance-node query-node
-		(path-of (value-mapping-of value-binding))))))
+(defun compute-reference-superclass-node (reference-binding query-info
+					  inheritance-mapping &rest path)
+  (make-instance 'binding-superclass-node
+		 :inheritance-mapping
+		 inheritance-mapping 
+		 :reference-bindings
+		 (when (null path)
+		   (list (make-reference-node reference-binding
+					      query-info)))
+		 :superclass-nodes
+		 (when (not (null path))
+		   (apply #'compute-reference-superclass-node
+			  reference-binding query-info path))))
 
-(defun add-reference-node (query-node reference-binding query-info)
-  (let ((reference-mapping (reference-mapping-of reference-binding)))
-    (push
-     (make-instance 'binding-node
-		    :class-mapping (class-mapping-of reference-mapping)
-		    :query-binding reference-binding
-		    :query-info query-info)
-     (reference-nodes-of
-      (apply #'ensure-path-node query-node
-	     (path-of reference-mapping))))))
+(defun compute-reference-superclass-nodes (query-info bindng)
+  (mapcar #'(lambda (reference-binding)
+	      (apply #'compute-reference-superclass-node
+		     reference-binding query-info
+		     (path-of reference-binding)))
+	  (find-reference-bindings bindng query-info)))
 
-(defun compute-inheritance-nodes (query-node class-mapping)
-  (dolist (inheritance-mapping
-	    (superclasses-inheritance-mappings-of class-mapping))
-    (compute-inheritance-nodes
-     (ensure-inheritance-node query-node inheritance-mapping)
-     (superclass-mapping-of inheritance-mapping))))
+(defun compute-all-superclass-nodes (class-mapping)
+  (mapcar #'(lambda (inheritance-mapping)
+	      (make-instance 'binding-superclass-node
+			     :inheritance-mapping
+			     inheritance-mapping
+			     :superclass-nodes
+			     (compute-all-superclass-nodes
+			      (superclass-mapping-of inheritance-mapping))))
+	  (superclasses-inheritance-mappings-of class-mapping)))
 
-(defun compute-extension-nodes (query-node class-mapping)
-  (dolist (inheritance-mapping
-	    (subclasses-inheritance-mappings-of class-mapping))
-    (compute-extension-nodes
-     (push (make-instance 'extension-node
-			  :inheritance-mapping inheritance-mapping)
-	   (extension-nodes-of query-node))
-     (subclass-mapping-of inheritance-mapping))))
+(defun compute-superclass-nodes (binding class-mapping query-info)
+  (append
+   (compute-value-superclass-nodes query-info binding)
+   (compute-reference-superclass-nodes query-info binding)
+   (when (member binding (select-list-of query-info))
+     (compute-all-superclass-nodes class-mapping))))
 
-(defmethod initialize-instance :after ((instance binding-node)
-				       &key query-binding query-info
-				       class-mapping)
-  (dolist (value-binding (get-value-bindings query-binding query-info))
-    (add-value-binding instance value-binding))
-  (dolist (reference-binding (get-reference-bindings query-binding query-info))
-    (add-reference-node instance reference-binding query-info))
-  (when (member query-binding (select-list-of query-info))
-    (compute-inheritance-nodes instance class-mapping)
-    (compute-extension-nodes instance class-mapping)))
+(defun compute-subclass-superclass-nodes (class-mapping)
+  (mapcar #'(lambda (inheritance-mapping)
+	      (make-instance 'superclass-node
+			     :inheritance-mapping inheritance-mapping
+			     :superclass-nodes
+			     (compute-subclass-nodes
+			      (superclass-mapping-of inheritance-mapping))))
+	  (superclasses-inheritance-mappings-of class-mapping)))
+
+(defun compute-subclass-nodes (class-mapping)
+  (mapcar #'(lambda (inheritance-mapping)
+	      (make-instance 'subclass-node
+			     :inheritance-mapping
+			     inheritance-mapping
+			     :superclass-nodes
+			     (compute-subclass-superclass-nodes
+			      (superclass-mapping-of inheritance-mapping))
+			     :subclass-nodes
+			     (compute-subclass-nodes
+			      (subclass-mapping-of inheritance-mapping))))
+	  (subclasses-inheritance-mappings-of class-mapping)))
+
+(defun make-value-node (&rest value-bindings)
+  (make-instance 'value-node :value-bindings value-bindings))
+
+(defun make-reference-node (reference-binding query-info)
+  (let ((class-mapping
+	 (class-mapping-of (reference-mapping-of reference-binding))))
+    (make-instance 'reference-node
+		   :reference-bindings (list reference-binding)
+		   :reference-nodes
+		   (mapcar #'(lambda (reference-binding)
+			       (make-reference-node reference-binding
+						    query-info))
+			   (find-reference-bindings reference-binding
+						    query-info))
+		   :value-nodes
+		   (mapcar #'make-value-node
+			   (find-value-bindings reference-binding
+						query-info))
+		   :superclass-nodes
+		   (compute-superclass-nodes reference-binding
+					     class-mapping query-info)
+		   :subclass-nodes
+		   (when (member reference-binding
+				 (select-list-of query-info))
+		     (compute-subclass-nodes
+		      (class-mapping-of reference-binding))))))
 
 (defun make-root-node (root-binding query-info)
-  (make-instance 'binding-node
-		 :class-mapping (class-mapping-of root-binding)
-		 :query-binding root-binding
-		 :query-info query-info))
+  (let ((class-mapping (class-mapping-of root-binding)))
+    (make-instance 'root-node
+		   :root-binding root-binding
+		   :reference-nodes
+		   (mapcar #'(lambda (reference-binding)
+			       (make-reference-node reference-binding
+						    query-info))
+			   (find-reference-bindings root-binding
+						    query-info))
+		   :value-nodes
+		   (mapcar #'make-value-node
+			   (find-value-bindings root-binding query-info))
+		   :superclass-nodes
+		   (compute-superclass-nodes root-binding class-mapping
+					     query-info)
+		   :subclass-nodes
+		   (when (member root-binding (select-list-of query-info))
+		     (compute-subclass-nodes class-mapping)))))
+		 
+
 
 ;; query-tree -> loaders -> sql-query
-???(defun compute-sql-select-list (select-list query-trees)
-  (reduce #'(lambda (sql-select-list object-select-item)
-	      (list* (compute-sql-select-item object-select-item)
-		     sql-select-list))
-	  select-list))
+;;???(defun compute-sql-select-list (select-list query-trees)
+;;  (reduce #'(lambda (sql-select-list object-select-item)
+;;	      (list* (compute-sql-select-item object-select-item)
+;;		     sql-select-list))
+;;	  select-list))
 
-(defun make-sql-query (query-trees query-info)
-  (make-instance 'sql-query
-		 :select-list
-		 (compute-select-items query-tree select-list)
-		 :from-clause
-		 (compute-from-clause query-tree)
-		 :where-clause
-		 (compute-where-clause query-tree where)
-		 :group-by-clause
-		 (compute-group-by-clause query-tree query-info)
-		 :having-clause
-		 (compute-having-clause query-tree having)
-		 :order-by-clause
-		 (compute-order-by-clause query-tree order-by)
-		 :limit limit :offset offset))
+;;(defun make-sql-query (query-trees query-info)
+;;  (make-instance 'sql-query
+;;		 :select-list
+;;		 (compute-select-items query-tree select-list)
+;;		 :from-clause
+;;		 (compute-from-clause query-tree)
+;;		 :where-clause
+;;		 (compute-where-clause query-tree where)
+;;		 :group-by-clause
+;;		 (compute-group-by-clause query-tree query-info)
+;;		 :having-clause
+;;		 (compute-having-clause query-tree having)
+;;		 :order-by-clause
+;;		 (compute-order-by-clause query-tree order-by)
+;;		 :limit limit :offset offset))
 
-(defun append-fetch (sql-query fetch-reference-bindings)
-  (if (not (null (or (limit-of sql-query)
-		     (offset-of sql-query))))
+;;(defun append-fetch (sql-query fetch-reference-bindings)
+;;  (if (not (null (or (limit-of sql-query)
+;;		     (offset-of sql-query))))
       ;;wrap query as subquery
       ;;make query with additional joins
-      (make-instance 'sql-query
+;;      (make-instance 'sql-query
 
-  (let ((
-  (format t (concatenate 'string
-			 "~@[SELECT ~<~@{~w~^, ~:_~}~:>~]"
-			 "~@[~%  FROM ~<~@{~w~^, ~:_~}~:>~]"
-			 "~@[~% ORDER BY ~<~@{~w~^, ~:_~}~:>~]"
-			 "~@[~%HAVING ~<~@{~w~^, ~:_~}~:>~]"
-			 "~@[~% GROUP BY ~<~@{~w~^, ~:_~}~:>~]"
-			 (compute-sql-select-list
-			  (select-list-of query-info) query-trees)
-			 (make-list 100)
-			 (make-list 20)
-			 (make-list 10)
-			 (make-list 10))))
+;;  (let ((
+;;  (format t (concatenate 'string
+;;			 "~@[SELECT ~<~@{~w~^, ~:_~}~:>~]"
+;;			 "~@[~%  FROM ~<~@{~w~^, ~:_~}~:>~]"
+;;			 "~@[~% ORDER BY ~<~@{~w~^, ~:_~}~:>~]"
+;;			 "~@[~%HAVING ~<~@{~w~^, ~:_~}~:>~]"
+;;			 "~@[~% GROUP BY ~<~@{~w~^, ~:_~}~:>~]"
+;;			 (compute-sql-select-list
+;;			  (select-list-of query-info) query-trees)
+;;			 (make-list 100)
+;;			 (make-list 20)
+;;			 (make-list 10)
+;;			 (make-list 10))))
 
 (defun make-query (select-list &key where order-by having
 		   fetch-also limit offset single)
@@ -320,13 +396,14 @@
 	 (query-tree
 	  (mapcar #'(lambda (root-binding)
 		      (make-root-node root-binding query-info))
-		  (root-bindings-of query-info)))
-	 (sql-query
-	  (append-fetch (make-sql-query query-info query-tree)
-			fetch-also)))
-    (make-instance 'db-query
-		   :sql-query sql-query
-		   :parameters (compute-parameters query-info)
-		   :query-loader (compute-query-loader sql-query
-						       single
-						       query-tree))))
+		  (root-bindings-of query-info))))
+    query-tree))
+;;	 (sql-query
+;;	  (append-fetch (make-sql-query query-info query-tree)
+;;			fetch-also)))
+ ;;   (make-instance 'db-query
+;;		   :sql-query sql-query
+;;		   :parameters (compute-parameters query-info)
+;;		   :query-loader (compute-query-loader sql-query
+;;						       single
+;;						       query-tree))))
