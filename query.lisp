@@ -1,30 +1,5 @@
 (in-package #:cl-db)
 
-(defclass root-binding ()
-  ((class-mapping :initarg :class-mapping
-		  :reader class-mapping-of)))
-
-(defclass reference-binding ()
-  ((parent-binding :initarg :parent-binding
-		   :reader parent-binding-of)
-   (reference-mapping :initarg :reference-mapping
-		      :reader reference-mapping-of)))
-
-(defmethod class-mapping-of ((object reference-binding))
-  (class-mapping-of (reference-mapping-of object)))
-
-(defclass value-binding ()
-  ((parent-binding :initarg :parent-binding
-		   :reader parent-binding-of)
-   (value-mapping :initarg :value-mapping
-		  :reader value-mapping-of)))
-
-(defclass expression ()
-  ((expression-type :initarg :expression-type
-		    :reader expression-type-of)
-   (arguments :initarg :arguments
-	      :reader arguments-of)))
-
 (defclass query-info ()
   ((root-bindings :initarg :root-bindings
 		  :initform (list)
