@@ -64,8 +64,6 @@
 ;;  (when (not (loaded-p object (clos-session-of transaction)))
 ;;    (push (new-objects-of transaction) object)))
 
-
-
 ;;(defgeneric db-query (connection query))
 
 ;;(defun load (mapping row))
@@ -738,7 +736,6 @@ IList cats = sess.CreateCriteria(typeof(Cat))
 				      (expression 'eq #'age-of 0)
 				      (expression 'null #'age-of)))))
 
-
 ;; биарные операции применимы только для значений схожего типа
 ;; унарные применимы только для одного значения или выражения
 ;; таким образом возможно построение совокупности операций для стобцов
@@ -752,7 +749,6 @@ Expressions
 
 (define-expression :sum (column)
   (format "sum(~a)" column))
-
 
 ;;;;
 
@@ -773,7 +769,6 @@ Expand into:
 	 (expression :-
 		     (property cat #'age-of)
 		     (property kitten #'age-of)))))
-		     
 
 (let ((project-mapping
        (map-class 'project (list "id")
@@ -844,8 +839,6 @@ Expand into:
   (mapcar #'(lambda (row)
 	      (load-object loader resu
 
-
-
 ;; 1. Создаем query-tree - анализируем что нужно загрузить (какие
 ;; связи: ассоциации и наследование).
 
@@ -860,16 +853,8 @@ Expand into:
 
 ;; добавить fetch-also
 
-
-
-
-
-
-
-
-
 (defclass table-reference ()
-  ((table :initarg :table :reader table-of)
+  ((root-binding :initarg :root-binding :reader root-binding-of)
    (joins :initarg :joins :reader joins-of)
    (references :initarg :references :reader references-of)
    (slot-accesses :initarg :slot-accesses :reader slot-accesses-of)
@@ -883,8 +868,6 @@ Expand into:
 
 (defclass left-join (join)
   ())
-
-
 
 ;; Собираем информацию о данных участвующих в запросе. Строим
 ;; query-info.
@@ -929,8 +912,6 @@ Expand into:
 ;; Для этого необходимо собрать загружаему информацию по дереву.
 ;; Делается это обходом дерева до нижнего уровня. В ходе этого
 ;; необходимо собрать информацию о таблицах...
-
-
 
 ;;(defun make-sql-query (select-list where order-by having limit offset)
 ;;  (format "SELECT ~a FROM ~a ~@[WHERE ~a~] ~@[ORDER BY ~a~]

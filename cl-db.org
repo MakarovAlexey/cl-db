@@ -92,6 +92,14 @@
     
     NB: данные подклассы используются только для отметки мест загрузки
     результата (select list).
+
+    После дерева необходимо заново вычислить все объекты запроса.
+    Затем по очереди вычислить:
+    1. FROM clause
+    2. select
+
+
+    
 *** SQL Query
 **** Fetch-also
      При наличии загружаемых ассоциации, создается объединение с
@@ -164,6 +172,29 @@
 		  :reader value-mapping-of)
    (value-bindings :initarg :value-bindings
 		   :accessor value-bindings-of)))
+
+*** Вычисление select list запроса
+
+    Сначала создаем список FROM-clause. Table-reference и joins.
+
+**** root-binding
+
+     Вычисляется, как набор колонок (колонки таблицы плюс
+     наледование).
+
+**** reference-binding
+
+     Вычисляется также, набор колонок, как root-binding, только
+     reference-binding.
+
+**** value-binding
+
+     По parent-mapping находим table-reference.
+
+**** expression
+
+     По ситуации находим нужные колонки первичных ключей или колонок
+     значений.
 
 
 

@@ -61,7 +61,6 @@
   ((subclass-nodes :initarg :subclass-nodes
 		   :reader subclass-nodes-of)))
 
-
 ;; Query AST
 
 (defclass fetch-query ()
@@ -316,15 +315,26 @@
 		   :subclass-nodes
 		   (when (member root-binding (select-list-of query-info))
 		     (compute-subclass-nodes class-mapping)))))
-		 
 
+(defun find-node ())
+
+(defgeneric compute-select-item (select-item query-trees))
+
+(defmethod compute-select-item ((select-item root-binding) query-trees)
+  (let ((root-node
+	 (find select-item query-trees :key #'root-binding-of)))
+    
+
+(defmethod compute-select-item ((select-item reference-binding) query-trees)
+  
+
+(defmethod compute-select-item ((select-item value-binding) query-trees)
+  (
 
 ;; query-tree -> loaders -> sql-query
-;;???(defun compute-sql-select-list (select-list query-trees)
-;;  (reduce #'(lambda (sql-select-list object-select-item)
-;;	      (list* (compute-sql-select-item object-select-item)
-;;		     sql-select-list))
-;;	  select-list))
+(defun compute-sql-select-list (select-list query-trees)
+  (loop for select-item in select-list
+     append (compute-select-item select-item query-trees)))
 
 ;;(defun make-sql-query (query-trees query-info)
 ;;  (make-instance 'sql-query
