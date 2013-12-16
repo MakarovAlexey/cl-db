@@ -94,10 +94,11 @@
 	value-mapping)))
 
 (defun get-reference-mapping (class-mapping reader)
-  (multiple-value-bind (reference-mapping presentp)
-      (gethash (get-slot-name (mapped-class-of class-mapping) reader)
-	       (reference-mappings-of class-mapping))
-    (if (not presentp)
+  (let ((reference-mapping
+	 (find (get-slot-name (mapped-class-of class-mapping) reader)
+	       (reference-mappings-of class-mapping)
+	       :key #'slot-name-of)))
+    (if (null reference-mapping)
 	(error "Mapped reference for accessor ~a not found" reader)
 	reference-mapping)))
 

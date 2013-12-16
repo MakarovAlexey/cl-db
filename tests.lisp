@@ -1,16 +1,33 @@
 (in-package #:cl-db)
 
-(defclass cat ()
-  ((id :initarg :id
-       :reader id-of)
-   (age :initarg :age
-	:accessor age-of)
-   (name :initarg :name
+(defclass user ()
+  ((name :initarg :name
 	 :accessor name-of)
-   (kittens :initarg :kittens
-	    :accessor kittens-of)))
+   (login :initarg :login
+	  :accessor login-of)
+   (password :initarg :password
+	     :accessor password-of)
+   (email :initarg :email
+	  :accessor email-of)
+   (project-managments :initarg :project-managments
+		       :accessor project-managments-of)
+   (project-project-participations :initarg :project-managments
+				   :accessor project-managments-of))
+  (:documentation "Пользователь системы, ответственный исполнитель"))
 
-(defclass cat-b (cat)
+(defclass project ()
+  ((name :initarg :name
+	 :accessor name-of)
+   (begin-date :initarg :begin-date
+	       :accessor begin-date-of)
+   (project-project-participations :initarg :project-members
+				   :accessor project-members-of)))
+
+(defclass project-participation ()
+  ((project :initarg :project :reader project-of)
+   (user :initarg :user :reader user-of)))
+
+(defclass project-managment (project-participation)
   ())
 
 (define-database-interface postgresql-postmodern
@@ -22,17 +39,42 @@
        (cl-postgres:exec-prepared connection name params
 				  'cl-postgres:alist-row-reader))))
 
-(define-mapping-schema cats-mapping)
+(define-mapping-schema projects-managment)
 
-(define-class-mapping (cat "cats")
+(define-class-mapping (user "users")
     ((:primary-key "id"))
-  (id (:value ("id" "integer")))
+  (id (:value ("id" "serial")))
   (name (:value ("name" "varchar")))
-  (age (:value ("age" "integer")))
-  (kittens (:one-to-many cat "parent_id")))
+  (login (:value ("login" "varchar")))
+  (password (:value ("password" "varchar")))
+  (project-managments (:one-to-many project-managment "project_id")
+		      #'(lambda (&rest roles)
+			  (alexandria:alist-hash-table
+			   (mapcar #'(lambda (role)
+				       (cons (project-of role) role))
+				   roles)))
+		      #'alexandria:hash-table-values))
 
-(define-class-mapping (cat-b "cats_b")
-    ((:superclasses cat)))
+(define-class-mapping (project "projects")
+    ((:primary-key "id"))
+  (id (:value ("id" "serial")))
+  (name (:value ("name" "varchar")))
+  (begin-date (:value ("begin_date" "date")))
+  (project-participations (:one-to-many project-participation "project_id")
+			  #'(lambda (&rest roles)
+			      (alexandria:alist-hash-table
+			       (mapcar #'(lambda (role)
+					   (cons (user-of role) role))
+				       roles)))
+			  #'alexandria:hash-table-values))
+
+(define-class-mapping (project-participation "project_participation")
+    ((:primary-key "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+
+(define-class-mapping (project-managment "project_managers")
+    ((:superclasses project-participation)))
 
 (lift:deftestsuite session ()
   ())
@@ -47,11 +89,21 @@
 (lift:deftestsuite query ()
   ()
   (:dynamic-variables
-   (*mapping-schema* (make-mapping-schema 'cats-mapping))))
+   (*mapping-schema* (make-mapping-schema 'projects-managment))))
 
-(lift:addtest entities
-  (let ((cat (bind-root 'cat)))
-    (make-query cat)))
+(lift:addtest list-projects
+  (let ((project (bind-root 'project)))
+    (make-query (list project))))
+
+(lift:addtest list-project-managers
+  (let ((project-member (bind-root 'project-manager)))
+    (make-query (list project-manager))))
+
+(lift:addtest list-project-participations
+  (let ((project-participation (bind-root 'project-participation)))
+    (make-query (list project-participation))))
+
+
 
 ;; additional restrictions
 
