@@ -20,8 +20,8 @@
 	 :accessor name-of)
    (begin-date :initarg :begin-date
 	       :accessor begin-date-of)
-   (project-project-participations :initarg :project-members
-				   :accessor project-members-of)))
+   (project-participations :initarg :project-members
+			   :accessor project-members-of)))
 
 (defclass project-participation ()
   ((project :initarg :project :reader project-of)
@@ -234,6 +234,10 @@
    (bind-reference (bind-root 'project) #'project-members-of)))
 
 (lift:deftestsuite query ()
-  ((mapping-shema (test-mapping)))
+  ((*mapping-shema* (test-mapping)))
   (:test (lift:ensure (bind-root 'project mapping-schema)))
-  (:test (bind-reference (bind-root 'project) #'project-members-of)))
+  (:test (bind-reference (bind-root 'project) #'project-members-of))
+  (:test (lift:ensure (equal
+		       (ensure-node (list '(1 (2)) '(2))
+				    1 2 3 4)
+		       '((1 (2 (3 (4)))) (2))))))

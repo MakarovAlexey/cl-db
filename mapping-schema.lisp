@@ -25,11 +25,23 @@
    (subclasses-inheritance-mappings :reader subclasses-inheritance-mappings-of)
    (superclasses-inheritance-mappings :reader superclasses-inheritance-mappings-of)))
 
-(defclass inheritance-mapping ()
+;;(defclass inheritance-mapping ()
+;;  ((columns :initarg :columns
+;;	    :reader columns-of)
+;;   (subclass-mapping :initarg :subclass-mapping
+;;		     :reader subclass-mapping-of)
+;;   (superclass-mapping :initarg :superclass-mapping
+;;		       :reader superclass-mapping-of)))
+
+(defclass extension-mapping ()
   ((columns :initarg :columns
 	    :reader columns-of)
    (subclass-mapping :initarg :subclass-mapping
-		     :reader subclass-mapping-of)
+		     :reader subclass-mapping-of)))
+
+(defclass inheritance-inheritance ()
+  ((columns :initarg :columns
+	    :reader columns-of)
    (superclass-mapping :initarg :superclass-mapping
 		       :reader superclass-mapping-of)))
 
@@ -402,7 +414,7 @@
      when (eq (mapped-class-of
 	       (subclass-mapping-of inhritance-mapping))
 	      (mapped-class-of class-mapping-definition))
-     collect inhritance-mapping))
+     collect (make-instance 'inhritance-mapping))
 
 (defun compute-subclass-inheritance-mappings (class-mapping-definition)
   (loop for inhritance-mapping in (list-inhritance-mappings)
@@ -539,9 +551,10 @@
       (setf association-mappings
 	    (compute-associations
 	     (alexandria:hash-table-values class-mapping-definitions))
-	    inheritance-mappings
-	    (compute-inheritance-mappings
-	     (alexandria:hash-table-values class-mapping-definitions))))
+;;	    inheritance-mappings
+;;	    (compute-inheritance-mappings
+;;	     (alexandria:hash-table-values class-mapping-definitions))
+	    ))
     (dolist (class-mapping
 	      (sort class-mappings #'presedence-list<
 		    :key #'class-mapping-presedence-list)
