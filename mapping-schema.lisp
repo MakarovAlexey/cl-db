@@ -22,8 +22,10 @@
 		   :reader value-mappings-of)
    (reference-mappings :initform nil
 		       :reader reference-mappings-of)
-   (subclasses-inheritance-mappings :reader subclasses-inheritance-mappings-of)
-   (superclasses-inheritance-mappings :reader superclasses-inheritance-mappings-of)))
+   (extension-mappings :initarg :extension-mappings
+		       :reader extension-mappings-of)
+   (inheritance-mappings :initarg :inheritance-mappings
+			 :reader inheritance-mappings-of)))
 
 ;;(defclass inheritance-mapping ()
 ;;  ((columns :initarg :columns
@@ -39,7 +41,7 @@
    (subclass-mapping :initarg :subclass-mapping
 		     :reader subclass-mapping-of)))
 
-(defclass inheritance-inheritance ()
+(defclass inheritance-mapping ()
   ((columns :initarg :columns
 	    :reader columns-of)
    (superclass-mapping :initarg :superclass-mapping
@@ -392,47 +394,45 @@
 	     (not (null rest-a)))
 	(presedence-list< rest-a (rest b)))))
 
-(defun compute-inheritance-mapping (class-mapping-definition)
-  (let* ((class-mapping
-	  (get-class-mapping (mapped-class-of class-mapping-definition)))
-	 (table (get-table (table-name-of class-mapping-definition))))
-    (loop for superclass in (superclasses-of class-mapping-definition)
-       collect (make-instance 'inheritance-mapping
-			      :columns (mapcar #'(lambda (name)
-						   (get-column name table))
-					       (primary-key-of class-mapping-definition))
-			      :superclass-mapping (get-class-mapping superclass)
-			      :subclass-mapping class-mapping))))
+(defun compute-inheritance-mappings (class-mapping-definition)
+  (mapcar #'(lambda (superclass)
+	      (let ((table
+		     (get-table
+		      (table-name-of class-mapping-definition))))
+		(make-instance 'inheritance-mapping
+			       :columns (mapcar #'(lambda (name)
+						    (get-column name table))
+						(primary-key-of (find-class-mapping-definition superclass)))
+			       :superclass-mapping (get-class-mapping superclass))))
+	  (superclasses-of class-mapping-definition)))
 
-(defun compute-inheritance-mappings (class-mapping-definitions)
-  (apply #'append
-	 (mapcar #'compute-inheritance-mapping
-		 class-mapping-definitions)))
-
-(defun compute-superclass-inheritance-mappings (class-mapping-definition)
-  (loop for inhritance-mapping in (list-inhritance-mappings)
-     when (eq (mapped-class-of
-	       (subclass-mapping-of inhritance-mapping))
-	      (mapped-class-of class-mapping-definition))
-     collect (make-instance 'inhritance-mapping))
-
-(defun compute-subclass-inheritance-mappings (class-mapping-definition)
-  (loop for inhritance-mapping in (list-inhritance-mappings)
-     when (eq (mapped-class-of
-	       (superclass-mapping-of inhritance-mapping))
-	      (mapped-class-of class-mapping-definition))
-     collect inhritance-mapping))
+(defun compute-extension-mappings (class-mapping-definition)
+  (let ((mapped-class (mapped-class-of class-mapping-definition)))
+    (mapcar #'(lambda (subclass-mapping-definition)
+		(let ((table
+		       (get-table
+			(table-name-of subclass-mapping-definition))))
+		  (make-instance 'extension-mapping
+				 :columns (mapcar #'(lambda (name)
+						      (get-column name table))
+						  (primary-key-of class-mapping-definition))
+				 :subclass-mapping (get-class-mapping
+						    (mapped-class-of subclass-mapping-definition)))))
+	    (remove-if #'(lambda (subclass-mapping-definition)
+			   (not
+			    (find mapped-class
+				  (superclasses-of subclass-mapping-definition))))
+		       (alexandria:hash-table-values *class-mapping-definitions*)))))
 
 (defun compute-class-mapping (class-mapping class-mapping-definition)
-  (with-slots (subclasses-inheritance-mappings
-	       superclasses-inheritance-mappings table)
+  (with-slots (extension-mappings inheritance-mappings table)
       class-mapping
     (setf table
 	  (get-table (table-name-of class-mapping-definition))
-	  superclasses-inheritance-mappings
-	  (compute-superclass-inheritance-mappings class-mapping-definition)
-	  subclasses-inheritance-mappings
-	  (compute-subclass-inheritance-mappings class-mapping-definition))))
+	  inheritance-mappings
+	  (compute-inheritance-mappings class-mapping-definition)
+	  extension-mappings
+	  (compute-extension-mappings class-mapping-definition))))
 
 (defun compute-value-mappings (class-mapping-definition path)
   (let ((table (get-table (table-name-of class-mapping-definition))))
@@ -514,7 +514,7 @@
 	  reference-mappings
 	  (append reference-mappings
 		  (compute-reference-mappings class-mapping-definition path))))
-  (dolist (inheritance-mapping (superclasses-inheritance-mappings-of 
+  (dolist (inheritance-mapping (inheritance-mappings-of 
 				(get-class-mapping
 				 (mapped-class-of class-mapping-definition))))
     (compute-slot-mappings class-mapping

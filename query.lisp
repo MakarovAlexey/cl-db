@@ -47,22 +47,22 @@
 	      (apply #'plan-inheritance query-plan
 		     (superclass-mapping-of inheritance-mapping)
 		     (list* inheritance-mapping path)))
-	  (superclasses-inheritance-mappings-of class-mapping)
+	  (inheritance-mappings-of class-mapping)
 	  :initial-value (apply #'plan-query query-plan path)))
 
 (defun plan-extension (query-plan class-mapping &rest path)
   (apply #'plan-query
-	 (reduce #'(lambda (query-plan inheritance-mapping)
+	 (reduce #'(lambda (query-plan extension-mapping)
 		     (let ((new-path (reverse
-				      (list* inheritance-mapping
+				      (list* extension-mapping
 					     (reverse path)))))
 		       (apply #'plan-extension
 			      (apply #'plan-inheritance query-plan
-				     (superclass-mapping-of inheritance-mapping)
+				     class-mapping
 				     new-path)
-			      (subclass-mapping-of inheritance-mapping)
+			      (subclass-mapping-of extension-mapping)
 			      new-path)))
-		 (subclasses-inheritance-mappings-of class-mapping)
+		 (extension-mappings-of class-mapping)
 		 :initial-value (apply #'plan-query query-plan path))
 	 path))
 
