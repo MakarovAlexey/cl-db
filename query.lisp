@@ -51,20 +51,18 @@
 	  :initial-value (apply #'plan-query query-plan path)))
 
 (defun plan-extension (query-plan class-mapping &rest path)
-  (apply #'plan-query
-	 (reduce #'(lambda (query-plan extension-mapping)
-		     (let ((new-path (reverse
-				      (list* extension-mapping
-					     (reverse path)))))
-		       (apply #'plan-extension
-			      (apply #'plan-inheritance query-plan
-				     class-mapping
-				     new-path)
-			      (subclass-mapping-of extension-mapping)
-			      new-path)))
-		 (extension-mappings-of class-mapping)
-		 :initial-value (apply #'plan-query query-plan path))
-	 path))
+  (reduce #'(lambda (query-plan extension-mapping)
+	      (let ((new-path (reverse
+			       (list* extension-mapping
+				      (reverse path)))))
+		(apply #'plan-extension
+		       (apply #'plan-inheritance query-plan
+			      class-mapping
+			      new-path)
+		       (subclass-mapping-of extension-mapping)
+		       new-path)))
+	  (extension-mappings-of class-mapping)
+	  :initial-value (apply #'plan-query query-plan path)))
 
 (defgeneric plan-select-item (query-plan select-item))
 
@@ -110,11 +108,29 @@
   (reduce #'plan-clause (arguments-of clause)
 	  :initial-value query-plan))
 
+(defun compute-select-item-plan (select-item query-plan)
+  (let ((path (binding-path select-item)))
+    (reduce #'(lambda (plan node)
+		(find node (rest plan) :key #'first))
+	    (rest path)
+	    :initial-value (find (first path) query-plan
+				 :key #'first))))
+
 (defun make-query (select-list &key where order-by having
 		   fetch-also limit offset single)
-;;  (reduce #'plan-fetch-also-clause fetch-also
-;;	  :initial-value
-	  (reduce #'plan-clause (append where order-by having)
-		  :initial-value
-		  (reduce #'plan-select-item select-list
-			  :initial-value nil)))
+  (let ((query-plan
+;;	 (reduce #'plan-fetch-also-clause fetch-also
+;;		 :initial-value
+		 (reduce #'plan-clause (append where order-by having)
+			 :initial-value
+			 (reduce #'plan-select-item select-list
+				 :initial-value nil))))
+    (values
+     (mapcar #'(lambda (select-item)
+		 (compute-select-item-plan select-item query-plan))
+	     select-list)
+     (mapcar #'(lambda (where-clause)
+		 (
+     query-plan)))
+
+;;(defgeneric load-row (loader row))
