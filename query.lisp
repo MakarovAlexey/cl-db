@@ -108,29 +108,75 @@
   (reduce #'plan-clause (arguments-of clause)
 	  :initial-value query-plan))
 
-(defun compute-select-item-plan (select-item query-plan)
-  (let ((path (binding-path select-item)))
-    (reduce #'(lambda (plan node)
-		(find node (rest plan) :key #'first))
-	    (rest path)
-	    :initial-value (find (first path) query-plan
-				 :key #'first))))
+;;(defmethod compute-select-item ((select-item lisp) query-plan &rest args))
 
+(defun get-plan-node (binding query-plan)
+  (reduce #'(lambda (nodes key)
+	      (assoc key nodes))
+	  (binding-path select-item)
+	  :initial-value query-plan
+	  :key )
+
+;;  (let ((path (binding-path select-item)))
+;;    (reduce #'(lambda (plan node)
+;;		(find node (rest plan) :key #'first))
+;;	    (rest path)
+;;	    :initial-value (find (first path) query-plan
+;;				 :key #'first))))
+
+(defmethod compute-clause-item (query-plan
+				(select-item root-binding) &rest args)
+  (list
+   (class-mapping-of select-item)
+   (assoc key query-plan)))
+
+(defmethod compute-clause-item (query-plan
+				(select-item reference-binding) &rest args)
+  (list
+   (refrenced-class-mapping-of
+    (reference-mapping-of select-item))
+   (get-plan-node select-item)))
+
+(defmethod compute-clause-item (query-plan
+				(select-item value-binding) &rest args)
+  (list
+   (value-mapping-of select-item)
+   (get-plan-node (parent-mapping-of select-item))))
+
+(defmethod compute-clause-item (query-plan
+				(select-item expression) &rest args)
+  (list* select-item (mapcar #'compute-select-item args)))
+
+(defun compute-clause (clause query-plan)
+  (mapcar #'(lambda (clause-item)
+		      (apply #'compute-clause-item
+			     query-plan clause-item)) clause))
+
+(defun make-main-query (select-list where order-by having
+			limit offset single query-plan)
+  (list :select-list (compute-clause query-plan select-list)
+	:from-clause query-plan
+	:where-clause (compute-clause query-plan where)
+	:order-by-clause (compute-clause order-by)
+	:having-clause (compute-clause having)
+	:limit limit
+	:offset offset))
+
+;; TODO fetch and single
 (defun make-query (select-list &key where order-by having
 		   fetch-also limit offset single)
-  (let ((query-plan
-;;	 (reduce #'plan-fetch-also-clause fetch-also
-;;		 :initial-value
-		 (reduce #'plan-clause (append where order-by having)
-			 :initial-value
-			 (reduce #'plan-select-item select-list
-				 :initial-value nil))))
-    (values
-     (mapcar #'(lambda (select-item)
-		 (compute-select-item-plan select-item query-plan))
-	     select-list)
-     (mapcar #'(lambda (where-clause)
-		 (
-     query-plan)))
+  (let ((main-query
+	 (make-main-query select-list where order-by
+			  having limit offset single
+			  (reduce #'plan-clause
+				  (append where order-by having)
+				  :initial-value
+				  (reduce #'plan-select-item
+					  select-list
+					  :initial-value nil)))))
+    (if (not (null fetch-also))
+	(reduce #'plan-fetch-also-clause fetch-also
+		:initial-value )
+	main-query)))
 
 ;;(defgeneric load-row (loader row))
