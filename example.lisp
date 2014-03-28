@@ -389,10 +389,21 @@ Simple Expressions
 
 (db-query cat) => list all cats
 
+(db-read 'cat)
+
 =>
 
 (let ((cat (bind-root 'cat)))
   (make-query cat))
+
+
+OR
+
+(with-session ((:mapping-schema mapping-name)
+	       (:database-interface session-config))
+  (db-read 'cat))
+
+OR
 
 (with-session ((:mapping-schema mapping-name)
 	       (:database-interface session-config))
@@ -411,6 +422,14 @@ Function:
 
 (make-query
  (make-root 'cat :where (expression cats := #'name-of name)))
+
+OR
+
+(db-read 'cat :where
+	 #'(lambda (root)
+	     (expression #'eq (property-of root #'name-of) "Max")))
+
+OR
 
 (let ((cat (make-root 'cat)))
   (make-query cat
@@ -436,6 +455,15 @@ var catNames = session.QueryOver<Cat>()
 	    :where (expression :betweenp #'age-of 2 8)
 	    :order-by (expression :asc #'name-of))
 
+(db-read 'cat
+	 :select #'(lambda (cat)
+		     (property-of cat #'name-of))
+	 :where #'(lambda (cat)
+		    (expression :between
+				(property-of cat #'age-of) 2 8))
+	 :order-by #'(lambda (cat)
+		       (cons (property-of cat #'name-of) :ascending)))
+
 (let* ((cat (make-root 'cat))
        (name (make-alias cat #'name-of)))
   (make-query cat
@@ -460,6 +488,13 @@ var cats =
 	      :where (list
 		      (expression := (slot-of cat #'name-of) "Max")
 		      (expression :> (slot-of cat #'age-of) 2 8))))
+
+(db-read 'cat
+	 :where #'(lambda (root)
+		    (list
+		     (expression #'eq (property-of root #'name-of) "Max")
+		     (expression #'> (property-of root #'age-of) 8))))
+
 Associations
 
 IQueryOver<Cat,Kitten> catQuery =
@@ -471,12 +506,29 @@ IQueryOver<Cat,Kitten> catQuery =
 	   (kitten (kittens-of cat)))
     ((:where (:eq (name-of kitten) "Tiddles"))))
 
+(db-read 'cat :join
+	 #'(lambda (cat)
+	     (reference-of cat #'kittens-of
+			   :where #'(lambda (kitten)
+				      (property-of kitten #'name-of
+						   "Tiddles")))))
+
 (let* ((cat (make-root 'cat))
        (kitten (join-association cat #'kittens-of)))
   (make-query (list cat kitten)
 	      :where (expression := (slot-of #'name-of) "Tiddles")))
 
 => (list cat kitten)
+
+(db-read 'cat :join
+	 #'(lambda (cat)
+	     (reference-of root #'kittens-of
+			   :select #'(lambda (kitten)
+				       kitten)
+			   :where #'(lambda (kitten)
+				      (property-of kitten
+						   #'name-of
+						   "Tiddles")))))
 
 (db-query ((cat cat)
 	   (kitten (kittens-of cat)))
@@ -569,6 +621,12 @@ IList<Cat> oldestCats =
 	  (:max (age-of maximum-age-cat)))))
   cat)
 
+(db-read 'cat :having
+	 #'(lambda (cat)
+	     (let ((age-of-property (property-of cat #'age-of)))
+	       (expression #'eq age-of-property
+			   (expression #'max age-of-property)))))
+
 (let* ((cat (make-root 'cat))
        (maximum-age-cat (make-root 'cat)))
   (make-query cat :where
@@ -601,6 +659,8 @@ Limit, offset
 (make-query
  (make-root 'cat) :limit 100 :offset 100))
 
+(db-read 'cat :limit 100 :offset 100)
+
 Fetching
 
 (db-query ((cat cat))
@@ -617,11 +677,19 @@ Fetching
        :join (join-association #'kittens-of
 			       :fetch #'parents-of))
 
+(db-read 'cat :fetch #'(lambda (cat)
+			 (reference-of cat #'kittens-of)))
+
 Single instance
 
 (db-query ((cat cat))
     ((:where (:eq (id-of cat) 35))
      (:single t)))
+
+(db-read 'cat
+	 :single t
+	 :where (lambda (cat)
+		  (expression #'eq (property-of cat #'id-of) 35)))
 
 ;; Проблема рекурсивных ключей. Идентификатор объекта не может
 ;; идентифицироваться в дереве своим родителем. В противном случае
@@ -643,7 +711,7 @@ If PK (user id and project id)
 (db-query ((project-manager project-manager)
 	   (project (project-of project-manager))
 	   (user (user-of project-manager)))
-  (:select project-manager)
+	  (:select project-manager)
   (:single t)
   (:where
    (:eq (id-of user) 1)
@@ -1128,4 +1196,16 @@ Expand into:
 	      :order-by ,@(apply #'compile-order-by-clause
 				 (apply #'get-option
 					:order-by clauses)))))
+
+
+(let ((cat (bind-root 'cat))
+      (kittens (bind-reference cat #'kittens-of)))
+  (make-query (fetch-also cat kittens)))
+
+(let ((curriculum
+       (bind-root 'curriculum))
+      (subjects
+       (bind-reference curriculum #'subjects-of)))
+  (make-query (join-fetch curriculum
+			  (join-fetch subjects #'semester-works-of))))
 

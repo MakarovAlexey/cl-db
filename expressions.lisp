@@ -19,68 +19,55 @@
 	(error "Expression type ~a not found" name)
 	(list* expression-type args))))
 
-(defmacro define-sql-operator (name sql-name)
-  `(setf (gethash (quote ,name) *sql-expression-types*)
-	 (make-instance 'sql-operator :sql-string sql-string)))
+;;(defmacro define-sql-operator (name sql-name)
+;;  `(setf (gethash (quote ,name) *sql-expression-types*)
+;;	 (make-instance 'sql-operator :sql-string ,sql-name)))
 
-(defmacro define-sql-function (name sql-name)
-  `(setf (gethash (quote ,name) *sql-expression-types*)
-	 (make-instance 'sql-function :sql-string sql-string)))
+;;(defmacro define-sql-function (name sql-name)
+;;  `(setf (gethash (quote ,name) *sql-expression-types*)
+;;	 (make-instance 'sql-function :sql-string ,sql-name)))
 
-(define-operator (:eq obj1 obj2)
-    stream
-  (format stream "~a IS ~a" obj1 obj2))
+;;(define-binary-operator (:eq :=) "=")
 
-(define-operator (:or &rest expressions)
-    stream
-  (format stream "\{~a OR ~a\}" obj1 obj2))
+;;(define-binary-operator :or "OR")
 
-(define-infix-operator (:and &rest expressions)
-    stream
-  "AND")
+;;(define-binary-operator :and "AND")
 
-(define-prefix-operator :not "NOT")
+;;(define-operator :not "NOT")
 
-(define-infix-operator (:in expression &rest values)
-    "IN")
+;;(define-operator :in "IN")
 
-(define-infix-operator :in "LIKE")
+;;(define-operator :like "LIKE")
 
-(define-infix-operator :in "ILIKE")
+;;(define-operator :ilike "ILIKE")
 
-(define-infix-operator :in "SIMILAR")
+;;(define-operator :similar "SIMILAR")
 
-(define-infix-operator := "=")
+;;(define-operator :< "<")
 
-(define-infix-operator :< "<")
+;;(define-operator :> ">")
 
-(define-infix-operator :> ">")
+;;(define-operator :<= "<=")
 
-(define-infix-operator :<= "<=")
+;;(define-operator :>= ">=")
 
-(define-infix-operator :>= ">=")
+;;(define-operator :<> "<>")
 
-(define-infix-operator :<> "<>")
+;;(define-operator :!= "!=")
 
-(define-infix-operator :!= "!=")
+;;(define-operator :between "BETWEEN")
 
-(define-infix-operator :between "BETWEEN")
+;;(define-operator :+ "+")
 
-(define-infix-operator :+ "+")
+;;(define-operator :- "-")
 
-(define-infix-operator :- "-")
+;;(define-operator :* "*")
 
-(define-infix-operator :* "*")
+;;(define-operator :/ "/")
 
-(define-infix-operator :/ "/")
+;;(define-operator :% "%")
 
-(define-infix-operator :% "%")
-
-(define-infix-operator :expt "^")
-
-(define-infix-operator :^ "^")
-
-
+;;(define-operator :expt "^")
 
 ;; (define-aggregate-function :count "count")
 

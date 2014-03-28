@@ -42,11 +42,15 @@
 	    (binding-path (parent-binding-of binding))
 	    (path-of (reference-mapping-of binding)))))))
 
+;; допилить план наследования
 (defun plan-inheritance (query-plan class-mapping &rest path)
   (reduce #'(lambda (query-plan inheritance-mapping)
-	      (apply #'plan-inheritance query-plan
-		     (superclass-mapping-of inheritance-mapping)
-		     (list* inheritance-mapping path)))
+	      (let ((new-path (reverse
+			       (list* inheritance-mapping
+				      (reverse path)))))
+		(apply #'plan-inheritance query-plan
+		       (superclass-mapping-of inheritance-mapping)
+		       new-path)))
 	  (inheritance-mappings-of class-mapping)
 	  :initial-value (apply #'plan-query query-plan path)))
 
@@ -87,8 +91,8 @@
 	 (binding-path
 	  (parent-binding-of select-item))))
 
-(defmethod plan-select-item (query-plan (select-item expression))
-  (reduce #'plan-select-item (arguments-of select-item)
+(defmethod plan-select-item (query-plan (select-item list))
+  (reduce #'plan-select-item (rest select-item)
 	  :initial-value query-plan))
 
 (defgeneric plan-clause (query-plan clause))
@@ -104,18 +108,23 @@
 	 (binding-path
 	  (parent-binding-of clause))))
 
-(defmethod plan-clause (query-plan (clause expression))
-  (reduce #'plan-clause (arguments-of clause)
+(defmethod plan-clause (query-plan (clause list))
+  (reduce #'plan-clause (rest clause)
 	  :initial-value query-plan))
 
 ;;(defmethod compute-select-item ((select-item lisp) query-plan &rest args))
+;; функция должна возвращать два значения - найденный узел и "остаток" пути, который не удалось найти
+(defun get-plan-node (query-plan node &rest path)
+  (let ((node (assoc node query-plan)))
+    (when (not (null path))
+      (apply #'get-plan-node node path))
+    path)
 
-(defun get-plan-node (binding query-plan)
+
   (reduce #'(lambda (nodes key)
 	      (assoc key nodes))
-	  (binding-path select-item)
-	  :initial-value query-plan
-	  :key )
+	  (binding-path binding)
+	  :initial-value query-plan))
 
 ;;  (let ((path (binding-path select-item)))
 ;;    (reduce #'(lambda (plan node)
@@ -124,59 +133,92 @@
 ;;	    :initial-value (find (first path) query-plan
 ;;				 :key #'first))))
 
-(defmethod compute-clause-item (query-plan
-				(select-item root-binding) &rest args)
+(defgeneric compute-select-item (select-item query-plan))
+
+(defmethod compute-select-item ((select-item root-binding) query-plan)
   (list
    (class-mapping-of select-item)
-   (assoc key query-plan)))
+   (assoc select-item query-plan)))
 
-(defmethod compute-clause-item (query-plan
-				(select-item reference-binding) &rest args)
+(defmethod compute-select-item ((select-item reference-binding) query-plan)
   (list
-   (refrenced-class-mapping-of
+   (referenced-class-mapping-of
     (reference-mapping-of select-item))
-   (get-plan-node select-item)))
+   (get-plan-node select-item query-plan)))
 
-(defmethod compute-clause-item (query-plan
-				(select-item value-binding) &rest args)
+(defmethod compute-select-item ((select-item value-binding) query-plan)
   (list
    (value-mapping-of select-item)
-   (get-plan-node (parent-mapping-of select-item))))
+   (get-plan-node (parent-binding-of select-item) query-plan)))
+
+(defgeneric compute-clause-item (query-plan select-item args))
 
 (defmethod compute-clause-item (query-plan
-				(select-item expression) &rest args)
-  (list* select-item (mapcar #'compute-select-item args)))
+				(select-item root-binding) args)
+  (declare (ignore args))
+  (list
+   (class-mapping-of select-item)
+   (assoc select-item query-plan)))
+
+(defmethod compute-clause-item (query-plan
+				(select-item reference-binding) args)
+  (declare (ignore args))
+  (list
+   (referenced-class-mapping-of
+    (reference-mapping-of select-item))
+   (get-plan-node select-item query-plan)))
+
+(defmethod compute-clause-item (query-plan
+				(select-item value-binding) args)
+  (declare (ignore args))
+  (list
+   (value-mapping-of select-item)
+   (get-plan-node (parent-binding-of select-item) query-plan)))
+
+(defmethod compute-clause-item (query-plan select-item args)
+  (list* select-item
+	 (mapcar #'(lambda (arg)
+		     (apply #'compute-clause-item query-plan
+			    arg))
+		 args)))
 
 (defun compute-clause (clause query-plan)
   (mapcar #'(lambda (clause-item)
-		      (apply #'compute-clause-item
-			     query-plan clause-item)) clause))
+	      (apply #'compute-clause-item
+		     query-plan clause-item)) clause))
 
-(defun make-main-query (select-list where order-by having
-			limit offset single query-plan)
-  (list :select-list (compute-clause query-plan select-list)
-	:from-clause query-plan
-	:where-clause (compute-clause query-plan where)
-	:order-by-clause (compute-clause order-by)
-	:having-clause (compute-clause having)
-	:limit limit
-	:offset offset))
+(defun make-query (select-list &key fetch single
+		   where order-by having limit offset)
+  (let ((join-plan
+	 (reduce #'plan-clause
+		 (append where order-by having)
+		 :initial-value (reduce #'plan-select-item
+					select-list
+					:initial-value nil)))
+	(fetch-plan
+	 (reduce #'plan-clause fetch
+		 :initial-value nil)))
+    (list :select-list (mapcar #'(lambda (select-item)
+				   (compute-select-item select-item join-plan))
+			       select-list)
+	  :from-clause join-plan
+;;	  :where-clause (compute-clause where query-plan)
+;;	  :order-by-clause (compute-clause order-by query-plan)
+;;	  :having-clause (compute-clause having query-plan)
+	  :fetch (compute-clause fetch fetch-plan)
+;;				 (plan-clause nil fetch-also))
+	  :limit limit
+	  :offset offset)))
+;;	  :single single)))
 
-;; TODO fetch and single
-(defun make-query (select-list &key where order-by having
-		   fetch-also limit offset single)
-  (let ((main-query
-	 (make-main-query select-list where order-by
-			  having limit offset single
-			  (reduce #'plan-clause
-				  (append where order-by having)
-				  :initial-value
-				  (reduce #'plan-select-item
-					  select-list
-					  :initial-value nil)))))
-    (if (not (null fetch-also))
-	(reduce #'plan-fetch-also-clause fetch-also
-		:initial-value )
-	main-query)))
+;;(defun db-read (class-name &key single fetch-also join
+;;		where order-by having limit offset)
+;;  (let ((root (get-class-mapping (find-class class-name))))
+;;    (
+
+;;пока предположим, что загрузка ассоциаций происходит только ленивым
+;;способом
+
+;;(defun join-fetch (binding reference))
 
 ;;(defgeneric load-row (loader row))

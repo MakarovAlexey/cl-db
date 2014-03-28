@@ -2,7 +2,13 @@
 
 (defclass root-binding ()
   ((class-mapping :initarg :class-mapping
-		  :reader class-mapping-of)))
+		  :reader class-mapping-of)
+   (limit :initarg :limit
+	  :initform nil
+	  :reader limit-of)
+   (offset :initarg :offset
+	   :initform nil
+	   :reader offset-of)))
 
 (defclass reference-binding ()
   ((parent-binding :initarg :parent-binding
@@ -19,8 +25,8 @@
    (value-mapping :initarg :value-mapping
 		  :reader value-mapping-of)))
 
-(defun bind-root (class-name &optional
-		  (mapping-schema *mapping-schema*))
+(defun bind-root (class-name
+		  &optional (mapping-schema *mapping-schema*))
   (make-instance 'root-binding
 		 :class-mapping (get-class-mapping
 				 (find-class class-name)

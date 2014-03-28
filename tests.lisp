@@ -103,7 +103,27 @@
   (let ((project-participation (bind-root 'project-participation)))
     (make-query (list project-participation))))
 
+(lift:addtest join-tree-root-with-inheritance
+  (destructuring-bind ((root-binding (inheritance-mapping)))
+      (let ((root (bind-root 'project-managment)))
+	(plan-select-item nil root))
+    (lift:ensure (typep root-binding 'root-binding))
+    (lift:ensure (typep inheritance-mapping 'inheritance-mapping))))
 
+(lift:addtest join-tree-root-with-extention
+  (let ((root (bind-root 'project-managment)))
+    (plan-select-item nil root)))
+
+(lift:addtest join-tree-reference-with-inheritance
+  (let ((root (bind-root 'user))
+	(reference (bind-reference root #'project-managments-of)))
+    (plan-select-item nil reference)))
+
+(lift:addtest join-tree-reference-with-extension
+  (let ((root (bind-root 'project))
+	(reference (bind-reference root #'project-members-of)))
+    (plan-select-item nil reference)))
+ 
 
 ;; additional restrictions
 
