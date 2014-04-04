@@ -42,19 +42,35 @@
     (apply #'plan-extension
 	   (apply #'plan-inheritance
 		  (plan-query query-plan select-item) class-mapping path)
-	   class-mapping path)))
+	   class-mapping path))))))
 
-(defun demo (a b &rest c)
-  (list :a a :b b :c c))
+(defun skip (&rest args) args)
 
-(defun skip (join-plan) join-plan)
+(defun merge-trees (&rest trees)
+  (reduce #'(lambda (result tree)
+	      (list*
+	       (list*
+		(first tree)
+		(apply #'merge-trees
+		       (rest
+			(append tree (rest
+				      (assoc
+				       (first tree) result))))))
+	       (remove
+		(first tree) result :key #'first)))
+	  trees :initial-value nil))
 
-(defun plan-joins (join-plan &rest join-plans)
-  (reduce #'merge-tree
-	  (list* join-plan join-plans))) 
+(defun db-read (roots &key (join #'skip) where order-by having limit
+		offset fetch single (mapping-schema *mapping-schema*))
+  (let ((root-mappings
+	 (mapcar #'(lambda (class-name)
+		     (get-class-mapping (find-class class-name)
+					mapping-schema))
+		 (if (not (listp roots))
+		     (list roots)
+		     roots))))
+    (multiple-value-list
+     (apply join root-mappings))
+	     
 
-(defun db-read (roots &key join where order-by having limit offset
-		fetch single (mapping-schema *mapping-schema*))
-  (apply #'plan-joins
-	 (apply (or join #'skip)
-		(apply #'plan-roots roots)))
+

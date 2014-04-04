@@ -1209,3 +1209,19 @@ Expand into:
   (make-query (join-fetch curriculum
 			  (join-fetch subjects #'semester-works-of))))
 
+
+(db-read 'curriculum :join
+	 #'(lambda (curriculum)
+	     (values
+	      (get-reference curriculum #'subject-courses-of :join
+			     #'(lambda (subject-course)
+				 (get-reference subject-course
+						#'course-parts-of)))
+	      (get-reference curriculum #'semesters-of :join
+			     #'(lambda (semester)
+				 (get-reference semester
+						#'subject-parts-of)))))
+	 :where #'(lambda (curriculum)
+		    (expression #'eq
+				(get-reference curriculum #'direction-of)
+				direction)))
