@@ -52,25 +52,30 @@
 	       (list*
 		(first tree)
 		(apply #'merge-trees
-		       (rest
-			(append tree (rest
-				      (assoc
-				       (first tree) result))))))
-	       (remove
-		(first tree) result :key #'first)))
+		       (append
+			(rest tree)
+			(rest
+			 (assoc
+			  (first tree) result)))))))
+	  (remove (first tree) result :key #'first)
 	  trees :initial-value nil))
 
-(defun db-read (roots &key (join #'skip) where order-by having limit
-		offset fetch single (mapping-schema *mapping-schema*))
+(defun fetch (root reference &rest references))
+
+(defun join (root reference &key (join #'skip) where order-by having))
+
+(defun db-read (class-names &key (join #'skip) where order-by having
+			limit offset fetch single
+			(mapping-schema *mapping-schema*))
   (let ((root-mappings
 	 (mapcar #'(lambda (class-name)
-		     (get-class-mapping (find-class class-name)
-					mapping-schema))
-		 (if (not (listp roots))
-		     (list roots)
-		     roots))))
+		     (get-class-mapping
+		      (find-class class-name)
+		      mapping-schema))
+		 (if (not (listp class-names))
+		     (list class-names)
+		     class-names))))
     (multiple-value-list
-     (apply join root-mappings))
-	     
+     (apply join root-mappings))))
 
 

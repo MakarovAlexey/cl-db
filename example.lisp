@@ -1210,7 +1210,8 @@ Expand into:
 			  (join-fetch subjects #'semester-works-of))))
 
 
-(db-read 'curriculum :join
+(db-read 'curriculum
+	 :join
 	 #'(lambda (curriculum)
 	     (values
 	      (get-reference curriculum #'subject-courses-of :join
