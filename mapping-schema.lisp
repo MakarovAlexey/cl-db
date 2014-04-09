@@ -401,7 +401,7 @@
 		      (table-name-of class-mapping-definition))))
 		(make-instance 'inheritance-mapping
 			       :columns (mapcar #'(lambda (name)
-						    (get-column name table))
+						    (cons name name))
 						(primary-key-of (find-class-mapping-definition superclass)))
 			       :superclass-mapping (get-class-mapping superclass))))
 	  (superclasses-of class-mapping-definition)))
@@ -414,7 +414,7 @@
 			(table-name-of subclass-mapping-definition))))
 		  (make-instance 'extension-mapping
 				 :columns (mapcar #'(lambda (name)
-						      (get-column name table))
+						      (cons name name))
 						  (primary-key-of class-mapping-definition))
 				 :subclass-mapping (get-class-mapping
 						    (mapped-class-of subclass-mapping-definition)))))

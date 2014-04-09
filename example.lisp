@@ -627,14 +627,6 @@ IList<Cat> oldestCats =
 	       (expression #'eq age-of-property
 			   (expression #'max age-of-property)))))
 
-(let* ((cat (make-root 'cat))
-       (maximum-age-cat (make-root 'cat)))
-  (make-query cat :where
-	      (expression := (slot-of cat #'age-of)
-			  (make-subquery
-			   (expression :max (slot-of maximum-age-cat
-						     #'age-of))))))
-
 or without subquery
 
 (let* ((cat (make-root 'cat))
@@ -644,6 +636,10 @@ or without subquery
 			  (expression :max
 				      (slot-of maximum-age-cat
 						#'age-of)))))
+
+(db-read '(cat cat)
+	 :where #'(lambda (cat maximum-age-cat)
+		    (expression #'= 
 
 Limit, offset
 
@@ -1209,20 +1205,29 @@ Expand into:
   (make-query (join-fetch curriculum
 			  (join-fetch subjects #'semester-works-of))))
 
-
 (db-read 'curriculum
-	 :join
-	 #'(lambda (curriculum)
-	     (values
-	      (get-reference curriculum #'subject-courses-of :join
-			     #'(lambda (subject-course)
-				 (get-reference subject-course
-						#'course-parts-of)))
-	      (get-reference curriculum #'semesters-of :join
-			     #'(lambda (semester)
-				 (get-reference semester
-						#'subject-parts-of)))))
+	 :select #'(lambda (curriculum)
+		     (list
+		      (property curriculum #'id-of)
+		      (property curroculum #'name-of)
+		      (expression #'count (property curriculum #'version-of))))
+	 :join #'(lambda (curriculum)
+		   (join (list
+			  (reference curriculum #'semesters-of)
+			  (reference curriculum #'subject-courses-of))
+			 :join #'(lambda (semester subject-course)
+				   (join
+				    (list
+				     (reference semester #'subject-parts-of)
+				     (reference subject-course #'course-parts-of))))))
 	 :where #'(lambda (curriculum)
 		    (expression #'eq
-				(get-reference curriculum #'direction-of)
-				direction)))
+				(reference curriculum #'direction-of)
+				direction))
+	 :fetch #'(lambda (curriculum)
+		    (fetch #'(lambda (subject-course semester)
+			       (values
+				(reference semester #'subject-parts-of)
+				(reference subject-course #'course-parts-of)))
+			   (reference curriculum #'subject-courses-of)
+			   (reference curriculum #'semesters-of))))

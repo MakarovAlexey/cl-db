@@ -34,18 +34,6 @@
 	  (extension-mappings-of class-mapping)
 	  :initial-value (apply #'plan-query query-plan path)))
 
-(defun plan-roots (&rest roots)
-  (mapcar #'(lambda (class-name)
-	      (
-  (let ((class-mapping (class-mapping-of select-item))
-	(path (binding-path select-item)))
-    (apply #'plan-extension
-	   (apply #'plan-inheritance
-		  (plan-query query-plan select-item) class-mapping path)
-	   class-mapping path))))))
-
-(defun skip (&rest args) args)
-
 (defun merge-trees (&rest trees)
   (reduce #'(lambda (result tree)
 	      (list*
@@ -62,20 +50,42 @@
 
 (defun fetch (root reference &rest references))
 
-(defun join (root reference &key (join #'skip) where order-by having))
+(defun join (class-names root reference &key (join #'skip) where order-by having))
 
-(defun db-read (class-names &key (join #'skip) where order-by having
-			limit offset fetch single
-			(mapping-schema *mapping-schema*))
-  (let ((root-mappings
-	 (mapcar #'(lambda (class-name)
-		     (get-class-mapping
-		      (find-class class-name)
-		      mapping-schema))
-		 (if (not (listp class-names))
-		     (list class-names)
-		     class-names))))
-    (multiple-value-list
-     (apply join root-mappings))))
+(defun plan-inheritance (class-mapping)
+  (mapcar #'(lambda (inheritance-mapping)
+	      (list* inheritance-mapping
+		     (plan-inheritance
+		      (superclass-mapping-of inheritance-mapping))))
+	  (inheritance-mappings-of class-mapping)))
 
+(defun plan-extension (class-mapping)
+  (append
+   (plan-inheritance class-mapping)
+   (mapcar #'(lambda (extension-mapping)
+	       (list* extension-mapping
+		      (plan-extension
+		       (subclass-mapping-of extension-mapping))))
+	   (extension-mappings-of class-mapping))))
 
+(defun plan-root (class-mapping)
+  (list* class-mapping
+	 (plan-extension class-mapping)))
+
+(defun make-loaders (class-mapping join-plan)
+  (acons class-mapping join-plan
+	 (reduce #'append
+		 (extension-mappings-of class-mapping)
+		 :key #'(lambda (extension-mapping)
+			  (make-loaders
+			   (subclass-mapping-of extension-mapping)
+			   (assoc extension-mapping (rest join-plan)))))))
+
+(defun make-query (loaders join-plan)
+  
+
+(defun db-read (class-name &optional (mapping-schema *mapping-schema*))
+  (let* ((class-mapping
+	  (get-class-mapping (find-class class-name) mapping-schema))
+	 (join-plan (plan-root class-mapping)))
+    (make-loaders class-mapping join-plan)))
