@@ -60,32 +60,37 @@
 	  (inheritance-mappings-of class-mapping)))
 
 (defun plan-extension (class-mapping)
-  (append
-   (plan-inheritance class-mapping)
-   (mapcar #'(lambda (extension-mapping)
-	       (list* extension-mapping
-		      (plan-extension
-		       (subclass-mapping-of extension-mapping))))
-	   (extension-mappings-of class-mapping))))
+  (mapcar #'(lambda (extension-mapping)
+	      (list*
+	       (list* (list extension-mapping
+		      (plan-inheritance
+		       (subclass-mapping-of extension-mapping)))
+	       (plan-extension
+		(subclass-mapping-of extension-mapping))))
+	  (extension-mappings-of class-mapping)))
 
-(defun plan-root (class-mapping)
-  (list* class-mapping
-	 (plan-extension class-mapping)))
+(defun make-join-plan (class-mapping)
+  (list*
+   (list* class-mapping
+	  (plan-inheritance class-mapping))
+   (plan-extension class-mapping)))
 
-(defun make-loaders (class-mapping join-plan)
-  (acons class-mapping join-plan
+(defun make-loaders (class-mapping object-plan)
+  (acons class-mapping object-plan
 	 (reduce #'append
 		 (extension-mappings-of class-mapping)
 		 :key #'(lambda (extension-mapping)
 			  (make-loaders
 			   (subclass-mapping-of extension-mapping)
-			   (assoc extension-mapping (rest join-plan)))))))
+			   (assoc extension-mapping (rest object-plan)))))))
 
-(defun make-query (loaders join-plan)
-  
+(defun compute-from-clause (root &rest extensions)
+  (list*
+   (apply #'compute-inheritance root)
+   (mapcar #'compute-extension extensions)))
 
 (defun db-read (class-name &optional (mapping-schema *mapping-schema*))
   (let* ((class-mapping
 	  (get-class-mapping (find-class class-name) mapping-schema))
-	 (join-plan (plan-root class-mapping)))
-    (make-loaders class-mapping join-plan)))
+	 (join-plan (make-join-plan class-mapping)))
+    (apply #'compute-from-clause join-plan)))
