@@ -1,39 +1,5 @@
 (in-package #:cl-db)
 
-(defun plan-query (children node &rest path)
-  (list*
-   (list* node
-	  (if (not (null path))
-	      (apply #'plan-query
-		     (rest (find node children :key #'first)) path)
-	      (rest (find node children :key #'first))))
-   (remove node children :key #'first)))
-
-(defun plan-inheritance (query-plan class-mapping &rest path)
-  (reduce #'(lambda (query-plan inheritance-mapping)
-	      (let ((new-path (reverse
-			       (list* inheritance-mapping
-				      (reverse path)))))
-		(apply #'plan-inheritance query-plan
-		       (superclass-mapping-of inheritance-mapping)
-		       new-path)))
-	  (inheritance-mappings-of class-mapping)
-	  :initial-value (apply #'plan-query query-plan path)))
-
-(defun plan-extension (query-plan class-mapping &rest path)
-  (reduce #'(lambda (query-plan extension-mapping)
-	      (let ((new-path (reverse
-			       (list* extension-mapping
-				      (reverse path)))))
-		(apply #'plan-extension
-		       (apply #'plan-inheritance query-plan
-			      class-mapping
-			      new-path)
-		       (subclass-mapping-of extension-mapping)
-		       new-path)))
-	  (extension-mappings-of class-mapping)
-	  :initial-value (apply #'plan-query query-plan path)))
-
 (defun merge-trees (&rest trees)
   (reduce #'(lambda (result tree)
 	      (list*
@@ -44,27 +10,34 @@
 			(rest tree)
 			(rest
 			 (assoc
-			  (first tree) result)))))))
-	  (remove (first tree) result :key #'first)
+			  (first tree) result)))))
+	       (remove (first tree) result :key #'first)))
 	  trees :initial-value nil))
 
-(defun fetch (root reference &rest references))
+(defvar *table-index*)
 
-(defun join (class-names root reference &key (join #'skip) where order-by having))
+(defun make-alias (table-index)
+  (format nil "table_~a" table-index))
 
 (defun plan-inheritance (class-mapping)
   (mapcar #'(lambda (inheritance-mapping)
-	      (list* inheritance-mapping
-		     (plan-inheritance
-		      (superclass-mapping-of inheritance-mapping))))
+	      (list*
+	       (superclass-mapping-of inheritance-mapping)
+	       (make-alias (incf *table-index*))
+	       (columns-of inheritance-mapping)
+	       (plan-inheritance
+		(superclass-mapping-of inheritance-mapping))))
 	  (inheritance-mappings-of class-mapping)))
 
 (defun plan-extension (class-mapping)
   (mapcar #'(lambda (extension-mapping)
 	      (list*
-	       (list* (list extension-mapping
-		      (plan-inheritance
-		       (subclass-mapping-of extension-mapping)))
+	       (list*
+		(subclass-mapping-of extension-mapping)
+		(make-alias (incf *table-index*))
+		(columns-of extension-mapping)
+		(plan-inheritance
+		 (subclass-mapping-of extension-mapping)))
 	       (plan-extension
 		(subclass-mapping-of extension-mapping))))
 	  (extension-mappings-of class-mapping)))
@@ -72,6 +45,7 @@
 (defun make-join-plan (class-mapping)
   (list*
    (list* class-mapping
+	  (make-alias (incf *table-index*))
 	  (plan-inheritance class-mapping))
    (plan-extension class-mapping)))
 
@@ -84,13 +58,48 @@
 			   (subclass-mapping-of extension-mapping)
 			   (assoc extension-mapping (rest object-plan)))))))
 
+(defun compute-extension (class-mapping alias columns &rest superclasses)
+  (list :class-mapping class-mapping
+	:alias alias
+	:columns columns
+	:superclasses (mapcar #'(lambda (superclass)
+				  (apply #'compute-inheritance superclass))
+			      superclasses)))
+
+(defun compute-extensions (extension &rest extensions)
+  (list :extension (apply #'compute-extension extension)
+	:extensions (mapcar #'(lambda (extension)
+				(apply #'compute-extensions extension))
+			    extensions)))
+
+(defun compute-inheritance (class-mapping alias columns &rest superclasses)
+  (list :class-mapping class-mapping
+	:alias alias
+	:columns columns
+	:superclasses (mapcar #'(lambda (superclass)
+				  (apply #'compute-inheritance superclass))
+			      superclasses)))
+
+(defun compute-root (class-mapping alias &rest superclasses)
+  (list :class-mapping class-mapping
+	:alias alias
+	:superclasses (mapcar #'(lambda (superclass)
+				  (apply #'compute-inheritance superclass))
+			      superclasses)))
+
 (defun compute-from-clause (root &rest extensions)
-  (list*
-   (apply #'compute-inheritance root)
-   (mapcar #'compute-extension extensions)))
+  (list :root (apply #'compute-root root)
+	:extension (mapcar #'(lambda (extension)
+			       (apply #'compute-extensions extension))
+			   extensions)))
+
+(defun fetch (root reference &rest references))
+
+(defun join (class-names root reference &key (join #'skip) where order-by having))
 
 (defun db-read (class-name &optional (mapping-schema *mapping-schema*))
   (let* ((class-mapping
 	  (get-class-mapping (find-class class-name) mapping-schema))
+	 (*table-index* 0)
 	 (join-plan (make-join-plan class-mapping)))
     (apply #'compute-from-clause join-plan)))
