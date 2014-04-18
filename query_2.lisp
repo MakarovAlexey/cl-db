@@ -19,7 +19,7 @@
 (defun make-alias (table-index)
   (format nil "table_~a" table-index))
 
-(defun plan-inheritance (class-mapping)
+(defun plan-inheritance (&rest inheritance-mappings)
   (mapcar #'(lambda (inheritance-mapping)
 	      (list*
 	       (superclass-mapping-of inheritance-mapping)
@@ -27,19 +27,21 @@
 	       (columns-of inheritance-mapping)
 	       (plan-inheritance
 		(superclass-mapping-of inheritance-mapping))))
-	  (inheritance-mappings-of class-mapping)))
+	  inheritance-mappings))
 
-(defun plan-extension (class-mapping)
+(defun plan-extension (class-mapping &optional root-superclass)
   (mapcar #'(lambda (extension-mapping)
 	      (list*
 	       (list*
 		(subclass-mapping-of extension-mapping)
 		(make-alias (incf *table-index*))
 		(columns-of extension-mapping)
-		(plan-inheritance
-		 (subclass-mapping-of extension-mapping)))
+		(apply #'plan-inheritance
+		       (remove root-superclass
+			       (inheritance-mappings-of
+			(subclass-mapping-of extension-mapping))))
 	       (plan-extension
-		(subclass-mapping-of extension-mapping))))
+		(subclass-mapping-of extension-mapping) class-mapping)))
 	  (extension-mappings-of class-mapping)))
 
 (defun make-join-plan (class-mapping)
