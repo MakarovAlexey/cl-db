@@ -1,34 +1,29 @@
 (in-package #:cl-db)
 
-(defclass user ()
-  ((name :initarg :name
-	 :accessor name-of)
-   (login :initarg :login
-	  :accessor login-of)
-   (password :initarg :password
-	     :accessor password-of)
-   (email :initarg :email
-	  :accessor email-of)
-   (project-managments :initarg :project-managments
-		       :accessor project-managments-of)
-   (project-project-participations :initarg :project-managments
-				   :accessor project-managments-of))
-  (:documentation "Пользователь системы, ответственный исполнитель"))
+(defclass test-class-1 ()
+  ((slot-1 :accessor slot-1-of)
+   (slot-2 :accessor slot-2-of)))
 
-(defclass project ()
-  ((name :initarg :name
-	 :accessor name-of)
-   (begin-date :initarg :begin-date
-	       :accessor begin-date-of)
-   (project-participations :initarg :project-members
-			   :accessor project-members-of)))
+(defclass test-class-2 ()
+  ((slot-3 :accessor slot-3-of)
+   (slot-4 :accessor slot-4-of)))
 
-(defclass project-participation ()
-  ((project :initarg :project :reader project-of)
-   (user :initarg :user :reader user-of)))
+(defclass test-class-3 (test-class-1 test-class-2)
+  ((slot-5 :accessor slot-5-of)))
 
-(defclass project-managment (project-participation)
-  ())
+(defclass test-class-4 (test-class-3)
+  ((slot-7 :accessor slot-7-of)
+   (slot-8 :accessor slot-8-of)))
+
+(defclass test-class-5-1 ()
+  ((slot-9 :accessor slot-9-of)
+   (slot-10 :accessor slot-10-of)))
+
+(defclass test-class-5 (test-class-5-1)
+  ((slot-11 :accessor slot-11-of)))
+
+(defclass test-class-5-2 (test-class-5)
+  ((slot-12 :accessor slot-12-of)))
 
 (define-database-interface postgresql-postmodern
   (:open-connection #'cl-postgres:open-database)
@@ -39,42 +34,39 @@
        (cl-postgres:exec-prepared connection name params
 				  'cl-postgres:alist-row-reader))))
 
-(define-mapping-schema projects-managment)
+(define-mapping-schema test-schema)
 
-(define-class-mapping (user "users")
+(define-class-mapping (test-class-1 "test_class_1")
+    ((:primary-key "test_class_1_id"))
+  (slot-1 (:value ("test_class_1_id" "integer")))
+  (slot-2 (:one-to-many test-class-5 "reference_2_class_id")))
+
+(define-class-mapping (test-class-2 "test_class_2")
+    ((:primary-key "test_class_2_id"))
+  (slot-3 (:value ("test_class_2_id" "integer")))
+  (slot-4 (:many-to-one test-class-5 "reference_2_class_id")))
+
+(define-class-mapping (test-class-3 "test_class_3")
+    ((:superclasses test-class-1 test-class-2))
+  (slot-5 (:value ("slot_5" "integer"))))
+
+(define-class-mapping (test-class-4 "test_class_4")
+    ((:superclasses test-class-3))
+  (slot-7 (:value ("slot_7" "serial")))
+  (slot-8 (:value ("slot_8" "integer"))))
+
+(define-class-mapping (test-class-5-1 "test_class_5_1")
     ((:primary-key "id"))
-  (id (:value ("id" "serial")))
-  (name (:value ("name" "varchar")))
-  (login (:value ("login" "varchar")))
-  (password (:value ("password" "varchar")))
-  (project-managments (:one-to-many project-managment "project_id")
-		      #'(lambda (&rest roles)
-			  (alexandria:alist-hash-table
-			   (mapcar #'(lambda (role)
-				       (cons (project-of role) role))
-				   roles)))
-		      #'alexandria:hash-table-values))
+  (slot-9 (:value ("id" "serial")))
+  (slot-10 (:value ("slot_10" "string"))))
 
-(define-class-mapping (project "projects")
-    ((:primary-key "id"))
-  (id (:value ("id" "serial")))
-  (name (:value ("name" "varchar")))
-  (begin-date (:value ("begin_date" "date")))
-  (project-participations (:one-to-many project-participation "project_id")
-			  #'(lambda (&rest roles)
-			      (alexandria:alist-hash-table
-			       (mapcar #'(lambda (role)
-					   (cons (user-of role) role))
-				       roles)))
-			  #'alexandria:hash-table-values))
+(define-class-mapping (test-class-5 "test_class_5")
+    ((:superclasses test-class-5-1))
+  (slot-11 (:value ("slot_9" "serial"))))
 
-(define-class-mapping (project-participation "project_participation")
-    ((:primary-key "project_id" "user_id"))
-  (project (:many-to-one project "project_id"))
-  (user (:many-to-one user "user_id")))
-
-(define-class-mapping (project-managment "project_managers")
-    ((:superclasses project-participation)))
+(define-class-mapping (test-class-5-2 "test_class_5")
+    ((:superclasses test-class-5))
+  (slot-12 (:value ("slot_9" "serial"))))
 
 (lift:deftestsuite session ()
   ())

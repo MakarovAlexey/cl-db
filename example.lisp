@@ -1231,3 +1231,136 @@ Expand into:
 				(reference subject-course #'course-parts-of)))
 			   (reference curriculum #'subject-courses-of)
 			   (reference curriculum #'semesters-of))))
+
+;; при запросе:
+1. Информация о наследовании
+2. список слотов-свойств (после наслседованиЯ логически-ближайшая информация)
+3. список ссылок для join reference (указать структурно типы отображения)
+4. Список колонок для select-list'а, 
+
+
+;; without refernces
+'((test-class-1
+   ("test-table-1" "id"))
+  (test-class-2
+   ("test-table-2" "id"))
+  (test-class-3
+   ("test-table-3" "id")
+   ((test-class-1
+     ("test-table-1" "id"))
+    "test-class-1-id")
+   ((test-class-2
+     ("test-table-2" "id"))
+    "test-class-2-id"))
+  (test-class-4
+   ("test-table-4" "id")
+   ((test-class-3
+     ("test-table-3" "id"))
+    ((test-class-1
+      ("test-table-1" "id"))
+     "test-class-1-id")
+    ((test-class-2
+      ("test-table-2" "id"))
+     "test-class-2-id")
+    "id")))
+'((test-class-1
+   (value-slot-1 "value-1")
+   (value-slot-1 "value-2"))
+  (test-class-2)
+  (test-class-3)
+  (test-class-4))
+
+;; without refernces 2
+'(((test-class-1
+    ("test-table-1" "id"))
+   (value-slot-1 "value-1")
+   (value-slot-2 "value-2"))
+  ((test-class-2
+    ("test-table-2" "id")))
+  ((test-class-3
+    ("test-table-3" "id")
+    (((test-class-1
+       ("test-table-1" "id"))
+      (value-slot-1 "value-1")
+      (value-slot-2 "value-2"))
+     "test-class-1-id")
+    (((test-class-2
+       ("test-table-2" "id")))
+     "test-class-2-id"))
+   (value-slot-3 "value-3")
+   (value-slot-4 "value-4"))
+  ((test-class-4
+    ("test-table-4" "id")
+    (((test-class-3
+       ("test-table-3" "id")
+       (((test-class-1
+	  ("test-table-1" "id"))
+	 (value-slot-1 "value-1")
+	 (value-slot-2 "value-2"))
+	"test-class-1-id")
+       (((test-class-2
+	  ("test-table-2" "id")))
+	"test-class-2-id")))
+     "id"))
+   (value-slot-5 "value-5")
+   (value-slot-6 "value-6")))
+
+;; with references
+'((((test-class-1
+     ("test-table-1" "id")
+     (value-slot-1 "value-1")
+     (value-slot-1 "value-2"))
+    (one-to-many-slot-1
+     (test-class-3
+      ("test-table-3" "id")
+      ((test-class-1
+	("test-table-1" "id" ("id")))
+       "test-class-1-id")
+      ((test-class-2
+	("test-table-2" "id" ("id")))
+       "test-class-2-id")) "test-class-3-id"))
+   (many-to-one-slot-1
+    (test-class-4
+     ("test-table-4" "id")
+     (test-class-3
+      ("test-table-3" "id")
+      ((test-class-1
+	("test-table-1" "id"))
+       "test-class-1-id")
+      ((test-class-2
+	("test-table-2" "id"))
+       "test-class-2-id"))
+     "id") "test-class-4-id"))
+  (test-class-2
+   ("test-table-2" "id"))
+  (test-class-3
+   ("test-table-3" "id")
+   ((test-class-1
+     ("test-table-1" "id"))
+    "test-class-1-id")
+   ((test-class-2
+     ("test-table-2" "id"))
+    "test-class-2-id"))
+  (test-class-4
+   ("test-table-4" "id")
+   ((test-class-3
+     ("test-table-3" "id"))
+    ((test-class-1
+      ("test-table-1" "id" ("id")))
+     "test-class-1-id")
+    ((test-class-2
+      ("test-table-2" "id" ("id")))
+     "test-class-2-id"))
+   "id"))
+    
+'((test-class-1
+  ("test-table-1" "id")
+  (value-slot-1 "value-1")
+  (value-slot-1 "value-2")))
+
+(make-mapping-schema
+ #'(lambda (schema)
+     (values
+      (map-class 'project "projects"
+		 :primary-key '("id")
+		 :slots #'(lambda (

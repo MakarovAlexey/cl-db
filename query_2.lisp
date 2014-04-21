@@ -25,8 +25,8 @@
 	       (superclass-mapping-of inheritance-mapping)
 	       (make-alias (incf *table-index*))
 	       (columns-of inheritance-mapping)
-	       (plan-inheritance
-		(superclass-mapping-of inheritance-mapping))))
+	       (apply  #'plan-inheritance
+		       (superclass-mapping-of inheritance-mapping))))
 	  inheritance-mappings))
 
 (defun plan-extension (class-mapping &optional root-superclass)
@@ -39,7 +39,7 @@
 		(apply #'plan-inheritance
 		       (remove root-superclass
 			       (inheritance-mappings-of
-			(subclass-mapping-of extension-mapping))))
+				(subclass-mapping-of extension-mapping)))))
 	       (plan-extension
 		(subclass-mapping-of extension-mapping) class-mapping)))
 	  (extension-mappings-of class-mapping)))
@@ -48,7 +48,8 @@
   (list*
    (list* class-mapping
 	  (make-alias (incf *table-index*))
-	  (plan-inheritance class-mapping))
+	  (apply #'plan-inheritance
+		 (inheritance-mappings-of class-mapping)))
    (plan-extension class-mapping)))
 
 (defun make-loaders (class-mapping object-plan)

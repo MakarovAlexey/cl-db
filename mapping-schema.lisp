@@ -220,8 +220,7 @@
 	    (get-column-type (elt primary-key column-position)
 			     class-mapping-definition)
 	    (get-reference-column-type column-position
-				       (find-class-mapping-definition
-					(first superclasses))))
+				       (first superclasses)))
 	(error "For mapping of class ~a not specified primary key or superclasses"
 	       mapped-class))))
 
@@ -391,7 +390,8 @@
 (defun presedence-list< (a b)
   (let ((rest-a (rest a)))
     (if (and (not (null (symbol< (first a) (first b))))
-	     (not (null rest-a)))
+	     (not (null rest-a))
+	     (not (null (rest b))))
 	(presedence-list< rest-a (rest b)))))
 
 (defun compute-inheritance-mappings (class-mapping-definition)
@@ -406,6 +406,13 @@
 			       :superclass-mapping (get-class-mapping superclass))))
 	  (superclasses-of class-mapping-definition)))
 
+(defun get-primary-key-columns (class-mapping-definition)
+  (let ((columns (primary-key-of class-mapping-definition)))
+    (if (not (null columns))
+	columns
+	(get-primary-key-columns
+	 (first (superclasses-of class-mapping-definition))))))
+
 (defun compute-extension-mappings (class-mapping-definition)
   (let ((mapped-class (mapped-class-of class-mapping-definition)))
     (mapcar #'(lambda (subclass-mapping-definition)
@@ -415,7 +422,7 @@
 		  (make-instance 'extension-mapping
 				 :columns (mapcar #'(lambda (name)
 						      (cons name name))
-						  (primary-key-of class-mapping-definition))
+						  (get-primary-key-columns class-mapping-definition))
 				 :subclass-mapping (get-class-mapping
 						    (mapped-class-of subclass-mapping-definition)))))
 	    (remove-if #'(lambda (subclass-mapping-definition)
