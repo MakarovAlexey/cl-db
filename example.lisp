@@ -1358,9 +1358,81 @@ Expand into:
   (value-slot-1 "value-1")
   (value-slot-1 "value-2")))
 
-(make-mapping-schema
- #'(lambda (schema)
-     (values
-      (map-class 'project "projects"
-		 :primary-key '("id")
-		 :slots #'(lambda (
+;;(make-mapping-schema
+;; #'(lambda (schema)
+;;     (values
+;;      (map-class 'project "projects"
+;;		 :primary-key '("id")
+;;		 :slots #'(lambda (
+
+'(((test-class-1 ("test-table-1" "id"))
+   (test-class-2 ("test-table-2" "id"))
+   (test-class-3 ("test-table-3" "id")
+    ((test-class-1 ("test-table-1" "id")) "test-class-1-id")
+    ((test-class-2 ("test-table-2" "id")) "test-class-2-id"))
+   (test-class-4 ("test-table-4" "id")
+    (test-class-3 ("test-table-3" "id")
+		  ((test-class-1 ("test-table-1" "id")) "test-class-1-id")
+		  ((test-class-2 ("test-table-2" "id")) "test-class-2-id"))))
+  ((test-class-1
+    (value-slot-1 "value-1")
+    (value-slot-1 "value-2"))
+   (test-class-2)
+   (test-class-3
+    ((value-slot-1 "value-1") test-class-1)
+    ((value-slot-1 "value-2") test-class-1))
+   (test-class-4
+    ((value-slot-1 "value-1") test-class-1)
+    ((value-slot-1 "value-2") test-class-1)))
+
+  
+((test-class-1
+    (value-slot-1 "value-1")
+    (value-slot-1 "value-2"))
+ (test-class-2
+  (many-to-one-slot :many-to-one
+		    (test-class-4
+		     "test-table-4"
+		     (test-class-3
+		      "test-table-3"
+		      ((test-class-1 "test-table-1")
+		       "test-class-1-id")
+		      ((test-class-2 "test-table-2")
+		       "test-class-2-id")))))
+   (test-class-3)
+   (test-class-4)))
+
+(defun make-schema (class-mapping &rest class-mappings)
+  (reduce #'(lambda (schema mapping-fn)
+	      (list* (funcall mapping-fn schema) schema))
+	  (list* class-mapping class-mappings)
+	  :initial-value nil))
+
+(defun compute-inheritance (schema class-name &rest foreign-key)
+  (list* (assoc class-name schema) foreign-key))
+
+(defun map-class (class-name table-name primary-key
+		  &rest superclass-mappings)
+  (let ((pk-columns
+	 (if (not (listp primary-key))
+	     (list primary-key)
+	     primary-key)))
+    #'(lambda (schema)
+	(list* class-name
+	       (list* table-name pk-columns)
+	       (mapcar #'(lambda (superclass-mapping)
+			   (apply #'compute-inheritance
+				  schema superclass-mapping))
+		       superclass-mappings)))))
+
+(make-schema
+	  (map-class 'test-class-1 "test_table_1" "id")
+	  (map-class 'test-class-2 "test_table_2" "id")
+	  (map-class 'test-class-3 "test_table_3" "id"
+		     '(test-class-1 "test_class_1_id")
+		     '(test-class-2 "test_class_2_id"))
+	  (map-class 'test-class-4 "test_table_4" "id"
+		     '(test-class-3 "test_class_3_id")))
+
+;;		  &key superclasses primary-key slots-maping)
+      
