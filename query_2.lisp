@@ -75,17 +75,17 @@
 				(apply #'compute-extensions extension))
 			    extensions)))
 
-(defun compute-inheritance (class-mapping alias columns &rest superclasses)
+(defun compute-inheritance (class-mapping columns &rest superclasses)
   (list :class-mapping class-mapping
-	:alias alias
+	:alias (sxhash class-mapping)
 	:columns columns
 	:superclasses (mapcar #'(lambda (superclass)
 				  (apply #'compute-inheritance superclass))
 			      superclasses)))
 
-(defun compute-root (class-mapping alias &rest superclasses)
+(defun compute-root (class-mapping &rest superclasses)
   (list :class-mapping class-mapping
-	:alias alias
+	:alias (sxhash class-mapping)
 	:superclasses (mapcar #'(lambda (superclass)
 				  (apply #'compute-inheritance superclass))
 			      superclasses)))

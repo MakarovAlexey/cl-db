@@ -1373,17 +1373,21 @@ Expand into:
    (test-class-4 ("test-table-4" "id")
     (test-class-3 ("test-table-3" "id")
 		  ((test-class-1 ("test-table-1" "id")) "test-class-1-id")
-		  ((test-class-2 ("test-table-2" "id")) "test-class-2-id"))))
+		  ((test-class-2 ("test-table-2" "id")) "test-class-2-id")))
+   (test-class-5 ("test_table_5" "id")))
   ((test-class-1
     (value-slot-1 "value-1")
     (value-slot-1 "value-2"))
    (test-class-2)
    (test-class-3
-    ((value-slot-1 "value-1") test-class-1)
-    ((value-slot-1 "value-2") test-class-1))
+    (value-slot-1 "value-1" test-class-1)
+    (value-slot-1 "value-2" test-class-1))
    (test-class-4
     ((value-slot-1 "value-1") test-class-1)
     ((value-slot-1 "value-2") test-class-1)))
+  ((test-class-5
+    (slot-1 (:many-to-one test-class-4 "test_class_4_id"))
+    (slot-2 (:one-to-many test-class-3 "test_class_4_id")))))
 
   
 ((test-class-1
@@ -1412,27 +1416,407 @@ Expand into:
   (list* (assoc class-name schema) foreign-key))
 
 (defun map-class (class-name table-name primary-key
-		  &rest superclass-mappings)
+		  &key slots superclasses)
   (let ((pk-columns
-	 (if (not (listp primary-key))
-	     (list primary-key)
-	     primary-key)))
+	 (multiple-value-list
+	  (funcall primary-key))))
     #'(lambda (schema)
-	(list* class-name
-	       (list* table-name pk-columns)
-	       (mapcar #'(lambda (superclass-mapping)
-			   (apply #'compute-inheritance
-				  schema superclass-mapping))
-		       superclass-mappings)))))
+	(values
+	 #'(lambda (schema)
+	     (
+	 #'(lambda (schema)
+	     (list*
+	      (list* class-name
+		     (list* table-name pk-columns)
+		     (mapcar #'(lambda (superclass-mappings-fn)
+				 (funcall superclass-mappings-fn schema))
+			     (multiple-value-list
+			      (funcall superclasses (first schema)))))
+	      (remove class-name (first schema) :key #'first)))
+	 
+(defun map-superclass (class-name &rest columns)
+  #'(lambda (schema)
+      (list* (assoc class-name schema) foreign-key)))
 
-(make-schema
-	  (map-class 'test-class-1 "test_table_1" "id")
-	  (map-class 'test-class-2 "test_table_2" "id")
-	  (map-class 'test-class-3 "test_table_3" "id"
-		     '(test-class-1 "test_class_1_id")
-		     '(test-class-2 "test_class_2_id"))
-	  (map-class 'test-class-4 "test_table_4" "id"
-		     '(test-class-3 "test_class_3_id")))
+(defun map-slot (slot-name mapping-fn
+		 &optional
+		   (serialize-fn #'list)
+		   (deserialize-fn #'value))
+  #'(lambda (schema class-name)
+      (funcall mapping-fn schema class-name
+	       serialize-fn deserialize-fn)))
 
-;;		  &key superclasses primary-key slots-maping)
+1. inheritance
+2. tables
+2. properties
+3. references
+
+(defun map-property (slot-name column-name column-type)
+  #'(lambda (schema class-name serialize-fn deserialize-fn)
+      schema))
+;;      (let ((properties (assoc class-name (second schema))))
+;;	(list*
+;;	 (acons slot-name
+;;		(list
+;;		 (cons column-name column-type)
+;;		 (cons serialize-fn deserialize-fn))
+;;		(remove slot-name properties :key #'first))
+;;	 (remove properties properties-schema)))))
+
+(defun many-to-one (slot-name class-name &rest columns)
+  #'(lambda (schema class-name serialize-fn deserialize-fn)
+      schema))
+
+(defun one-to-many (slot-name class-name &rest columns)
+  #'(lambda (schema class-name serialize-fn deserialize-fn)
+      schema))
+
+
+
+;;  #'(lambda (schema class-name)
+;;      (let ((class-mapping (assoc class-name schema)))
+;;	(acons class-name
+;	       
+;;	       (remove class-name schema :key #'first)
+
+(define-schema test-mapping ()
+  (test-class
+   (("test-table" "id"))
+   ((id "id" "integer")))
+  (test-class-2
+   (("test_table_2" "id"))
+   ((id "id" "integer")))
+  (test-class-3
+   (("test_table_3" "test_class_1_id" "test_class_2_id")
+    (test-class-1 "test_class_1_id")
+    (test-class-2 "test_class_2_id")))
+  (test-class-4
+   (("test_table_4" "test_class_1_id")
+    (test-class-3 "test_class_1_id" "test_class_2_id")))
+  (test-class-5
+   (("test_table_5" "id"))
+   ((id "id" "integer"))))
+
+(define-schema projects-managment ()
+  (user
+   (("users" "id"))
+   (id (:value ("id" "uuid")))
+   (name (:value ("name" "varchar")))
+   (login (:value ("login" "varchar")))
+   (password (:value ("password" "varchar")))
+   (project-managments (:one-to-many project-managment "user_id")
+		       #'(lambda (&rest roles)
+			   (alexandria:alist-hash-table
+			    (mapcar #'(lambda (role)
+					(cons (project-of role) role))
+				    roles)))
+		       #'alexandria:hash-table-values)
+   (project-participations (:one-to-many project-managment "user_id")
+			   #'(lambda (&rest roles)
+			       (alexandria:alist-hash-table
+				(mapcar #'(lambda (role)
+					    (cons (project-of role) role))
+					roles)))
+			   #'alexandria:hash-table-values))
+  (project-participation
+   (("project_memebers" "project_id" "user_id"))
+   (project (:many-to-one project "project_id"))
+   (user (:many-to-one user "user_id")))
+  (project-managment
+   (("project_managers" "project_id" "user_id")
+    (project-participation "project_id" "user_id"))
+   (project-participation
+    (:many-to-one project-participation "project_id" "user_id")))
+  (project
+   (("projects" "id"))
+   (id (:value ("id" "uuid")))
+   (name (:value ("name" "varchar")))
+   (begin-date (:value ("begin_date" "date")))
+   (objects (:many-to-one project-root-object "project_id"))
+   (document-directories
+    (:many-to-one root-document-directory "project_id"))
+   (document-registrations
+    (:one-to-many document-registration "project_id")
+    #'(lambda (&rest registrations)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (registration)
+		     (cons (document-of registration)
+			   registration))
+		 registrations)))
+    #'alexandria:hash-table-values)
+   (project-members (:one-to-many project-member ("project_id"))
+		    #'(lambda (&rest roles)
+			(alexandria:alist-hash-table
+			 (mapcar #'(lambda (role)
+				     (cons (user-of role) role))
+				 roles)))
+		    #'alexandria:hash-table-values)))
+
+(defun compute-value-columns (&rest class-mappings)
+  (mapcar #'(lambda (mapping)
+	      (destructuring-bind (class-name
+				   ((table-name &rest primary-key)
+				    &rest superclasses)
+				   &rest slots)
+		  mapping
+		(list table-name
+		      (mapcar #'(lambda (value-mapping)
+				  (destructuring-bind
+					(slot-name
+					 (mapping-type &rest columns)
+					 &optional serialize-fn
+					 deserialize-fn)
+				      value-mapping
+				    columns))
+			      (remove-if-not #'(lambda (slot-mapping)
+						 (destructuring-bind
+						       (slot-name
+							(mapping-type &rest columns)
+							&optional serialize-fn
+							deserialize-fn)
+						     slot-mapping
+						   (eq mapping-type :value)))
+					     slots)))))
+	  class-mappings))
+
+(defun compute-many-to-one-columns (tables &rest class-mappings)
+  (mapcar #'(lambda (mapping)
+	      (destructuring-bind (class-name
+				   ((table-name &rest primary-key)
+				    &rest superclasses)
+				   &rest slots)
+		  mapping
+		(list table-name
+		      (mapcar #'(lambda (many-to-one-mapping)
+				  (destructuring-bind
+					(slot-name
+					 (mapping-type reference-class
+						       &rest columns)
+					 &optional serialize-fn
+					 deserialize-fn)
+				      (mapcar value-mapping
+				    columns))
+			      (remove-if-not #'(lambda (slot-mapping)
+						 (destructuring-bind
+						       (slot-name
+							(mapping-type reference-class
+								      &rest columns)
+							&optional serialize-fn
+							deserialize-fn)
+						     slot-mapping
+						   (eq mapping-type :many-to-one)))
+					     slots)))))
+	  class-mappings))
+
+
+
+(defun mapping-type (mapping)
+  (destructuring-bind
+	(slot-name (mapping-type columns &rest columns)
+		   &optional deserialize-fn serialize-fn)
+      mapping
+    (declare (ignore columns columns deserialize-fn serialize-fn))
+    mapping-type))
+
+(defun map-properties (function &rest slot-mappings)
+  (mapcar #'(lambda (mapping)
+	      (destructuring-bind
+		    (slot-name (mapping-type columns &rest columns)
+			       &optional deserialize-fn serialize-fn)
+		  mapping
+		(declare (ignore mapping-type))
+		(funcall function
+			 :slot-name slot-name
+			 :serialize-fn deserialize-fn
+			 :deserialize-fn deserialize-fn
+			 :columns (list* column columns))))
+	  (remove :property slot-mappings
+		  :key #'mapping-type
+		  :test-not #'eq)))
+
+(defun map-many-to-one (function &rest slot-mappings)
+  (mapcar #'(lambda (mapping)
+	      (destructuring-bind
+		    (slot-name
+		     (mapping-type class-name columns &rest columns)
+		     &optional deserialize-fn serialize-fn)
+		  mapping
+		(declare (ignore mapping-type))
+		(funcall function
+			 :slot-name slot-name
+			 :serialize-fn deserialize-fn
+			 :deserialize-fn deserialize-fn
+			 :columns (list* column columns)
+			 :class (find-class class-name))))
+	  (remove :many-to-one slot-mappings
+		  :key #'mapping-type
+		  :test-not #'eq)))
+
+(defun map-one-to-many (function &rest slot-mappings)
+  (mapcar #'(lambda (mapping)
+	      (destructuring-bind
+		    (slot-name
+		     (mapping-type class-name columns &rest columns)
+		     &optional deserialize-fn serialize-fn)
+		  mapping
+		(declare (ignore mapping-type))
+		(funcall function
+			 :slot-name slot-name
+			 :serialize-fn deserialize-fn
+			 :deserialize-fn deserialize-fn
+			 :columns (list* column columns)
+			 :class (find-class class-name))))
+	  (remove :one-to-many slot-mappings
+		  :key #'mapping-type
+		  :test-not #'eq)))
+
+(defun parse-mapping (function class-mapping)
+  (destructuring-bind
+	(class-name ((table-name &rest primary-key)
+		     &rest superclasses)
+		    &rest slot-mappings) class-mapping
+    (funcall function
+	     :class-name class-name
+	     :table-name table-name
+	     :primary-key primary-key
+	     :superclasses superclasses
+	     :slot-mappings slot-mappings)))
+
+(defun compute-subclass-mappings (class-name primary-key &rest class-mappings)
+  (mapcar #'(lambda (subclass-mapping)
+	      (list*
+	       (apply #'compute-mapping subclass-mapping
+		      class-name class-mappings)
+	       (pairlis primary-key
+			(parse-mapping
+			 #'(lambda (&key superclasses &allow-other-keys)
+			     (rest (assoc class-name superclasses)))
+			 subclass-mapping))))
+	  (remove-if-not #'(lambda (subclass-mapping)
+			     (parse-mapping
+			      #'(lambda (&key superclasses &allow-other-keys)
+				  (find class-name superclasses
+					:key #'first))
+			      subclass-mapping))
+			 class-mappings)))
+
+(defun compute-inheritance (class-mapping root-name &rest class-mappings)
+  (parse-mapping #'(lambda (&key class-name table-name primary-key
+			      superclasses &allow-other-keys)
+		     (list
+		      (string-downcase (gensym "TABLE_"))
+		      (list* class-name
+			     table-name 
+			     (mapcar #'(lambda (superclass-mapping)
+					 (destructuring-bind (class-name &rest columns)
+					     superclass-mapping
+					   (list*
+					    (apply #'compute-inheritance
+						   (assoc class-name class-mappings)
+						   class-mappings)
+					    (pairlis primary-key columns))))
+				     (remove root-name superclasses :key #'first)))))
+		 class-mapping))
+
+(defun compute-mapping (class-mapping root-name &rest class-mappings)
+  (parse-mapping #'(lambda (&key class-name primary-key &allow-other-keys)
+		     (append
+		      (apply #'compute-inheritance class-mapping
+			     root-name class-mappings)
+		      (apply #'compute-subclass-mappings class-name
+			     primary-key class-mappings)))
+		 class-mapping))
+
+(defmacro define-schema (name params &body class-mappings)
+  (declare (ignore params))
+  `(defun ,name ()
+     (list
+      (quote ,(mapcar #'(lambda (class-mapping)
+			   (apply #'compute-mapping
+				  class-mapping nil class-mappings))
+		       class-mappings)))))
+  
+  ;;		   (destructuring-bind (class-name
+;;					((table-name &rest primary-key)
+;;					 &rest superclasses)
+;;					&rest slots)
+;;		       mapping
+;;		     (list class-name table-name)))
+;;	       mappings)
+;;      ,(apply #'compute-value-columns mappings))))
       
+
+(define-schema test-schema ()
+  ("test_table_1"
+   ((test-class-1 "id"))
+   (id (:property ("id" "integer"))))
+  ("test_table_2"
+   ((test-class-2 "id"))
+   (id (:property ("id" "integer"))))
+  ("test_table_3"
+   ((test-class-3 "test_class_1_id" "test_class_2_id")
+    (test-class-1 "test_class_1_id")
+    (test-class-2 "test_class_2_id")))
+  ("test_table_4"
+   ((test-class-4 "test_class_1_id")
+    (test-class-3 "test_class_1_id" "test_class_2_id")))
+  ("test_table_5"
+   ((test-class-5  "id"))
+   (id (:property ("id" "integer")))))
+
+(define-schema projects-managment ()
+  (user
+   (("users" "id"))
+   (id (:property ("id" "uuid")))
+   (name (:property ("name" "varchar")))
+   (login (:property ("login" "varchar")))
+   (password (:property ("password" "varchar")))
+   (project-managments
+    (:one-to-many project-managment "user_id")
+    #'(lambda (&rest roles)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (role)
+		     (cons (project-of role) role))
+		 roles)))
+    #'alexandria:hash-table-values)
+   (project-participations
+    (:one-to-many project-managment "user_id")
+    #'(lambda (&rest roles)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (role)
+		     (cons (project-of role) role))
+		 roles)))
+    #'alexandria:hash-table-values))
+  (project-participation
+   (("project_memebers" "project_id" "user_id"))
+   (project (:many-to-one project "project_id"))
+   (user (:many-to-one user "user_id")))
+  (project-managment
+   (("project_managers" "project_id" "user_id")
+    (project-participation "project_id" "user_id")))
+  (project
+   (("projects" "id"))
+   (id (:property ("id" "uuid")))
+   (name (:property ("name" "varchar")))
+   (begin-date (:property ("begin_date" "date")))
+   (objects
+    (:many-to-one project-root-object "project_id"))
+   (document-directories
+    (:many-to-one root-document-directory "project_id"))
+   (document-registrations
+    (:one-to-many document-registration "project_id")
+    #'(lambda (&rest registrations)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (registration)
+		     (cons (document-of registration)
+			   registration))
+		 registrations)))
+    #'alexandria:hash-table-values)
+   (project-members
+    (:one-to-many project-member "project_id")
+    #'(lambda (&rest roles)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (role)
+		     (cons (user-of role) role))
+		 roles)))
+    #'alexandria:hash-table-values)))
