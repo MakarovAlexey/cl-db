@@ -10,12 +10,12 @@
 	       #:ironclad
 	       #:closer-mop)
   :components ((:file "package")
-	       (:file "database-interface")
+;;	       (:file "database-interface")
 	       (:file "cl-db")
-	       (:file "mapping-schema")
+;;	       (:file "mapping-schema")
 	       (:file "session")
-	       (:file "bindings")
-	       (:file "expressions")
+;;	       (:file "bindings")
+;;	       (:file "expressions")
 	       (:file "query")))
 
 (asdf:defsystem #:cl-db.tests

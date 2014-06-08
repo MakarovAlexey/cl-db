@@ -1670,71 +1670,7 @@ Expand into:
 		  :key #'mapping-type
 		  :test-not #'eq)))
 
-(defun parse-mapping (function class-mapping)
-  (destructuring-bind
-	(class-name ((table-name &rest primary-key)
-		     &rest superclasses)
-		    &rest slot-mappings) class-mapping
-    (funcall function
-	     :class-name class-name
-	     :table-name table-name
-	     :primary-key primary-key
-	     :superclasses superclasses
-	     :slot-mappings slot-mappings)))
 
-(defun compute-subclass-mappings (class-name primary-key &rest class-mappings)
-  (mapcar #'(lambda (subclass-mapping)
-	      (list*
-	       (apply #'compute-mapping subclass-mapping
-		      class-name class-mappings)
-	       (pairlis primary-key
-			(parse-mapping
-			 #'(lambda (&key superclasses &allow-other-keys)
-			     (rest (assoc class-name superclasses)))
-			 subclass-mapping))))
-	  (remove-if-not #'(lambda (subclass-mapping)
-			     (parse-mapping
-			      #'(lambda (&key superclasses &allow-other-keys)
-				  (find class-name superclasses
-					:key #'first))
-			      subclass-mapping))
-			 class-mappings)))
-
-(defun compute-inheritance (class-mapping root-name &rest class-mappings)
-  (parse-mapping #'(lambda (&key class-name table-name primary-key
-			      superclasses &allow-other-keys)
-		     (list
-		      (string-downcase (gensym "TABLE_"))
-		      (list* class-name
-			     table-name 
-			     (mapcar #'(lambda (superclass-mapping)
-					 (destructuring-bind (class-name &rest columns)
-					     superclass-mapping
-					   (list*
-					    (apply #'compute-inheritance
-						   (assoc class-name class-mappings)
-						   class-mappings)
-					    (pairlis primary-key columns))))
-				     (remove root-name superclasses :key #'first)))))
-		 class-mapping))
-
-(defun compute-mapping (class-mapping root-name &rest class-mappings)
-  (parse-mapping #'(lambda (&key class-name primary-key &allow-other-keys)
-		     (append
-		      (apply #'compute-inheritance class-mapping
-			     root-name class-mappings)
-		      (apply #'compute-subclass-mappings class-name
-			     primary-key class-mappings)))
-		 class-mapping))
-
-(defmacro define-schema (name params &body class-mappings)
-  (declare (ignore params))
-  `(defun ,name ()
-     (list
-      (quote ,(mapcar #'(lambda (class-mapping)
-			   (apply #'compute-mapping
-				  class-mapping nil class-mappings))
-		       class-mappings)))))
   
   ;;		   (destructuring-bind (class-name
 ;;					((table-name &rest primary-key)

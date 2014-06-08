@@ -90,11 +90,10 @@
 				  (apply #'compute-inheritance superclass))
 			      superclasses)))
 
-(defun compute-from-clause (root &rest extensions)
-  (list :root (apply #'compute-root root)
-	:extension (mapcar #'(lambda (extension)
-			       (apply #'compute-extensions extension))
-			   extensions)))
+(defun compute-from-clause (alias root &rest extensions)
+  (list :root root
+	:alias alias
+	:extension extensions))
 
 (defun fetch (root reference &rest references))
 
