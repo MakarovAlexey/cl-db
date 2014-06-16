@@ -16,14 +16,14 @@
 
 (defvar *table-index*)
 
-(defun make-alias (table-index)
-  (format nil "table_~a" table-index))
+(defun make-alias (name)
+  (format nil "~a_~a" name (incf *table-index*)))
 
 (defun plan-inheritance (&rest inheritance-mappings)
   (mapcar #'(lambda (inheritance-mapping)
 	      (list*
 	       (superclass-mapping-of inheritance-mapping)
-	       (make-alias (incf *table-index*))
+	       (make-alias "table")
 	       (columns-of inheritance-mapping)
 	       (apply  #'plan-inheritance
 		       (superclass-mapping-of inheritance-mapping))))
@@ -34,7 +34,7 @@
 	      (list*
 	       (list*
 		(subclass-mapping-of extension-mapping)
-		(make-alias (incf *table-index*))
+		(make-alias "table")
 		(columns-of extension-mapping)
 		(apply #'plan-inheritance
 		       (remove root-superclass
@@ -44,13 +44,13 @@
 		(subclass-mapping-of extension-mapping) class-mapping)))
 	  (extension-mappings-of class-mapping)))
 
-(defun make-join-plan (class-mapping)
+(defun make-join-plan (class-mapping &rest extensions)
   (list*
    (list* class-mapping
-	  (make-alias (incf *table-index*))
+	  (make-alias "table")
 	  (apply #'plan-inheritance
 		 (inheritance-mappings-of class-mapping)))
-   (plan-extension class-mapping)))
+   (apply #'plan-extension extensions)))
 
 (defun make-loaders (class-mapping object-plan)
   (acons class-mapping object-plan
@@ -103,4 +103,5 @@
   (let* ((class-mapping
 	  (assoc class-name (first mapping-schema)))
 	 (*table-index* 0))
-    (apply #'print-from-clause class-mapping)))
+    (apply #'print-from-clause
+	   (apply #'make-join-plan class-mapping))))

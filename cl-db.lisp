@@ -14,14 +14,14 @@
 	     :superclasses superclasses
 	     :slot-mappings slot-mappings)))
 
-(defun compute-subclass-mappings (class-name primary-key &rest class-mappings)
+(defun compute-subclass-mappings (class-name &rest class-mappings)
   (mapcar #'(lambda (subclass-mapping)
 	      (list*
 	       (apply #'compute-mapping subclass-mapping
 		      class-name class-mappings)
 	       (parse-mapping
 		#'(lambda (&key superclasses &allow-other-keys)
-		    (assoc class-name superclasses))
+		    (rest (assoc class-name superclasses)))
 		subclass-mapping)))
 	  (remove-if-not #'(lambda (subclass-mapping)
 			     (parse-mapping
@@ -35,13 +35,14 @@
   (parse-mapping #'(lambda (&key class-name table-name primary-key
 			      superclasses &allow-other-keys)
 		     (list* class-name
-			    table-name 
+			    table-name primary-key
 			    (mapcar #'(lambda (superclass-mapping)
 					(destructuring-bind (class-name &rest columns)
 					    superclass-mapping
 					  (list*
 					   (apply #'compute-inheritance
 						  (assoc class-name class-mappings)
+						  nil
 						  class-mappings)
 					   columns)))
 				    (remove root-name superclasses :key #'first))))
@@ -49,11 +50,11 @@
 
 (defun compute-mapping (class-mapping root-name &rest class-mappings)
   (parse-mapping #'(lambda (&key class-name primary-key &allow-other-keys)
-		     (append
+		     (list*
 		      (apply #'compute-inheritance class-mapping
 			     root-name class-mappings)
 		      (apply #'compute-subclass-mappings class-name
-			     primary-key class-mappings)))
+			     class-mappings)))
 		 class-mapping))
 
 (defmacro define-schema (name params &body class-mappings)
