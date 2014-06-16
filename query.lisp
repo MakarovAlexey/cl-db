@@ -19,38 +19,27 @@
 (defun make-alias (name)
   (format nil "~a_~a" name (incf *table-index*)))
 
-(defun plan-inheritance (&rest inheritance-mappings)
-  (mapcar #'(lambda (inheritance-mapping)
-	      (list*
-	       (superclass-mapping-of inheritance-mapping)
-	       (make-alias "table")
-	       (columns-of inheritance-mapping)
-	       (apply  #'plan-inheritance
-		       (superclass-mapping-of inheritance-mapping))))
-	  inheritance-mappings))
+(defun plan-inheritance (superclass-mapping &rest foreign-key)
+  (list* (apply #'plan-class-mapping superclass-mapping)
+	 foreign-key))
 
-(defun plan-extension (class-mapping &optional root-superclass)
-  (mapcar #'(lambda (extension-mapping)
-	      (list*
-	       (list*
-		(subclass-mapping-of extension-mapping)
-		(make-alias "table")
-		(columns-of extension-mapping)
-		(apply #'plan-inheritance
-		       (remove root-superclass
-			       (inheritance-mappings-of
-				(subclass-mapping-of extension-mapping)))))
-	       (plan-extension
-		(subclass-mapping-of extension-mapping) class-mapping)))
-	  (extension-mappings-of class-mapping)))
+(defun plan-class-mapping (class-name table primary-key
+			   &rest superclass-mappings)
+  (list* class-name table (make-alias "table") primary-key
+	 (mapcar #'(lambda (superclass-mapping)
+		     (apply #'plan-inheritance superclass-mapping))
+		 superclass-mappings)))
+
+(defun plan-extension (extension-mapping &rest foreign-key)
+  (list* (apply #'make-join-plan extension-mapping)
+	 foreign-key))
 
 (defun make-join-plan (class-mapping &rest extensions)
   (list*
-   (list* class-mapping
-	  (make-alias "table")
-	  (apply #'plan-inheritance
-		 (inheritance-mappings-of class-mapping)))
-   (apply #'plan-extension extensions)))
+   (apply #'plan-class-mapping class-mapping)
+   (mapcar #'(lambda (extension-mapping)
+	       (apply #'plan-extension extension-mapping))
+	   extensions)))
 
 (defun make-loaders (class-mapping object-plan)
   (acons class-mapping object-plan
@@ -101,7 +90,7 @@
 
 (defun db-read (class-name &optional (mapping-schema *mapping-schema*))
   (let* ((class-mapping
-	  (assoc class-name (first mapping-schema)))
+	  (assoc class-name (first mapping-schema) :key #'first))
 	 (*table-index* 0))
     (apply #'print-from-clause
 	   (apply #'make-join-plan class-mapping))))
