@@ -19,11 +19,10 @@
 	      (list*
 	       (apply #'compute-mapping subclass-mapping
 		      class-name class-mappings)
-	       (pairlis primary-key
-			(parse-mapping
-			 #'(lambda (&key superclasses &allow-other-keys)
-			     (assoc class-name superclasses))
-			 subclass-mapping))))
+	       (parse-mapping
+		#'(lambda (&key superclasses &allow-other-keys)
+		    (assoc class-name superclasses))
+		subclass-mapping)))
 	  (remove-if-not #'(lambda (subclass-mapping)
 			     (parse-mapping
 			      #'(lambda (&key superclasses &allow-other-keys)
@@ -44,7 +43,7 @@
 					   (apply #'compute-inheritance
 						  (assoc class-name class-mappings)
 						  class-mappings)
-					   (pairlis primary-key columns))))
+					   columns)))
 				    (remove root-name superclasses :key #'first))))
 		 class-mapping))
 
