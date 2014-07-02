@@ -66,6 +66,8 @@
 				  class-mapping nil class-mappings))
 		       class-mappings)))))
 
+
+
 ;; (defvar *mapping-schema-definitions* (make-hash-table))
 
 ;; (defvar *class-mapping-definitions*)

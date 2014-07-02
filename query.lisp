@@ -25,21 +25,72 @@
 
 (defun plan-class-mapping (class-name table primary-key
 			   &rest superclass-mappings)
-  (list* class-name table (make-alias "table") primary-key
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'plan-inheritance superclass-mapping))
-		 superclass-mappings)))
+  (list table (make-alias "table") primary-key
+	(list* class-name
+	       (mapcar #'(lambda (superclass-mapping)
+			   (apply #'plan-inheritance superclass-mapping))
+		       superclass-mappings))))
 
 (defun plan-extension (extension-mapping &rest foreign-key)
   (list* (apply #'make-join-plan extension-mapping)
 	 foreign-key))
 
 (defun make-join-plan (class-mapping &rest extensions)
-  (list*
+  (append
    (apply #'plan-class-mapping class-mapping)
    (mapcar #'(lambda (extension-mapping)
 	       (apply #'plan-extension extension-mapping))
 	   extensions)))
+
+(defun print-superclass-mapping (root-alias foreign-key
+				 table alias primary-key class-mapping)
+  (list* :inner-join table :as alias
+	 :on (pairlis
+	      (mapcar #'(lambda (column)
+			  (format nil "~a.~a" root-alias column))
+		      foreign-key)
+	      (mapcar #'(lambda (column)
+			  (format nil "~a.~a" alias column))
+		      primary-key))
+	 (apply #'print-class-mapping
+		alias class-mapping)))
+
+(defun print-inheritance (alias class-mapping &rest foreign-key)
+  (apply #'print-superclass-mapping
+	 alias foreign-key class-mapping))
+
+;; FIXME: добавить загрузку ассоциаций (понадобится первичный ключ)
+(defun print-class-mapping (alias class-name &rest superclasses)
+  (mapcar #'(lambda (superclass)
+	      (apply #'print-inheritance alias superclass))
+	  superclasses))
+
+(defun print-subclass-mapping (parent-alias parent-primary-key
+			       foreign-key table alias primary-key
+			       class-mapping)
+  (list* :left-join table :as alias
+	 :on (pairlis
+	      (mapcar #'(lambda (column)
+			  (format nil "~a.~a" parent-alias column))
+		      parent-primary-key)
+	      (mapcar #'(lambda (column)
+			  (format nil "~a.~a" alias column))
+		      foreign-key))
+	 (apply #'print-class-mapping alias class-mapping)))
+
+(defun print-extension (parent-alias parent-primary-key
+			class-mapping &rest foreign-key)
+  (apply #'print-subclass-mapping
+	 parent-alias parent-primary-key foreign-key class-mapping))
+
+(defun print-from-clause (table alias primary-key root &rest extensions)
+  (list* :from table :as alias
+	 (append
+	  (apply #'print-class-mapping alias root)
+	  (mapcar #'(lambda (extension-mapping)
+		      (apply #'print-extension alias
+			     primary-key extension-mapping))
+		  extensions))))
 
 (defun make-loaders (class-mapping object-plan)
   (acons class-mapping object-plan
@@ -49,40 +100,6 @@
 			  (make-loaders
 			   (subclass-mapping-of extension-mapping)
 			   (assoc extension-mapping (rest object-plan)))))))
-
-(defun print-extension (class-mapping alias columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias alias
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
-
-(defun print-extensions (extension &rest extensions)
-  (list :extension (apply #'print-extension extension)
-	:extensions (mapcar #'(lambda (extension)
-				(apply #'print-extensions extension))
-			    extensions)))
-
-(defun print-inheritance (class-mapping columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
-
-(defun print-root (class-mapping &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
-
-(defun print-from-clause (alias root &rest extensions)
-  (list :root root
-	:alias alias
-	:extension extensions))
 
 (defun fetch (root reference &rest references))
 

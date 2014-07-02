@@ -80,3 +80,37 @@
 		     (cons (user-of role) role))
 		 roles)))
     #'alexandria:hash-table-values)))
+
+;;(defun print-extension (class-mapping alias columns &rest superclasses)
+;;  (list :class-mapping class-mapping
+;;	:alias alias
+;;	:columns columns
+;;	:superclasses (mapcar #'(lambda (superclass)
+;;				  (apply #'print-inheritance superclass))
+;;			      superclasses)))
+
+;;(defun print-extensions (extension &rest extensions)
+;;  (list :extension (apply #'print-extension extension)
+;;	:extensions (mapcar #'(lambda (extension)
+;;				(apply #'print-extensions extension))
+;;			    extensions)))
+
+;;(defun print-inheritance (class-mapping columns &rest superclasses)
+;;  (list :class-mapping class-mapping
+;;	:alias (sxhash class-mapping)
+;;	:columns columns
+;;	:superclasses (mapcar #'(lambda (superclass)
+;;				  (apply #'print-inheritance superclass))
+;;			      superclasses)))
+
+;;(defun print-root (class-mapping &rest superclasses)
+;;  (list :class-mapping class-mapping
+;;	:alias (sxhash class-mapping)
+;;	:superclasses (mapcar #'(lambda (superclass)
+;;				  (apply #'print-inheritance superclass))
+;;			      superclasses)))
+
+;;(defun print-from-clause (alias root &rest extensions)
+;;  (list :root root
+;;	:alias alias
+;;	:extension extensions))
