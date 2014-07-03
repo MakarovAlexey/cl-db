@@ -51,8 +51,9 @@
 (defun compute-mapping (class-mapping root-name &rest class-mappings)
   (parse-mapping #'(lambda (&key class-name primary-key &allow-other-keys)
 		     (list*
-		      (apply #'compute-inheritance class-mapping
-			     root-name class-mappings)
+		      (list*
+		       (apply #'compute-inheritance class-mapping
+			      root-name class-mappings)
 		      (apply #'compute-subclass-mappings class-name
 			     class-mappings)))
 		 class-mapping))
@@ -66,7 +67,14 @@
 				  class-mapping nil class-mappings))
 		       class-mappings)))))
 
-
+;;(table-name alias (&rest primary-key)
+;;	    (class-name (((&rest superclass-mappings)
+;;			  &rest value-mappings)
+;;			 &rest reference-mappings)
+;;			&rest subclass-mappings))
+;;reference-mappigs => (slot-name (query-modifier &rest columns)
+;;			   deserializer
+;;			   serializer)
 
 ;; (defvar *mapping-schema-definitions* (make-hash-table))
 

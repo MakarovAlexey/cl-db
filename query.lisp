@@ -101,11 +101,11 @@
 			   (subclass-mapping-of extension-mapping)
 			   (assoc extension-mapping (rest object-plan)))))))
 
-(defun fetch (root reference &rest references))
+;;(defun fetch (root reference &rest references))
 
-(defun join (class-names root reference &key (join #'skip) where order-by having))
+;;(defun join (class-names root reference &key (join #'skip) where order-by having))
 
-(defun db-read (class-name &optional (mapping-schema *mapping-schema*))
+(defun db-read (class-name &key (mapping-schema *mapping-schema*))
   (let* ((class-mapping
 	  (assoc class-name (first mapping-schema) :key #'first))
 	 (*table-index* 0))
