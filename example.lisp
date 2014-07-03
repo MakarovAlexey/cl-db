@@ -1238,6 +1238,23 @@ Expand into:
 3. список ссылок для join reference (указать структурно типы отображения)
 4. Список колонок для select-list'а, 
 
+(<- class-mapping class-name table-name)
+(<- primary-key table-name primary-key)
+
+(<- superclass class-name superclass-name foreign-key)
+(<- (superclass ?x ?y ?foreign-key)
+    (superclass ?y ?z foreign-key))
+
+(<- value-mapping class-name slot-name columns deserializer serializer)
+(<- many-to-one class-name slot-name reference-class-name foreign-key)
+(<- one-to-many class-name slot-name reference-class-name foreign-key
+    deserializer serializer))
+    
+(?- (or (class-mapping class-name ?table-name)
+	(iheritance class-name ?superclass-name ?foreign-key))
+
+    
+    (
 
 ;; without refernces
 '((test-class-1
@@ -1756,3 +1773,46 @@ Expand into:
 		     (cons (user-of role) role))
 		 roles)))
     #'alexandria:hash-table-values)))
+
+
+
+(defclass class-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (table-name :initarg :class-name :reader table-name-of)
+   (primary-key :initarg :foreign-key :reader foreign-key)))
+
+(defclass superclass-mapping ()
+  ((class-name :initarg :class-name :reader class-name-of)
+   (superclass-name :initarg :superclass-name :reader superclass-name-of)
+   (foreign-key :initarg :foreign-key :reader foreign-key)))
+
+(defclass slot-mapping ()
+  ((class-name :initarg :class-name
+	       :reader class-name-of)
+   (slot-name :initarg :class-name
+	      :reader slot-name-of)))
+
+(defclass value-mapping (slot-mapping)
+  ((columns :initarg :columns
+	    :reader columns-of)
+   (serializer :initarg :serializer
+	       :reader serializer-of)
+   (deserializer :initarg :deserializer
+		 :reader deserializer-of)))
+
+(defclass reference-mapping (slot-mapping)
+  ((referenced-class-name :initarg :referenced-class-name
+			  :reader referenced-class-name-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
+
+(defclass many-to-one-mapping (reference-mapping)
+  ())
+
+(defclass one-to-many-mapping (reference-mapping)
+  ((serializer :initarg :serializer
+	       :reader serializer-of)
+   (deserializer :initarg :deserializer
+		 :reader deserializer-of)))
+
+
