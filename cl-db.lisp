@@ -67,14 +67,13 @@
 (defun compute-superclass-mappings (class-name &rest foreign-key)
   (let ((superclass-mappings
 	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'compute-superclass-mapping superclass-mapping))
-		 superclasses))
-	(list :class-name class-name
-	      :table-name table-name
-	      :primary-key primary-key
-	      :superclasses superclass-mappings
-  
-	      
+		     (apply #'compute-superclass-mappings
+			    superclass-mapping))
+		 superclasses)))
+    (list :class-name class-name
+	  :table-name table-name
+	  :primary-key primary-key
+	  :superclasses superclass-mappings)))
 
 (defun compute-class-mapping (&key class-name table-name primary-key
 				superclasses value-mappings
