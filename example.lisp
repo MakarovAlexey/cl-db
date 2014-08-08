@@ -1756,3 +1756,74 @@ Expand into:
 		     (cons (user-of role) role))
 		 roles)))
     #'alexandria:hash-table-values)))
+
+(defclass persistent-class (standard-class)
+  ())
+
+(defclass user ()
+  ((id :initarg :id
+       :reader id-of
+       :mapping (:property ("id" "uuid")))
+   (name :initarg :name
+	 :accessor name-of
+	 :mapping (:property ("name" "varchar")))
+   (login :initarg :login
+	  :accessor login-of
+	  :mapping (:property ("login" "varchar")))
+   (password :initarg :password
+	     :accessor password-of
+	     :mapping (:property ("password" "varchar")))
+   (project-managments :initform (make-hash-table)
+		       :reader project-managments-of
+		       :mapping (:one-to-many project-managment "user_id")
+		       :serializer #'(lambda (&rest roles)
+				       (alexandria:alist-hash-table
+					(mapcar #'(lambda (role)
+						    (cons (project-of role) role))
+						roles)))
+		       :deserializer #'alexandria:hash-table-values)
+   (project-participations
+    (:one-to-many project-managment "user_id")
+    #'(lambda (&rest roles)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (role)
+		     (cons (project-of role) role))
+		 roles)))
+    #'alexandria:hash-table-values))
+  (:metaclass persistent-class)
+  (:table "users")
+  (:primary-key "id"))
+   
+  (project-participation
+   (("project_memebers" "project_id" "user_id"))
+   (project (:many-to-one project "project_id"))
+   (user (:many-to-one user "user_id")))
+  (project-managment
+   (("project_managers" "project_id" "user_id")
+    (project-participation "project_id" "user_id")))
+  (project
+   (("projects" "id"))
+   (id (:property ("id" "uuid")))
+   (name (:property ("name" "varchar")))
+   (begin-date (:property ("begin_date" "date")))
+   (objects
+    (:many-to-one project-root-object "project_id"))
+   (document-directories
+    (:many-to-one root-document-directory "project_id"))
+   (document-registrations
+    (:one-to-many document-registration "project_id")
+    #'(lambda (&rest registrations)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (registration)
+		     (cons (document-of registration)
+			   registration))
+		 registrations)))
+    #'alexandria:hash-table-values)
+   (project-members
+    (:one-to-many project-member "project_id")
+    #'(lambda (&rest roles)
+	(alexandria:alist-hash-table
+	 (mapcar #'(lambda (role)
+		     (cons (user-of role) role))
+		 roles)))
+    #'alexandria:hash-table-values)))

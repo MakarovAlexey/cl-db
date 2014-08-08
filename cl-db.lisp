@@ -65,35 +65,46 @@
 		 (getf :class-name class-mapping))))
 
 (defun compute-superclass-mappings (class-name &rest foreign-key)
-  (let ((superclass-mappings
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'compute-superclass-mappings
-			    superclass-mapping))
-		 superclasses)))
     (list :class-name class-name
 	  :table-name table-name
 	  :primary-key primary-key
-	  :superclasses superclass-mappings)))
+	  :foreign-key foreign-key
+	  :superclasses (mapcar #'(lambda (superclass-mapping)
+				    (apply #'compute-superclass-mappings
+					   superclass-mapping))
+				superclasses)))
+
+(defun compute-subclass-mapping (root-name &key class-name table-name
+					     primary-key superclasses
+					     value-mappings
+					     many-to-one one-to-many)
+  (list* :foreign-key (rest (find root-name superclasses :key #'first))
+	 (apply #'compute-class-mapping
+		:class-name class-name
+		:table-name table-name
+		:primary-key primary-key
+		:superclassses (remove root-name superclasses :key #'first)
+		:value-mappings value-mappings
+		:many-to-one many-to-one
+		:one-to-many one-to-many)))
 
 (defun compute-class-mapping (&key class-name table-name primary-key
 				superclasses value-mappings
 				many-to-one one-to-many)
-  (let ((superclass-mappings
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'compute-superclass-mapping superclass-mapping))
-		 superclasses))
-;;	(mapping-precedence-list
-;;	 (apply #'compute-mapping-presenece-list superclass-mappings))
-	)
-    (list :class-name class-name
-	  :table-name table-name
-	  :primary-key primary-key
-	  :superclasses superclass-mappings
-;;	:mapping-precedence-list mapping-precedence-list
-;	:subclasses (apply #'compute-subclass-mappings
-;			   class-name mapping-precedence-list)
-;;	:value-mapping (apply #'
-	  )))
+  (list :class-name class-name
+	:table-name table-name
+	:primary-key primary-key
+	:superclasses (mapcar #'(lambda (superclass-mapping)
+				  (apply #'compute-superclass-mapping
+					 superclass-mapping))
+			      superclasses)
+	:subclasses (mapcar #'(lambda (class-mapping)
+				(apply #'compute-subclass-mapping
+				       class-name class-mapping))
+			    (remove-if-not #'(lambda (class-mapping)
+					       (find class-name
+						     (getf class-mapping :superclasses)))
+					   *class-mappings*))))
 
 (defmacro define-schema (name params &rest class-mappings)
   (declare (ignore params))
