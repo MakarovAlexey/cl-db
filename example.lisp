@@ -1756,3 +1756,94 @@ Expand into:
 		     (cons (user-of role) role))
 		 roles)))
     #'alexandria:hash-table-values)))
+
+(defclass user ()
+  ((id :initarg :id
+       :reader id-of
+       :mapping-type :property
+       :columns (("id" "uuid")))
+   (name :initarg :name
+	 :accessor name-of
+	 :mapping-type :property
+	 :columns (("name" "varchar")))
+   (login :initarg :login
+	  :accessor login-of
+	  :mapping-type :property
+	  :columns (("login" "varchar")))
+   (password :initarg :password
+	     :accesor password-of
+	     :mapping-type :property
+	     :columns (("password" "varchar")))
+   (project-managments :reader project-managments-of
+		       :mapping-type :one-to-many
+		       :reference-class project-managment
+		       :index-by #'project-of
+		       :columns ("user_id"))
+   (project-participations :reader project-participations
+			   :mapping-type :one-to-many
+			   :reference-class project-participation
+			   :index-by #'project-of
+			   :columns ("user_id")))
+  (:metaclass persistent-class)
+  (:table "users")
+  (:primary-key "id"))
+
+(defclass project-participation ()
+  ((project :initarg :project
+	    :reader project-of
+	    :mapping-type :many-to-one
+	    :reference-class project
+	    :columns ("project_id"))
+   (user :initarg :user
+	 :reader user-of
+	 :mapping-type :many-to-one
+	 :reference-class user
+	 :columns ("user_id")))
+  (:metaclass persistent-class)
+  (:table "project_memebers")
+  (:primary-key ("project_id" "user_id")))
+
+(defclass project-managment (project-participation)
+  ()
+  (:metaclass persistent-class)
+  (:table "project_managers")
+  (:primaty-key "project_id" "user_id"))
+
+(defclass project ()
+  ((id :initarg :id
+       :reader id-of
+       :mapping-type :property
+       :columns (("id" "uuid")))
+   (name :initarg :name
+	 :accessor name-of
+	 :maping-type :property
+	 :columns (("name" "varchar")))
+   (begin-date :initarg :begin-date
+	       :accessor begin-date-of
+	       :mappng-type :property
+	       :columns (("begin_date" "date")))
+   (project-members :accessor :project-members
+		    :mapping-type :one-to-many
+		    :reference-class project-member
+		    :index-by #'user-of
+		    :columns (("project_id"))))
+   (:metaclass persistent-class)
+   (:table "projects")
+   (:primay-key ("id")))
+
+;;   (nodes :accessor nodes-of
+;;	  :type project-node
+;;	  :many-to-one '("project_id"))
+;;
+;;(document-directories :accessor 
+;;			 
+;;    (:many-to-one root-document-directory "project_id"))
+;;   (document-registrations
+;;    (:one-to-many document-registration "project_id")
+;;    #'(lambda (&rest registrations)
+;;	(alexandria:alist-hash-table
+;;	 (mapcar #'(lambda (registration)
+;;		     (cons (document-of registration)
+;;			   registration))
+;;		 registrations)))
+;;    #'alexandria:hash-table-values)
