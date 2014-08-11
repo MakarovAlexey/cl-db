@@ -9,7 +9,7 @@
 		:reader primary-key-of)
    (superclass-custom-columns :initarg :superclass-custom-columns
 			      :reader superclass-custom-columns-of)
-   (inheritance-foreign-keys :reader superclass-foreign-keys-of)
+   (persistent-superclasses :reader persistent-superclasses-of)
    (properties :initform (make-hash-table)
 	       :reader properties-of
 	       :documntation "Properties by name")
@@ -90,16 +90,29 @@
     (:one-to-many 'one-to-many-effective-slot-definition)
     (:many-to-one 'many-to-one-effective-slot-definition)))
 
-(defun index-slot (table direct-slot)
+(defgeneric index-slot-by-readers (slot class))
+
+(defmethod index-slot-by-readers
+    ((slot property-effective-slot-definition) class)
   (loop reader in (slot-definition-readers direct-slot)
-     do (setf (gethash reader table) direct-slot)))
+     do (setf (properties-of class) direct-slot)))
+
+(defmethod index-slot-by-readers
+    ((slot reference-effective-slot-definition) class)
+  (loop reader in (slot-definition-readers direct-slot)
+     do (setf (references-of class) direct-slot)))
 
 (defmethod finalize-inheritance :after ((class persistent-class))
-  (loop for direct-slot in (class-direct-slots class)
-     do (case (mapping-type-of direct-slot)
-	  (:property
-	   (index-slot (properties-of class) direct-slot))
-	  (:many-to-one
-	   (index-slot (references-of class) direct-slot))
-	  (:one-to-many
-	   (index-slot (references-of class) direct-slot)))))
+  (loop for slot in (class-slots class)
+     do (index-slot-by-readers slot))
+  (loop for superclass in (class-direct-superclasses class)
+     for custom-columns = (rest (assoc
+				 (class-name superclass)
+				 (custom-columns-of class)))
+     when (subtypep superclass (class-of class))
+       (with-slots (persistent-superclasses) class
+	 (setf persistent-superclasses
+	       (list* (list* superclass
+			     (or custom-columns
+				 (primary-key-of superclass)))
+		      persistent-superclasses)))))
