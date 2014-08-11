@@ -32,8 +32,8 @@
             thereis (subtypep class (find-class 'persistent-object)))
       (call-next-method)
       (apply #'call-next-method class :direct-superclasses
-	     (list* (find-class 'persistent-object)
-		    direct-superclasses)
+	     (append direct-superclasses
+		     (list (find-class 'persistent-object)))
 	     initargs)))
 
 (defmethod reinitialize-instance :around
@@ -44,11 +44,9 @@
     (if (loop for class in direct-superclasses
 	   thereis (subtypep class (find-class 'persistent-object)))
 	(call-next-method)
-	(apply #'call-next-method
-	       class
-	       :direct-superclasses
-	       (list* (find-class 'persistent-object)
-		      direct-superclasses)
+	(apply #'call-next-method class :direct-superclasses
+	       (append direct-superclasses
+		       (list (find-class 'persistent-object)))
 	       initargs))
     (call-next-method)))
 
