@@ -1,5 +1,74 @@
 (in-package #:cl-db)
 
+(defclass user ()
+  ((id :initarg :id
+       :reader id-of
+       :property t
+       :colmns (("id" "uuid")))
+   (name :initarg :name
+	 :accessor name-of
+	 :property t
+	 :columns (("name" "varchar")))
+   (login :initarg :login
+	  :accessor login-of
+	  :property t
+	  :columns (("login" "varchar")))
+   (password :initarg :password
+	     :accesor password-of
+	     :property t
+	     :columns (("password" "varchar")))
+   (project-managments :reader project-managments-of
+		       :one-to-many project-managment
+		       :index-by #'project-of
+		       :columns ("user_id"))
+   (project-participations :reader project-participations
+			   :one-to-many project-managment
+			   :index-by #'project-of
+			   :columns ("user_id")))
+  (:metaclass persistent-class)
+  (:table "users")
+  (:primary-key "id"))
+
+(defclass project-participation ()
+  ((project :initarg :project
+	    :reader project-of
+	    :many-to-one project
+	    :columns ("project_id"))
+   (user :initarg :user
+	 :reader user-of
+	 :many-to-one user
+	 :columns ("user_id"))
+  (:metaclass persistent-class)
+  (:table "project_memebers")
+  (:primary-key ("project_id" "user_id")))
+
+(defclass project-managment (project-participation)
+  ()
+  (:metaclass persistent-class)
+  (:table "project_managers")
+  (:primaty-key "project_id" "user_id"))
+
+(defclass project ()
+  ((id :initarg :id
+       :reader id-of
+       :property t
+       :columns (("id" "uuid")))
+   (name :initarg :name
+	 :accessor name-of
+	 :property t
+	 :columns (("name" "varchar")))
+   (begin-date :initarg :begin-date
+	       :accessor begin-date-of
+	       :property t
+	       :columns (("begin_date" "date")))
+   (project-members :accessor :project-members
+		    :one-to-many project-member
+		    :index-by #'user-of
+		    :columns(("project_id"))))
+   (:metaclass persistent-class)
+   (:table "projects")
+   (:primay-key ("id")))
+
 (define-database-interface postgresql-postmodern
   (:open-connection #'cl-postgres:open-database)
   (:close-connection #'cl-postgres:close-database)
@@ -23,60 +92,3 @@
   ()
   (:dynamic-variables
    (*mapping-schema* (make-mapping-schema 'projects-managment))))
-
-(define-schema projects-managment ()
-  (user
-   (("users" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (login (:property ("login" "varchar")))
-   (password (:property ("password" "varchar")))
-   (project-managments
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (project-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values)
-   (project-participations
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (project-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values))
-  (project-participation
-   (("project_memebers" "project_id" "user_id"))
-   (project (:many-to-one project "project_id"))
-   (user (:many-to-one user "user_id")))
-  (project-managment
-   (("project_managers" "project_id" "user_id")
-    (project-participation "project_id" "user_id")))
-  (project
-   (("projects" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (begin-date (:property ("begin_date" "date")))
-   (objects
-    (:many-to-one project-root-object "project_id"))
-   (document-directories
-    (:many-to-one root-document-directory "project_id"))
-   (document-registrations
-    (:one-to-many document-registration "project_id")
-    #'(lambda (&rest registrations)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (registration)
-		     (cons (document-of registration)
-			   registration))
-		 registrations)))
-    #'alexandria:hash-table-values)
-   (project-members
-    (:one-to-many project-member "project_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (user-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values)))
