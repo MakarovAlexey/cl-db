@@ -7,8 +7,15 @@
 	       :reader table-name-of)
    (primary-key :initarg :primary-key
 		:reader primary-key-of)
-   (superclass-columns :initarg :superclass-mappings
-		       :reader superclass-mappings-of)))
+   (superclass-custom-columns :initarg :superclass-custom-columns
+			      :reader superclass-custom-columns-of)
+   (inheritance-foreign-keys :reader superclass-foreign-keys-of)
+   (properties :initform (make-hash-table)
+	       :reader properties-of
+	       :documntation "Properties by name")
+   (references :initform (make-hash-table)
+	       :reader references-of
+	       :documntation "Many-to-one and one-to-many references by name")))
 
 (defmethod validate-superclass ((class persistent-class)
 				(superclass standard-class))
@@ -85,44 +92,16 @@
     (:one-to-many 'one-to-many-effective-slot-definition)
     (:many-to-one 'many-to-one-effective-slot-definition)))
 
-(defmethod compute-effective-slot-definition
-    ((class persistent-class) name direct-slot-definitions)
-  (call-next-method)
-  (class-precedence-list 
+(defun index-slot (table direct-slot)
+  (loop reader in (slot-definition-readers direct-slot)
+     do (setf (gethash reader table) direct-slot)))
 
-(defun find-class-mapping (class-name &optional (class-mappings
-						 *class-mappings*))
-  (find class-name class-mappings
-	:key #'(lambda (class-mapping)
-		 (getf :class-name class-mapping))))
-
-(defun compute-superclass-mappings (class-name &rest foreign-key)
-  (let ((superclass-mappings
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'compute-superclass-mappings
-			    superclass-mapping))
-		 superclasses)))
-    (list :class-name class-name
-	  :table-name table-name
-	  :primary-key primary-key
-	  :superclasses superclass-mappings)))
-
-(defun compute-class-mapping (&key class-name table-name primary-key
-				superclasses value-mappings
-				many-to-one one-to-many)
-  (let ((superclass-mappings
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'compute-superclass-mapping superclass-mapping))
-		 superclasses))
-;;	(mapping-precedence-list
-;;	 (apply #'compute-mapping-presenece-list superclass-mappings))
-	)
-    (list :class-name class-name
-	  :table-name table-name
-	  :primary-key primary-key
-	  :superclasses superclass-mappings
-;;	:mapping-precedence-list mapping-precedence-list
-;	:subclasses (apply #'compute-subclass-mappings
-;			   class-name mapping-precedence-list)
-;;	:value-mapping (apply #'
-	  )))
+(defmethod finalize-inheritance :after ((class persistent-class))
+  (loop for direct-slot in (class-direct-slots class)
+     do (case (mapping-type-of direct-slot)
+	  (:property
+	   (index-slot (properties-of class) direct-slot))
+	  (:many-to-one
+	   (index-slot (references-of class) direct-slot))
+	  (:one-to-many
+	   (index-slot (references-of class) direct-slot)))))
