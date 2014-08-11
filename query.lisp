@@ -5,114 +5,6 @@
 (defun make-alias (&optional (prefix "table"))
   (format nil "~a_~a" prefix (incf *table-index*)))
 
-(defclass query-class (class-mapping)
-  ((alias :initarg :alias))
-
-(defclass join-superclass (inheritance-mapping)
-  ((class-table-name :initarg :class-table-name)
-   (class-table-alias :initarg :class-table-alias)
-   (superclass-table-name :initarg :superclass-table-name)
-   (superclass-table-alias :initarg :superclass-table-alias)
-   (superclass-primary-key :initarg :superclass-primary-key)))
-
-(defclass join-subclass (inheritance-mapping)
-  ((class-table-alias :initarg :class-table-alias)
-   (class-primary-key :initarg :class-primary-key)
-   (subclass-table-name :initarg :subclass-table-name)
-   (subclass-table-alias :initarg :subclass-table-alias)))
-
-(defrule plan-class-superclass ()
-  (query-class (class-name ?class-name))
-  (class-mapping (class-name ?class-name)
-		 (table-name ?table-name)
-		 (primary-key ?primary-key))
-  (inheritance-mapping (class-name ?class-name)
-		       (superclass-name ?superclass-name)
-		       (foreign-key ?foreign-key))
-  (superclass-mapping (class-name ?superclass-name)
-		      (table-name ?superclass-table-name)
-		      (primary-key ?superclass-primary-key))
-  =>
-  (assert-instnce
-   (make-instance 'join-superclass
-		  :class-name ?class-name
-		  :superclass-name ?superclass-name
-		  :class-table-name ?table-name
-;;		  :class-table-alias 
-		  :superclass-table-name ?superclass-table-name
-		  :superclass-primary-key ?superclass-primary-key
-;;		  :superclass-table-alias
-		  :foreign-key ?foreign-key)))
-
-(defrule plan-superclass-superclass ()
-  (join-superclass (superclass-name ?class-name))
-  (class-mapping (class-name ?class-name)
-		 (table-name ?table-name)
-		 (primary-key ?primary-key))
-  (inheritance-mapping (class-name ?class-name)
-		       (superclass-name ?superclass-name)
-		       (foreign-key ?foreign-key))
-  (superclass-mapping (class-name ?superclass-name)
-		      (table-name ?superclass-table-name)
-		      (primary-key ?superclass-primary-key))
-  =>
-  (assert-instnce
-   (make-instance 'join-superclass
-		  :class-name ?class-name
-		  :superclass-name ?superclass-name
-		  :class-table-name ?table-name
-;;		  :class-table-alias 
-		  :superclass-table-name ?superclass-table-name
-		  :superclass-primary-key ?superclass-primary-key
-;;		  :superclass-table-alias
-		  :foreign-key ?foreign-key)))
-
-(defrule plan-class-subclass ()
-  (query-class (class-name ?class-name))
-  (class-mapping (class-name ?class-name)
-		 (table-name ?table-name)
-		 (primary-key ?primary-key))
-  (inheritance-mapping (subclass-name ?subclass-name)
-		       (superclass-name ?class-name)
-		       (foreign-key ?foreign-key))
-  (subclass-mapping (class-name ?subclass-name)
-		    (table-name ?subclass-table-name)
-		    (primary-key ?subclass-primary-key))
-  =>
-  (assert-instnce
-   (make-instance 'join-subclass
-		  :class-name ?class-name
-		  :subclass-name ?subclass-name
-		  :class-table-name ?table-name
-;;		  :class-table-alias 
-		  :subclass-table-name ?subclass-table-name
-		  :subclass-primary-key ?subclass-primary-key
-;;		  :subclass-table-alias
-		  :foreign-key ?foreign-key)))
-
-(defrule plan-subclass-subclass ()
-  (join-subclass (subclass-name ?class-name))
-  (class-mapping (class-name ?class-name)
-		 (table-name ?table-name)
-		 (primary-key ?primary-key))
-  (inheritance-mapping (subclass-name ?subclass-name)
-		       (superclass-name ?class-name)
-		       (foreign-key ?foreign-key))
-  (subclass-mapping (class-name ?subclass-name)
-		    (table-name ?subclass-table-name)
-		    (primary-key ?subclass-primary-key))
-  =>
-  (assert-instnce
-   (make-instance 'join-subclass
-		  :class-name ?class-name
-		  :subclass-name ?subclass-name
-		  :class-table-name ?table-name
-;;		  :class-table-alias 
-		  :subclass-table-name ?subclass-table-name
-		  :subclass-primary-key ?subclass-primary-key
-;;		  :subclass-table-alias
-		  :foreign-key ?foreign-key)))
-
 (defun merge-trees (&rest trees)
   (reduce #'(lambda (result tree)
 	      (list*
@@ -126,8 +18,6 @@
 			  (first tree) result)))))
 	       (remove (first tree) result :key #'first)))
 	  trees :initial-value nil))
-
-
 
 (defun plan-inheritance (&rest inheritance-mappings)
   (mapcar #'(lambda (inheritance-mapping)
