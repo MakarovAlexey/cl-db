@@ -27,7 +27,7 @@
 (defmethod initialize-instance :around
     ((class persistent-class)
      &rest initargs &key direct-superclasses)
-  (declare (dynamic-extent initargs))x
+  (declare (dynamic-extent initargs))
   (if (loop for class in direct-superclasses
             thereis (subtypep class (find-class 'persistent-object)))
       (call-next-method)
@@ -81,7 +81,8 @@
 
 (defclass one-to-many-effective-slot-definition
     (reference-effective-slot-definition standard-effective-slot-definition)
-  ((index-fn :initarg :index-by :reader index-fn-of)))
+  ((index-fn :initarg :index-by
+	     :reader index-fn-of)))
 
 (defmethod effective-slot-definition-class
     ((class persistent-class) &key mapping-type &allow-other-keys)
@@ -102,17 +103,20 @@
   (loop reader in (slot-definition-readers direct-slot)
      do (setf (references-of class) direct-slot)))
 
+;; FIXME: Restrict duplicate inheritance. Check exitence of direct
+;; inherited classes in that classes precedence lists
+
 (defmethod finalize-inheritance :after ((class persistent-class))
   (loop for slot in (class-slots class)
      do (index-slot-by-readers slot))
-  (loop for superclass in (class-direct-superclasses class)
-     for custom-columns = (rest (assoc
-				 (class-name superclass)
-				 (custom-columns-of class)))
-     when (subtypep superclass (class-of class))
-       (with-slots (persistent-superclasses) class
-	 (setf persistent-superclasses
-	       (list* (list* superclass
-			     (or custom-columns
-				 (primary-key-of superclass)))
-		      persistent-superclasses)))))
+  (with-slots (persistent-superclasses) class
+    (setf persistent-superclasses
+	  (loop for superclass in (class-direct-superclasses class)
+	     for custom-columns = (rest (assoc
+					 (class-name superclass)
+					 (custom-columns-of class)))
+	     when (subtypep superclass (class-of class))
+	     collect (list* superclass
+			    (or custom-columns
+				(primary-key-of superclass)))))))
+

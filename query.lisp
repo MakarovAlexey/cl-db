@@ -1,10 +1,5 @@
 (in-package #:cl-db)
 
-(defvar *table-index*)
-
-(defun make-alias (&optional (prefix "table"))
-  (format nil "~a_~a" prefix (incf *table-index*)))
-
 (defun merge-trees (&rest trees)
   (reduce #'(lambda (result tree)
 	      (list*
@@ -44,13 +39,33 @@
 		(subclass-mapping-of extension-mapping) class-mapping)))
 	  (extension-mappings-of class-mapping)))
 
-(defun make-join-plan (class-mapping)
+(defvar *table-index*)
+
+(defun make-alias (&optional (prefix "table"))
+  (format nil "~a_~a" prefix (incf *table-index*)))
+
+(defun join-sublass (class &rest joined-classes)
+  (let ((joined-superclasses
+	 (reduce #'make-alias
+		 (set-difference
+		  (persistent-superclasses-of class)
+		  (map #'first joined-classes))
+		 :initial-value nil)))
+    (list :left-join class
+	  (
+     ;; 2. inner-join new superclasses
+     ;; 3. Pass modified joined-superclasses to subclasses
+
+(defun make-query (class)
   (list*
    (list* class-mapping
 	  (make-alias (incf *table-index*))
 	  (apply #'plan-inheritance
 		 (inheritance-mappings-of class-mapping)))
    (plan-extension class-mapping)))
+
+;; планирование любого класса возващает два значения план и список
+;; обработанных классов (с учетом уже присутствовавших ранее
 
 (defun make-loaders (class-mapping object-plan)
   (acons class-mapping object-plan
@@ -66,8 +81,8 @@
 	:alias alias
 	:columns columns
 	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
+				  (apply #'print-inheritance
+			      superclass)) superclasses)))
 
 (defun print-extensions (extension &rest extensions)
   (list :extension (apply #'print-extension extension)
@@ -99,8 +114,7 @@
 
 (defun join (class-names root reference &key (join #'skip) where order-by having))
 
-(defun db-read (class-name &optional (mapping-schema *mapping-schema*))
-  (let* ((class-mapping
-	  (assoc class-name (first mapping-schema)))
-	 (*table-index* 0))
-    (apply #'print-from-clause class-mapping)))
+(defun db-read (class-name)
+  (let ((*table-index* 0)
+	(class (find-class class-name)))
+    (make-query class)))
