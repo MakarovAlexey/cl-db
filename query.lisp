@@ -1,120 +1,63 @@
 (in-package #:cl-db)
 
-(defun merge-trees (&rest trees)
-  (reduce #'(lambda (result tree)
-	      (list*
-	       (list*
-		(first tree)
-		(apply #'merge-trees
-		       (append
-			(rest tree)
-			(rest
-			 (assoc
-			  (first tree) result)))))
-	       (remove (first tree) result :key #'first)))
-	  trees :initial-value nil))
-
-(defun plan-inheritance (&rest inheritance-mappings)
-  (mapcar #'(lambda (inheritance-mapping)
-	      (list*
-	       (superclass-mapping-of inheritance-mapping)
-	       (make-alias (incf *table-index*))
-	       (columns-of inheritance-mapping)
-	       (apply  #'plan-inheritance
-		       (superclass-mapping-of inheritance-mapping))))
-	  inheritance-mappings))
-
-(defun plan-extension (class-mapping &optional root-superclass)
-  (mapcar #'(lambda (extension-mapping)
-	      (list*
-	       (list*
-		(subclass-mapping-of extension-mapping)
-		(make-alias (incf *table-index*))
-		(columns-of extension-mapping)
-		(apply #'plan-inheritance
-		       (remove root-superclass
-			       (inheritance-mappings-of
-				(subclass-mapping-of extension-mapping)))))
-	       (plan-extension
-		(subclass-mapping-of extension-mapping) class-mapping)))
-	  (extension-mappings-of class-mapping)))
-
 (defvar *table-index*)
 
-(defun make-alias (&optional (prefix "table"))
-  (format nil "~a_~a" prefix (incf *table-index*)))
+(defun make-alias ()
+  (format nil "table_~a" (incf *table-index*)))
 
-(defun join-sublass (class &rest joined-classes)
-  (let ((joined-superclasses
-	 (reduce #'make-alias
-		 (set-difference
-		  (persistent-superclasses-of class)
-		  (map #'first joined-classes))
-		 :initial-value nil)))
-    (list :left-join class
-	  (
-     ;; 2. inner-join new superclasses
-     ;; 3. Pass modified joined-superclasses to subclasses
+(defun plan-inheritance (persistent-class alias &optional superclass)
+  (reduce #'(lambda (query-plan inheritance-mapping)
+	      (let ((superclass-alias (make-alias))
+		    (superclass (superclass-of inheritance-mapping)))
+		(list*
+		 (list :class superclass
+		       :alias superclass-alias
+		       :superclasses
+		       (plan-inheritance superclass superclass-alias)
+		       :join-on
+		       (mapcar #'(lambda (fk-column pk-column)
+				   (format nil "~a.~a" alias fk-column)
+				   (format nil "~a.~a" superclass-alias pk-column))
+			       (foreign-key-of inheritance-mapping)
+			       (primary-key-of superclass)))
+		 query-plan)))
+	  (remove superclass (inheritance-mappings-of persistent-class) 
+		  :key #'superclass-of)
+	  :initial-value nil))
+
+(defun plan-extension (persistent-class alias)
+  (reduce #'(lambda (query-plan persistent-subclass)
+	      (let ((subclass-alias (make-alias)))
+		(list*
+		 (list :class persistent-subclass
+		       :alias subclass-alias
+		       :superclasses
+		       (plan-inheritance persistent-subclass
+					 subclass-alias persistent-class)
+		       :subclass (plan-extension persistent-subclass alias)
+		       :join-on (mapcar #'(lambda (fk-column pk-column)
+					    (format nil "~a.~a" subclass-alias fk-column)
+					    (format nil "~a.~a" alias pk-column))
+					(foreign-key-of persistent-subclass)
+					(primary-key-of persistent-class)))
+		 query-plan)))
+	  (class-direct-subclasses persistent-class)
+	  :initial-value nil))
 
 (defun make-query (class)
-  (list*
-   (list* class-mapping
-	  (make-alias (incf *table-index*))
-	  (apply #'plan-inheritance
-		 (inheritance-mappings-of class-mapping)))
-   (plan-extension class-mapping)))
+  (let ((alias (make-alias)))
+    (list :class class
+	  :alias alias
+	  :superclass (plan-inheritance class alias)
+	  :subclass (plan-extension class alias))))
 
-;; планирование любого класса возващает два значения план и список
-;; обработанных классов (с учетом уже присутствовавших ранее
+;;(defun fetch (root reference &rest references))
 
-(defun make-loaders (class-mapping object-plan)
-  (acons class-mapping object-plan
-	 (reduce #'append
-		 (extension-mappings-of class-mapping)
-		 :key #'(lambda (extension-mapping)
-			  (make-loaders
-			   (subclass-mapping-of extension-mapping)
-			   (assoc extension-mapping (rest object-plan)))))))
-
-(defun print-extension (class-mapping alias columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias alias
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance
-			      superclass)) superclasses)))
-
-(defun print-extensions (extension &rest extensions)
-  (list :extension (apply #'print-extension extension)
-	:extensions (mapcar #'(lambda (extension)
-				(apply #'print-extensions extension))
-			    extensions)))
-
-(defun print-inheritance (class-mapping columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
-
-(defun print-root (class-mapping &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
-
-(defun print-from-clause (alias root &rest extensions)
-  (list :root root
-	:alias alias
-	:extension extensions))
-
-(defun fetch (root reference &rest references))
-
-(defun join (class-names root reference &key (join #'skip) where order-by having))
+;;(defun join (class-names root reference &key (join #'skip) where order-by having))
 
 (defun db-read (class-name)
   (let ((*table-index* 0)
 	(class (find-class class-name)))
+    (when (not (class-finalized-p class))
+      (finalize-inheritance class))
     (make-query class)))

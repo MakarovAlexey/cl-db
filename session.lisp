@@ -4,10 +4,6 @@
 
 (defvar *default-connection-args*)
 
-(defvar *default-mapping-schema-name*)
-
-(defvar *mapping-schema*)
-
 (defvar *session*)
 
 (defclass clos-session ()
@@ -34,10 +30,8 @@
 		    (database-connection-of session)))
 
 (defun call-with-session (function database-interface-name
-			  mapping-schema-name &rest connection-args)
-  (let* ((*mapping-schema*
-	  (ensure-mapping-schema mapping-schema-name))
-	 (*session*
+			  &rest connection-args)
+  (let* ((*session*
 	  (apply #'open-session
 		 (get-database-interface database-interface-name)
 		 connection-args)))
@@ -50,9 +44,6 @@
 	  (quote ,(or (first
 		       (compile-option :database-interface options))
 		      *default-database-interface-name*))
-	  (quote ,(or (first
-		       (compile-option :mapping-schema options))
-		      *default-mapping-schema-name*))
 	  (list ,@(or (compile-option :connection-args options)
 		      *default-connection-args*))))
 
