@@ -1,28 +1,28 @@
 (in-package #:cl-db)
 
-(define-database-interface postgresql-postmodern
-  (:open-connection #'cl-postgres:open-database)
-  (:close-connection #'cl-postgres:close-database)
-  (:prepare #'cl-postgres:prepare-query)
-  (:execute
-   #'(lambda (connection name &rest params)
-       (cl-postgres:exec-prepared connection name params
-				  'cl-postgres:alist-row-reader))))
+;;(define-database-interface postgresql-postmodern
+;;  (:open-connection #'cl-postgres:open-database)
+;;  (:close-connection #'cl-postgres:close-database)
+;;  (:prepare #'cl-postgres:prepare-query)
+;;  (:execute
+;;   #'(lambda (connection name &rest params)
+;;       (cl-postgres:exec-prepared connection name params
+;;				  'cl-postgres:alist-row-reader))))
 
 (lift:deftestsuite session ()
   ())
 
-(lift:addtest session-open-and-close
-  (lift:ensure-no-warning
-    (with-session ((:mapping-schema cats-mapping)
-		   (:database-interface postgresql-postmodern)
-		   (:connection-args "projects" "makarov"
-				     "zxcvb" "localhost")))))
+;;(lift:addtest session-open-and-close
+;;  (lift:ensure-no-warning
+;;    (with-session ((:mapping-schema cats-mapping)
+;;		   (:database-interface postgresql-postmodern)
+;;		   (:connection-args "projects" "makarov"
+;;				     "zxcvb" "localhost")))))
 
-(lift:deftestsuite query ()
-  ()
-  (:dynamic-variables
-   (*mapping-schema* (make-mapping-schema 'projects-managment))))
+;;(lift:deftestsuite query ()
+;;  ()
+;;  (:dynamic-variables
+;;   (*mapping-schema* (make-mapping-schema 'projects-managment))))
 
 (define-schema projects-managment ()
   (user

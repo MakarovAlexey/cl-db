@@ -1756,3 +1756,23 @@ Expand into:
 		     (cons (user-of role) role))
 		 roles)))
     #'alexandria:hash-table-values)))
+
+
+(defun map-class (class-name table-name
+		  &key superclasses primary-key slots)
+  (let ((pk-columns
+	 (multiple-value-list
+	  (funcall primary-key))))
+    #'(lambda (schema)
+	(values
+	 #'(lambda (schema)
+	     (
+	 #'(lambda (schema)
+	     (list*
+	      (list* class-name
+		     (list* table-name pk-columns)
+		     (mapcar #'(lambda (superclass-mappings-fn)
+				 (funcall superclass-mappings-fn schema))
+			     (multiple-value-list
+			      (funcall superclasses (first schema)))))
+	      (remove class-name (first schema) :key #'first)))
