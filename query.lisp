@@ -19,6 +19,9 @@
 (defun make-alias (&optional (prefix "table"))
   (format nil "~a_~a" prefix (incf *table-index*)))
 
+;; "свернуть" иерархию наследования
+;; передавать свойства и ссылки сместе с псевдонимом (alias)
+
 (defun plan-inheritance (&rest class-mapping
 			 &key superclass-mappings &allow-other-keys)
   (list* :alias (make-alias)
@@ -83,10 +86,12 @@
 				  (apply #'print-inheritance superclass))
 			      superclasses)))
 
-(defun print-from-clause (alias root &rest extensions)
-  (list :root root
-	:alias alias
-	:extension extensions))
+(defun from-clause (&key table-name alias superclass-mappings
+		      subclass-mappings &allow-other-keys)
+  (format nil (concatenate "FROM ~a AS ~a~%"
+			   "~{~\print-superclass-join~\~}~%"
+			   "~{~\print-subclass-join~\~}")
+	  table-name alias superclass-mappings subclass-mappings))
 
 ;;(defun fetch (root reference &rest references))
 
