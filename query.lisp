@@ -22,9 +22,10 @@
 ;; "свернуть" иерархию наследования
 ;; передавать свойства и ссылки сместе с псевдонимом (alias)
 
-(defun plan-inheritance (&rest class-mapping
-			 &key superclass-mappings &allow-other-keys)
-  (list* :alias (make-alias)
+(defun plan-inheritance (&rest class-mapping &key (alias (make-alias))
+					       superclass-mappings
+					       &allow-other-keys)
+  (list* :alias alias
 	 :superclass-mappings
 	 (mapcar #'(lambda (superclass-mapping)
 		     (apply #'plan-inheritance superclass-mapping))
@@ -32,10 +33,11 @@
 	 (alexandria:remove-from-plist class-mapping
 				       :superclass-mappings)))
 
-(defun make-join-plan (&rest class-mapping &key superclass-mappings
+(defun make-join-plan (&rest class-mapping &key (alias (make-alias))
+					     superclass-mappings
 					     subclass-mappings
 					     &allow-other-keys)
-  (list* :alias (make-alias)
+  (list* :alias alias
 	 :superclass-mappings
 	 (mapcar #'(lambda (superclass-mapping)
 		     (apply #'plan-inheritance superclass-mapping))
@@ -48,8 +50,37 @@
 				       :superclass-mappings
 				       :subclass-mappings)))
 
-(defun make-loaders (class-mapping object-plan)
-  (acons class-mapping object-plan
+(defun property-columns (alias property-name &rest columns)
+  (declare (ignore property-name))
+  (mapcar #'(lambda (column)
+	      (destructuring-bind (name type) column
+		(declare (ignore type))
+		(cons alias name)))
+	  columns))
+
+(defun compute-query-superclass (&key table-name alias suclass-alias
+				   foreign-key primary-key properties
+				   superclass-mappings)
+  (values
+   (mapcar #'(lambda (property)
+	       (apply #'property-columns alias property))
+	   properties)))
+
+(defun compute-query-superclasses (superclass-mapping
+				   &rest superclass-mappings)
+  (multiple-value-bind (select-clause from-clause)
+      (apply #'compute-query-superclass superclass-mapping)
+    (multiple-value-bind (rest-select-clause rest-from-clause)
+	(when (not (null superclass-mappings))
+	  (apply #'compute-query-superclasses superclass-mappings))
+      (values
+       (append select-clause rest-select-clause)
+       (append from-clause rest-select-clause)))))
+
+(defun make-query (class-mapping &key superclass-mappings
+				   subclass-mappings
+				   &allow-other-keys)
+  (list :select (compute-superclassacons class-mapping object-plan
 	 (reduce #'append
 		 (extension-mappings-of class-mapping)
 		 :key #'(lambda (extension-mapping)
@@ -85,6 +116,13 @@
 	:superclasses (mapcar #'(lambda (superclass)
 				  (apply #'print-inheritance superclass))
 			      superclasses)))
+
+(defun append-to-query (query &key select from)
+  (destructuring-bind (query-select query-from) query
+    (list* :select (append query-select select)
+	   :from (append 
+  (alexandria:remove-from-plist class-mapping
+				       :superclass-mappings)))
 
 (defun from-clause (&key table-name alias superclass-mappings
 		      subclass-mappings &allow-other-keys)
