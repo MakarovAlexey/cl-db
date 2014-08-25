@@ -1776,3 +1776,48 @@ Expand into:
 			     (multiple-value-list
 			      (funcall superclasses (first schema)))))
 	      (remove class-name (first schema) :key #'first)))
+
+;; Накопление значения
+(run-subclass-mappings
+ #'(lambda (result &key table-name alias foreign-key superclass-mappings) ;; subclasses
+     (list*
+      (list*
+       (list :left-join table-name :as alias :on foreign-key)
+       (run-superclass-mappings
+	#'(lambda (result &key table-name alias foreign-key superclass-mappings) ;; superclasses
+	    (list*
+	     (list :inner-join table-name :as alias :on foreign-key)
+	     result))
+	superclass-mappings))
+      result))
+ subclass-mappings)
+
+;; Загрузочники
+(defun compute-propery-loader (alias property-name &rest columns)
+  ;; ...
+  (mapcar #'(lambda (property)
+	      (apply #'comute-property-loader property))
+	  properties))
+
+
+
+(run-subclass-mappings
+ #'(lambda (loaders &key class-name alias primary-key
+		      properties superclass-mappings) ;; subclasses
+     (list*
+      (make-loader class-name alias primary-key
+		   (list* properties
+			  (run-superclass-mappings
+			   #'(lambda (properties &key alias) ;; superclasses
+			       (list*
+				(mapcar #'(lambda (property)
+					    (apply #'comute-property-loader
+						   alias property))
+					properties)
+				properties))
+			   class-mapping)))
+      loaders))
+ (list class-mapping))
+
+;; Как передать значения в вызовах? Так, чтобы можно было собирать
+;; свойства для загрузочников?
