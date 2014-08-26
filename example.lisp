@@ -1819,5 +1819,15 @@ Expand into:
       loaders))
  (list class-mapping))
 
-;; Как передать значения в вызовах? Так, чтобы можно было собирать
-;; свойства для загрузочников?
+
+
+(defun run (function numbers &optional result)
+  (reduce #'(lambda (result numbers)
+	      (funcall function
+		       (funcall #'run function (rest numbers) result)
+		       (first numbers)))
+	  numbers
+	  :initial-value result))
+
+
+	      

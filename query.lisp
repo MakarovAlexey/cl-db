@@ -1,135 +1,138 @@
 (in-package #:cl-db)
 
-(defun merge-trees (&rest trees)
-  (reduce #'(lambda (result tree)
-	      (list*
-	       (list*
-		(first tree)
-		(apply #'merge-trees
-		       (append
-			(rest tree)
-			(rest
-			 (assoc
-			  (first tree) result)))))
-	       (remove (first tree) result :key #'first)))
-	  trees :initial-value nil))
-
 (defvar *table-index*)
 
 (defun make-alias (&optional (prefix "table"))
   (format nil "~a_~a" prefix (incf *table-index*)))
 
-;; "свернуть" иерархию наследования
-;; передавать свойства и ссылки сместе с псевдонимом (alias)
-
-(defun plan-inheritance (&rest class-mapping &key (alias (make-alias))
-					       superclass-mappings
-					       &allow-other-keys)
+(defun plan-inheritance (root-alias &rest class-mapping
+			 &key (alias (make-alias))
+			   superclass-mappings &allow-other-keys)
   (list* :alias alias
+	 :root-alias root-alias
 	 :superclass-mappings
 	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'plan-inheritance superclass-mapping))
+		     (apply #'plan-inheritance
+			    alias superclass-mapping))
 		 superclass-mappings)
 	 (alexandria:remove-from-plist class-mapping
 				       :superclass-mappings)))
 
+(defun plan-extension (root-alias &rest class-mapping)
+  (list* :root-alias root-alias
+	 (apply #'make-join-plan class-mapping)))
+
+;; FIXME: append alias to columns names; build in place of foreign key
+;; SQL "on" construction
 (defun make-join-plan (&rest class-mapping &key (alias (make-alias))
+					     primary-key
+					     properties
 					     superclass-mappings
 					     subclass-mappings
 					     &allow-other-keys)
-  (list* :alias alias
-	 :superclass-mappings
-	 (mapcar #'(lambda (superclass-mapping)
-		     (apply #'plan-inheritance superclass-mapping))
-		 superclass-mappings)
-	 :subclass-mappings
-	 (mapcar #'(lambda (subclass-mapping)
-		     (apply #'make-join-plan subclass-mapping))
-		 subclass-mappings)
-	 (alexandria:remove-from-plist class-mapping
-				       :superclass-mappings
-				       :subclass-mappings)))
+  (list :class-name class-name
+	:table-name table-name
+	:alias alias
+	:primary-key primary-key
+	:properties properties
+	:superclass-mappings
+	(mapcar #'(lambda (superclass-mapping)
+		    (apply #'plan-inheritance alias superclass-mapping))
+		superclass-mappings)
+	:subclass-mappings
+	(mapcar #'(lambda (subclass-mapping)
+		    (apply #'plan-extension alias subclass-mapping))
+		subclass-mappings)))
 
-(defun property-columns (alias property-name &rest columns)
-  (declare (ignore property-name))
-  (mapcar #'(lambda (column)
-	      (destructuring-bind (name type) column
-		(declare (ignore type))
-		(cons alias name)))
+(defun append-alias (alias &rest columns)
+  (mapcar #'(lambda (column-name)
+	      (format nil "~a.~a" alias column-name))
 	  columns))
 
-(defun compute-query-superclass (&key table-name alias suclass-alias
-				   foreign-key primary-key properties
-				   superclass-mappings)
-  (values
-   (mapcar #'(lambda (property)
-	       (apply #'property-columns alias property))
-	   properties)))
+(defun plan-primary-key (alias &rest primary-key)
+  (apply #'append-alias alias primary-key))
 
-(defun compute-query-superclasses (superclass-mapping
-				   &rest superclass-mappings)
-  (multiple-value-bind (select-clause from-clause)
-      (apply #'compute-query-superclass superclass-mapping)
-    (multiple-value-bind (rest-select-clause rest-from-clause)
-	(when (not (null superclass-mappings))
-	  (apply #'compute-query-superclasses superclass-mappings))
-      (values
-       (append select-clause rest-select-clause)
-       (append from-clause rest-select-clause)))))
+(defun plan-roperty (alias &key slot-name columns)
+  (list :slot-name slot-name
+	:columns (apply #'append-alias alias columns)))
 
-(defun make-query (class-mapping &key superclass-mappings
-				   subclass-mappings
-				   &allow-other-keys)
-  (list :select (compute-superclassacons class-mapping object-plan
-	 (reduce #'append
-		 (extension-mappings-of class-mapping)
-		 :key #'(lambda (extension-mapping)
-			  (make-loaders
-			   (subclass-mapping-of extension-mapping)
-			   (assoc extension-mapping (rest object-plan)))))))
+;; FIXME: introduce macrolet
+(defun reduce-superclass-mappings (function &key superclass-mappings
+					      initial-value
+					      &allow-other-keys)
+  (reduce #'(lambda (result superclass-mapping)
+	      (funcall function
+		       (apply #'reduce-superclass-mappings function
+			      :initial-value result
+			      superclass-mapping)
+		       superclass-mapping))
+	  superclass-mappings
+	  :initial-value initial-value))
 
-(defun print-extension (class-mapping alias columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias alias
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
+(defun reduce-subclass-mappings (function &key subclass-mappings
+					    initial-value
+					    &allow-other-keys)
+  (reduce #'(lambda (result subclass-mapping)
+	      (funcall function
+		       (apply #'reduce-subclass-mappings function
+			      :initial-value result
+			      subclass-mapping)
+		       subclass-mapping))
+	  subclass-mappings
+	  :initial-value initial-value))
 
-(defun print-extensions (extension &rest extensions)
-  (list :extension (apply #'print-extension extension)
-	:extensions (mapcar #'(lambda (extension)
-				(apply #'print-extensions extension))
-			    extensions)))
+;; FIXME: select list, where clause, order by, having
+(defun make-sql-query (class-mapping)
+  (apply #'reduce-subclass-mappings
+	 #'(lambda (result &key table-name alias foreign-key
+			     superclass-mappings) ;; subclasses
+	     (list*
+	      (list*
+	       (list :left-join table-name :as alias :on foreign-key)
+	       (run-superclass-mappings
+		#'(lambda (result &key table-name alias foreign-key
+				    superclass-mappings) ;; superclasses
+		    (list*
+		     (list :inner-join table-name :as alias :on foreign-key)
+		     result))
+		superclass-mappings))
+	result))
+   class-mapping))
 
-(defun print-inheritance (class-mapping columns &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:columns columns
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
+;;(defun make-loaders (&rest class-mapping &key superclass-mappings
+;;					   subclass-mappings)
+;;  (run-subclass-mappings
+;;   #'(lambda (loaders &key class-name alias primary-key
+;;			properties superclass-mappings) ;; subclasses
+;;       (list*
+;;	(make-loader class-name alias primary-key
+;;		     (list* properties
+;;			    (run-superclass-mappings
+;;			     #'(lambda (properties &key alias) ;; superclasses
+;;				 (list*
+;;				  (mapcar #'(lambda (property)
+;;					      (apply #'comute-property-loader
+;;						     alias property))
+;;					  properties)
+;;				  properties))
+;;			     class-mapping)))
+;;	loaders))
+;;   (list class-mapping)))
 
-(defun print-root (class-mapping &rest superclasses)
-  (list :class-mapping class-mapping
-	:alias (sxhash class-mapping)
-	:superclasses (mapcar #'(lambda (superclass)
-				  (apply #'print-inheritance superclass))
-			      superclasses)))
+(defun make-query (class-mapping)
+  (values (apply #'make-sql-query class-mapping)))
 
-(defun append-to-query (query &key select from)
-  (destructuring-bind (query-select query-from) query
-    (list* :select (append query-select select)
-	   :from (append 
-  (alexandria:remove-from-plist class-mapping
-				       :superclass-mappings)))
+;;(defun from-clause (&key table-name alias superclass-mappings
+;;		      subclass-mappings &allow-other-keys)
+;;  (format nil (concatenate "FROM ~a AS ~a~%"
+;;			   "~{~\print-superclass-join~\~}~%"
+;;			   "~{~\print-subclass-join~\~}")
+;;	  table-name alias superclass-mappings subclass-mappings))
 
-(defun from-clause (&key table-name alias superclass-mappings
-		      subclass-mappings &allow-other-keys)
-  (format nil (concatenate "FROM ~a AS ~a~%"
-			   "~{~\print-superclass-join~\~}~%"
-			   "~{~\print-subclass-join~\~}")
-	  table-name alias superclass-mappings subclass-mappings))
+;;(defun make-query (&rest class-mapping &key superclass-mappings
+;;					 subclass-mappings
+;;					 &allow-other-keys)
+;;  (let ((join-plan (apply #'make-join-plan class-mapping)))
 
 ;;(defun fetch (root reference &rest references))
 
