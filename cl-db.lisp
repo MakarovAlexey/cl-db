@@ -95,7 +95,8 @@
 	      (destructuring-bind
 		    (&key superclass-mappings &allow-other-keys)
 		  class-mapping
-		(destructuring-bind (superclass-name &rest foreign-key)
+		(destructuring-bind
+		      (superclass-name &rest foreign-key)
 		    (find class-name superclass-mappings :key #'first)
 		  (apply #'compute-class-mapping
 			 :root-class superclass-name
@@ -114,7 +115,7 @@
 				superclass-mappings property-mappings
 				many-to-one-mappings
 				one-to-many-mappings root-class
-				foreign-key)
+				foreign-key)v
   (list* :class-name class-name
 	 :table-name table-name
 	 :primary-key primary-key
