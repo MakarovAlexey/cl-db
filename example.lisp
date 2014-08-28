@@ -1831,3 +1831,24 @@ Expand into:
 
 
 	      
+(defun compute-class-mapping (&key class-name table-name primary-key
+				superclass-mappings property-mappings
+				many-to-one-mappings
+				one-to-many-mappings root-class
+				foreign-key)
+  #'(lambda (root-function superclass-function subclass-function)
+      (let ((alias (make-alias)))
+	(funcall function class-name property-mappings
+		 table-name primary-key)
+		  
+
+;; отображения класса, функиция принимающая функцию и проходящая через
+;; класс и его подсклассовб аргументами функции являются объекты
+;; отображения, в том числе список суперклассов (функция
+;; перемещающаяся по надклассам?)
+
+(funcall #'mapping-schema 'class-name
+	 #'(lambda (result superclass-alias &key &allow-other-keys)
+	     (let ((alias (make-alias)))
+	     (values (make-mapping ....)
+		     alias))))

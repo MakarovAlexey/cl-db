@@ -5,6 +5,18 @@
 (defun make-alias (&optional (prefix "table"))
   (format nil "~a_~a" prefix (incf *table-index*)))
 
+(defun append-alias (alias &rest columns)
+  (mapcar #'(lambda (column-name)
+	      (format nil "~a.~a" alias column-name))
+	  columns))
+
+(defun plan-primary-key (alias &rest primary-key)
+  (apply #'append-alias alias primary-key))
+
+(defun plan-property (alias &key slot-name columns)
+  (list :slot-name slot-name
+	:columns (apply #'append-alias alias columns)))
+
 (defun plan-inheritance (root-alias &rest class-mapping
 			 &key (alias (make-alias))
 			   superclass-mappings &allow-other-keys)
@@ -33,7 +45,7 @@
   (list :class-name class-name
 	:table-name table-name
 	:alias alias
-	:primary-key primary-key
+	:primary-key (apply #'append-alias alias primary-key)
 	:properties properties
 	:superclass-mappings
 	(mapcar #'(lambda (superclass-mapping)
@@ -44,17 +56,7 @@
 		    (apply #'plan-extension alias subclass-mapping))
 		subclass-mappings)))
 
-(defun append-alias (alias &rest columns)
-  (mapcar #'(lambda (column-name)
-	      (format nil "~a.~a" alias column-name))
-	  columns))
 
-(defun plan-primary-key (alias &rest primary-key)
-  (apply #'append-alias alias primary-key))
-
-(defun plan-roperty (alias &key slot-name columns)
-  (list :slot-name slot-name
-	:columns (apply #'append-alias alias columns)))
 
 ;; FIXME: introduce macrolet
 (defun reduce-superclass-mappings (function &key superclass-mappings
