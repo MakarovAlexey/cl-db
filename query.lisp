@@ -34,14 +34,54 @@
   (list* :root-alias root-alias
 	 (apply #'make-join-plan class-mapping)))
 
+(defun multiple-value-reduce (function list &key initial-values)
+  (apply function
+	 (reverse
+	  (list*
+	   (first list)
+	   (reverse
+	    (if (not (null (rest list)))
+		(multiple-value-list
+		 (multiple-value-reduce function
+					(rest list)
+					:initial-values initial-values))
+		initial-values))))))
+
+;; FIXME: introduce macrolet
+(defun reduce-superclass-mappings (function superclass-mappings
+				   &key initial-values
+				     &allow-other-keys)
+  (multiple-value-reduce
+   #'(lambda (result superclass-mapping)
+       (funcall function
+		(apply #'reduce-superclass-mappings function
+		       :initial-value result
+		       superclass-mapping)
+		superclass-mapping))
+   superclass-mappings
+   :initial-values initial-values))
+
+(defun reduce-subclass-mappings (function subclass-mappings
+				 &key initial-values
+				   &allow-other-keys)
+  (multiple-value-reduce
+   #'(lambda (result subclass-mapping)
+       (funcall function
+		(apply #'reduce-subclass-mappings function
+		       :initial-value result
+		       subclass-mapping)
+		subclass-mapping))
+   subclass-mappings
+   :initial-values initial-values))
+
 ;; FIXME: append alias to columns names; build in place of foreign key
 ;; SQL "on" construction
-(defun make-join-plan (&rest class-mapping &key (alias (make-alias))
-					     primary-key
-					     properties
-					     superclass-mappings
-					     subclass-mappings
-					     &allow-other-keys)
+(defun make-join-plan (&key (alias (make-alias))
+			 primary-key
+			 properties
+			 superclass-mappings
+			 subclass-mappings
+			 &allow-other-keys)
   (list :class-name class-name
 	:table-name table-name
 	:alias alias
@@ -56,50 +96,41 @@
 		    (apply #'plan-extension alias subclass-mapping))
 		subclass-mappings)))
 
-
-
-;; FIXME: introduce macrolet
-(defun reduce-superclass-mappings (function &key superclass-mappings
-					      initial-value
-					      &allow-other-keys)
-  (reduce #'(lambda (result superclass-mapping)
-	      (funcall function
-		       (apply #'reduce-superclass-mappings function
-			      :initial-value result
-			      superclass-mapping)
-		       superclass-mapping))
-	  superclass-mappings
-	  :initial-value initial-value))
-
-(defun reduce-subclass-mappings (function &key subclass-mappings
-					    initial-value
-					    &allow-other-keys)
-  (reduce #'(lambda (result subclass-mapping)
-	      (funcall function
-		       (apply #'reduce-subclass-mappings function
-			      :initial-value result
-			      subclass-mapping)
-		       subclass-mapping))
-	  subclass-mappings
-	  :initial-value initial-value))
-
 ;; FIXME: select list, where clause, order by, having
-(defun make-sql-query (class-mapping)
-  (apply #'reduce-subclass-mappings
-	 #'(lambda (result &key table-name alias foreign-key
-			     superclass-mappings) ;; subclasses
-	     (list*
-	      (list*
-	       (list :left-join table-name :as alias :on foreign-key)
-	       (run-superclass-mappings
-		#'(lambda (result &key table-name alias foreign-key
-				    superclass-mappings) ;; superclasses
-		    (list*
-		     (list :inner-join table-name :as alias :on foreign-key)
-		     result))
-		superclass-mappings))
-	result))
-   class-mapping))
+(defun make-sql-query (&key table-name alias primary-key
+			 superclass-mappings subclass-mappings
+			 &allow-other-keys)
+  (list*
+   (list :from table-name :as alias)
+   (list*
+    (reduce-subclass-mappings
+     #'(lambda (result superclass-primary-key
+		&key table-name alias primary-key foreign-key
+		  superclass-mappings)
+	 (values
+	  (list*
+	   (list*
+	    (list :left-join table-name :as alias
+		  :on (pairlis superclass-primary-key
+			       (apply #'append-alias
+				      alias foreign-key)))
+	    (reduce-superclass-mappings
+	     #'(lambda (result subclass-foreign-key
+			&key table-name alias primary-key foreign-key)
+		 (values
+		  (list*
+		   (list :inner-join table-name :as alias
+			 :on (pairlis subclass-foreign-key
+				      (apply #'append-alias
+					     alias primary-key)))
+		  result)
+		  (apply #'append-alias alias foreign-key)))
+	     superclass-mappings
+	     :initial-values (list nil nil))
+	    result))
+	  (apply #'append-alias alias primary-key)))
+     subclass-mappings)
+    :initial-values (list nil (apply #'append-alias alias primary-key)))))
 
 ;;(defun make-loaders (&rest class-mapping &key superclass-mappings
 ;;					   subclass-mappings)

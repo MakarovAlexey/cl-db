@@ -115,7 +115,7 @@
 				superclass-mappings property-mappings
 				many-to-one-mappings
 				one-to-many-mappings root-class
-				foreign-key)v
+				foreign-key)
   (list* :class-name class-name
 	 :table-name table-name
 	 :primary-key primary-key
