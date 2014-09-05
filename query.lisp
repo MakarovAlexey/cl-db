@@ -74,6 +74,30 @@
    subclass-mappings
    :initial-values initial-values))
 
+;; '((:table-name "fff" :class-name fdefefef)
+;;   :superclass-mappings
+;;   :subclass-mappings
+
+(defun make-join-plan (&rest class-mapping &key subclass-mappings
+					     superclass-mappings)
+  (let ((subclass-mappings
+	 (mapcar #'(lambda (superclass-mapping)
+		     (apply #'make-join-plan superclass-mapping))))
+	(superclass-mappings
+	 (mapcar #'(lambda (superclass-mapping)
+		     (apply #'make-join-plan superclass-mapping))))
+	(alias (make-alias)))
+    #'(lambda (&rest function)
+	(apply #'(lambda 
+	       #'(lambda (function &rest args &key superclass-mappings)
+		   (funcall function
+			    :superclass-mappings
+			    
+				    su
+  (reduce-subclass-mapping #'(lambda (result &rest class-mapping)
+			       (list* :alias (make-alias)
+   
+
 ;; FIXME: append alias to columns names; build in place of foreign key
 ;; SQL "on" construction
 (defun make-join-plan (&key (alias (make-alias))

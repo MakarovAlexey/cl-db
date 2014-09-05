@@ -1792,7 +1792,6 @@ Expand into:
       result))
  subclass-mappings)
 
-;; Загрузочники
 (defun compute-propery-loader (alias property-name &rest columns)
   ;; ...
   (mapcar #'(lambda (property)
@@ -1819,8 +1818,6 @@ Expand into:
       loaders))
  (list class-mapping))
 
-
-
 (defun run (function numbers &optional result)
   (reduce #'(lambda (result numbers)
 	      (funcall function
@@ -1829,8 +1826,34 @@ Expand into:
 	  numbers
 	  :initial-value result))
 
+;; Проблема: при обходе надклассов к внешним ключам подкласса
+;; необходимо присоединить псевдоним таблицы класса, однако они не
+;; относятся напрамую к нему, а есть его отношение к своим надклассам
+;; Возможно необходимо изменить порядок обработки дерева надклассов так
+;; чтобы задаватьь обработку надклассов через замыкание
 
-	      
+;; Надо обрабатывать внешние ключи в совокупности с отображением
+
+(defun plan-superclass-mappings (alias class-mapping
+				 &rest superclass-mappings)
+  (apply #'(lambda (&key table-name primary-key) 
+	     (list*
+	      (list table-name :as alias)
+	      (reduce #'(lambda (result class-mapping)
+			  (list* (apply #'(lambda (class-mapping
+						   &rest foreign-key)
+					    (let ((alias (make-alias)))
+					      (list* :left :join
+						     (apply #'plan-superclass-mappings
+							    alias class-mapping)
+						     :on ;; нужен первичный ключ суперкласса!!!
+				 result))
+		      superclass-mappings)))
+	 class-mapping))
+
+(run-subclass #'(lambda (class-mapping)
+
+;; 
 (defun compute-class-mapping (&key class-name table-name primary-key
 				superclass-mappings property-mappings
 				many-to-one-mappings
@@ -1840,7 +1863,6 @@ Expand into:
       (let ((alias (make-alias)))
 	(funcall function class-name property-mappings
 		 table-name primary-key)
-		  
 
 ;; отображения класса, функиция принимающая функцию и проходящая через
 ;; класс и его подсклассовб аргументами функции являются объекты
@@ -1852,3 +1874,42 @@ Expand into:
 	     (let ((alias (make-alias)))
 	     (values (make-mapping ....)
 		     alias))))
+
+'(((:class-name class-name
+    :table-name "table_name"
+    :primary-key '("primary" "key"))
+   (:foreign-key '("foreign" "key")
+    (:class-name class-name
+     :table-name "table_name"
+     :primary-key '("primary" "key"))))
+  (:foreign-key '("foreign" "key")
+   (:class-name class-name
+    :table-name "table_name"
+    :primary-key '("primary" "key"))))
+
+(defun map-class (class-name table-name primary-key
+		  &optional superclasses slots)
+  (let ((class-mapping
+	 (reduce #'(lambda (result superclass-mapping)
+		     (funcall superclass-mapping result))
+		 superclasses
+		 :initial-value #'(lambda (function)
+				    (funcall function
+					     :class-name class-name
+					     :table-name table-name
+					     :primary-key primary-key)))))
+    (reduce #'(lambda (result slot-mapping)
+		(funcall superclass-mapping result))
+	    slots :initial-value class-mapping)))
+
+
+	  
+
+
+	  :superclasses superclasses)))
+
+(map-class 'test-a "test_table" '("primary" "key")
+	   (list
+	    (map-superclass 'test-b ("foreign" "key"))))
+
+
