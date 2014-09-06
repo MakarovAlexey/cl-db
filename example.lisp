@@ -1834,35 +1834,117 @@ Expand into:
 
 ;; Надо обрабатывать внешние ключи в совокупности с отображением
 
-(defun plan-superclass-mappings (alias class-mapping
-				 &rest superclass-mappings)
-  (apply #'(lambda (&key table-name primary-key) 
-	     (list*
-	      (list table-name :as alias)
-	      (reduce #'(lambda (result class-mapping)
-			  (list* (apply #'(lambda (class-mapping
-						   &rest foreign-key)
-					    (let ((alias (make-alias)))
-					      (list* :left :join
-						     (apply #'plan-superclass-mappings
-							    alias class-mapping)
-						     :on ;; нужен первичный ключ суперкласса!!!
-				 result))
-		      superclass-mappings)))
+(defun append-alias (alias &rest columns)
+  (mapcar #'(lambda (column)
+	      (apply format "~a.~a" alias column))
+	  columns))
+
+(defun plan-superclass-mappings (alias &rest superclass-mappings)
+  (reduce #'(lambda (result superclass-mapping)
+	      (list* (apply #'(lambda (class-mapping &rest foreign-key)
+				(apply #'plan-superclass-mapping
+				       (apply #'append-alias
+					      alias foreign-key)
+				       class-mapping))
+			    superclcass-mapping)
+		     result))
+	  superclass-mappings))
+
+(defun plan-superclass-mapping (foreign-key class-mapping
+				&rest superclass-mappings)
+  (let ((alias (make-alias)))
+    (list*
+     (apply #'(lambda (&key table-name primary-key &allow-other-keys)
+		(list* :inner-join table-name :as alias
+		       :on (pairlis foreign-key
+				    (apply #'append-alias
+					   alias primary-key))))
+	    class-mapping)
+     (apply #'plan-superclass-mappings alias superclass-mappings))))
+
+(defun plan-subclass-mappings (superclass-primary-key
+			       &rest subclass-mappings)
+  (reduce #'(lambda (result subclass-mapping)
+	      (apply #'(lambda (class-mapping &rest foreign-key)
+			 (let ((alias (make-alias)))
+			   (apply #'(lambda (first &rest rest)
+				      (list* :left-join
+					     (append first
+						     (list* :on (pairlis superclass-primary-key
+									 (apply #'append-alias
+										alias foreign-key))))))
+				  (apply #'plan-class-mapping alias class-mapping))))
+		     subclcass-mapping))
+	  subclass-mappings))
+
+(defun plan-class-mapping (alias class-mapping
+			   &rest subclass-mappings)
+  (apply #'(lambda (class-mapping &rest superclass-mappings)
+	     (append
+	      (apply #'(lambda (&key table-name primary-key
+				  &allow-other-keys)
+			 (list*
+			  (list table-name :as alias)
+			  (apply #'plan-subclass-mappings
+				 (apply #'append-alias alias
+					primary-key))))
+		     class-mapping)
+	      (apply #'plan-superclass-mappings alias
+		     superclass-mappings)))
 	 class-mapping))
+;;;  Первичный ключ выделен отдельно от отображения класса
 
-(run-subclass #'(lambda (class-mapping)
+(defun plan-superclass-mappings (alias &rest superclass-mappings)
+  (reduce #'(lambda (result superclass-mapping)
+	      (list* (apply #'(lambda (class-mapping &rest foreign-key)
+				(apply #'plan-superclass-mapping
+				       (apply #'append-alias
+					      alias foreign-key)
+				       class-mapping))
+			    superclcass-mapping)
+		     result))
+	  superclass-mappings))
 
-;; 
-(defun compute-class-mapping (&key class-name table-name primary-key
-				superclass-mappings property-mappings
-				many-to-one-mappings
-				one-to-many-mappings root-class
-				foreign-key)
-  #'(lambda (root-function superclass-function subclass-function)
-      (let ((alias (make-alias)))
-	(funcall function class-name property-mappings
-		 table-name primary-key)
+(defun plan-superclass-mapping (foreign-key primary-key class-mapping
+				&rest superclass-mappings)
+  (let ((alias (make-alias)))
+    (list*
+     (apply #'(lambda (&key table-name &allow-other-keys)
+		(list* :inner-join table-name :as alias
+		       :on (pairlis foreign-key
+				    (apply #'append-alias
+					   alias primary-key))))
+	    class-mapping)
+     (apply #'plan-superclass-mappings alias superclass-mappings))))
+
+(defun plan-subclass-mappings (superclass-primary-key
+			       &rest subclass-mappings)
+  (reduce #'(lambda (result subclass-mapping)
+	      (apply #'(lambda (class-mapping &rest foreign-key)
+			 (let ((alias (make-alias)))
+			   (apply #'(lambda (first &rest rest)
+				      (list* :left-join
+					     (append first
+						     (list :on (pairlis superclass-primary-key
+									(apply #'append-alias
+									       alias foreign-key))))))
+				  (apply #'plan-class-mapping alias class-mapping))))
+		     subclcass-mapping))
+	  subclass-mappings))
+
+(defun plan-class-mapping (alias primary-key class-mapping
+			   &rest subclass-mappings)
+  (append
+   (apply #'(lambda (class-mapping &rest superclass-mappings)
+	      (list*
+	       (apply #'(lambda (&key table-name &allow-other-keys)
+			  (list table-name :as alias))
+		      class-mapping)
+	       (apply #'plan-superclass-mappings alias
+		      superclass-mappings)))
+	  class-mapping)
+   (apply #'plan-subclass-mappings
+	  (apply #'append-alias alias primary-key))))
 
 ;; отображения класса, функиция принимающая функцию и проходящая через
 ;; класс и его подсклассовб аргументами функции являются объекты
