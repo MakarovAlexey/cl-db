@@ -12,21 +12,23 @@
 
 (defun plan-superclass-mappings (alias &rest superclass-mappings)
   (reduce #'(lambda (result superclass-mapping)
-	      (list* (apply #'(lambda (class-mapping &rest foreign-key)
-				(apply #'plan-superclass-mapping
-				       (apply #'append-alias
-					      alias foreign-key)
-				       class-mapping))
-			    superclass-mapping)
-		     result))
-	  superclass-mappings))
+	      (append (apply #'(lambda (class-mapping &rest foreign-key)
+				 (apply #'plan-superclass-mapping
+					(apply #'append-alias
+					       alias foreign-key)
+					class-mapping))
+			     superclass-mapping)
+		      result))
+	  superclass-mappings
+	  :initial-value nil))
 
-(defun plan-superclass-mapping (foreign-key class-mapping
+(defun plan-superclass-mapping (foreign-key class-name class-mapping
 				&rest superclass-mappings)
+  (declare (ignore class-name))
   (let ((alias (make-alias)))
     (list*
-     (apply #'(lambda (class-name table-name primary-key)
-		(declare (ignore class-name))
+     (apply #'(lambda (&key table-name primary-key
+			 &allow-other-keys)
 		(list* :inner-join table-name :as alias
 		       :on (pairlis foreign-key
 				    (apply #'append-alias
@@ -40,22 +42,23 @@
 	      (apply #'(lambda (class-mapping &rest foreign-key)
 			 (let ((alias (make-alias)))
 			   (apply #'(lambda (first &rest rest)
-				      (list* (list* :left-join
-						    (append first
-							    (list* :on (pairlis superclass-primary-key
-										(apply #'append-alias
-										       alias foreign-key)))))
-					     rest))
+				      (append (list* :left-join
+						     (append first
+							     (list* :on (pairlis superclass-primary-key
+										 (apply #'append-alias
+											alias foreign-key)))))
+					      rest))
 				  (apply #'plan-class-mapping alias class-mapping))))
 		     subclass-mapping))
 	  subclass-mappings))
 
-(defun plan-class-mapping (alias class-mapping
-			   &rest subclass-mappings)
-  (apply #'(lambda (class-mapping &rest superclass-mappings)
+(defun plan-class-mapping (alias class-mapping &rest subclass-mappings)
+  (apply #'(lambda (class-name class-mapping &rest superclass-mappings)
+	     (declare (ignore class-name))
 	     (append
-	      (apply #'(lambda (class-name table-name primary-key)
-			 (declare (ignore class-name))
+	      (apply #'(lambda (&key table-name primary-key
+				  &allow-other-keys)
+
 			 (list*
 			  (list table-name :as alias)
 			  (apply #'plan-subclass-mappings
@@ -76,6 +79,6 @@
 
 (defun db-read (class-name &key (mapping-schema *mapping-schema*))
   (let* ((class-mapping
-	  (assoc class-name (first mapping-schema) :key #'first))
+	  (assoc class-name mapping-schema :key #'first))
 	 (*table-index* 0))
-    (apply #'make-join-plan class-mapping)))
+    (make-join-plan class-mapping)))
