@@ -64,18 +64,6 @@
 	:key #'(lambda (class-mapping)
 		 (getf class-mapping :class-name))))
 
-(defun parse-mapping (function class-mapping)
-  (destructuring-bind
-	(class-name ((table-name &rest primary-key)
-		     &rest superclasses)
-		    &rest slot-mappings) class-mapping
-    (funcall function
-	     :class-name class-name
-	     :table-name table-name
-	     :primary-key primary-key
-	     :superclass-mappings superclasses
-	     :slot-mappings slot-mappings)))
-
 (defun compute-superclass-mappings (&rest superclass-mappings)
   (mapcar #'(lambda (superclass-mapping)
 	      (destructuring-bind (class-name &rest foreign-key)
@@ -118,22 +106,23 @@
 					     :superclass-mappings
 					     (remove root-superclass
 						     superclass-mappings))
-		    foreign-key))
+		      foreign-key))
 	   root-superclass)))
 
 	   
 
-(defun compute-subclass-mappings (class-name &optional
-					       (class-mappings *class-mappings*))
+(defun compute-subclass-mappings
+    (class-name &optional (class-mappings *class-mappings*))
   (mapcar #'(lambda (subclass-mapping)
 	      (apply #'compute-subclass-mapping
 		     class-name subclass-mapping))
 	  (remove-if-not #'(lambda (subclass-mapping)
-			     (parse-mapping
-			      #'(lambda (&key superclasses &allow-other-keys)
-				  (find class-name superclasses
-					:key #'first))
-			      subclass-mapping))
+			     (apply #'(lambda (&key superclass-mappings
+						 &allow-other-keys)
+					(find class-name
+					      superclass-mappings
+					      :key #'first))
+				    subclass-mapping))
 			 class-mappings)))
 
 (defun compute-class-mapping (&rest class-mapping
