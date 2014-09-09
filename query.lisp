@@ -58,7 +58,6 @@
 	     (append
 	      (apply #'(lambda (&key table-name primary-key
 				  &allow-other-keys)
-
 			 (list*
 			  (list table-name :as alias)
 			  (apply #'plan-subclass-mappings
