@@ -49,20 +49,19 @@
 		     (multiple-value-bind (from-clause)
 			 (apply #'plan-class-mapping alias class-mapping)
 		       (apply #'(lambda (first &rest rest)
-				  (list (list* :left-join
+				  (list* (list* :left-join
 						 (append first
 							 (list* :on (pairlis superclass-primary-key
 									     (apply #'append-alias
 										    alias foreign-key)))))
-					  rest))
+					rest))
 			      from-clause))))
 	       subclass-mapping)
       (multiple-value-bind (subclass-from-clause)
 	  (apply #'plan-subclass-mappings
 		 superclass-primary-key subclass-mappings)
 	(append from-clause subclass-from-clause)))))
-  
-  
+
 (defun plan-class-mapping (alias class-mapping &rest subclass-mappings)
   (apply #'(lambda (class-name class-mapping &rest superclass-mappings)
 	     (declare (ignore class-name))
