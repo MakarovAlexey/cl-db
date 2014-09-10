@@ -50,11 +50,11 @@
 			 (apply #'plan-class-mapping alias class-mapping)
 		       (apply #'(lambda (first &rest rest)
 				  (list* (list* :left-join
-						 (append first
-							 (list* :on (pairlis superclass-primary-key
-									     (apply #'append-alias
-										    alias foreign-key)))))
-					rest))
+						(append first
+							(list* :on (pairlis superclass-primary-key
+									    (apply #'append-alias
+										   alias foreign-key)))))
+					 rest))
 			      from-clause))))
 	       subclass-mapping)
       (multiple-value-bind (subclass-from-clause)
