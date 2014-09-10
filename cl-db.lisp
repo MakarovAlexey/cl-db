@@ -79,12 +79,9 @@
 				      many-to-one-mappings
 				      one-to-many-mappings)
   (list* class-name
-	 (list ;;:class-name class-name
-	  :table-name table-name
-	  :primary-key primary-key
-	  :property-mappings property-mappings
-	  :many-to-one-mappings many-to-one-mappings
-	 :one-to-many-mappings one-to-many-mappings)
+	 (list* table-name primary-key property-mappings)
+;;	  :many-to-one-mappings many-to-one-mappings
+;;	 :one-to-many-mappings one-to-many-mappings)
 	 (apply #'compute-superclass-mappings superclass-mappings)))
 
 (defun compute-subclass-mapping (root-class-name
@@ -138,8 +135,10 @@
 				(apply #'compute-class-mapping class-mapping))
 			    *class-mappings*)))))
 
-;;(table-name alias (&rest primary-key)
-;;	    (class-name (((&rest superclass-mappings)
+;;(class-name
+;;  (table-name primary-key &rest subclass-mappings)
+;;  &rest superclass-mappings)
+
 ;;			  &rest value-mappings)
 ;;			 &rest reference-mappings)
 ;;			&rest subclass-mappings))

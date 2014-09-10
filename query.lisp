@@ -30,8 +30,8 @@
   (let ((alias (make-alias)))
     (multiple-value-bind (superclass-from-clause)
 	(apply #'plan-superclass-mappings alias superclass-mappings)
-      (apply #'(lambda (&key table-name primary-key
-			  &allow-other-keys)
+      (apply #'(lambda (table-name primary-key &rest properties)
+		 (declare (ignore properties))
 		 (list* (list* :inner-join table-name :as alias
 			       :on (pairlis foreign-key
 					    (apply #'append-alias
@@ -66,8 +66,8 @@
   (apply #'(lambda (class-name class-mapping &rest superclass-mappings)
 	     (declare (ignore class-name))
 	     (multiple-value-bind (from-clause)
-		 (apply #'(lambda (&key table-name primary-key
-				     &allow-other-keys)
+		 (apply #'(lambda (table-name primary-key &rest properties)
+			    (declare (ignore properties))
 			    (multiple-value-bind (from-clause)
 				(apply #'plan-subclass-mappings
 				       (apply #'append-alias alias
