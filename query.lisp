@@ -10,63 +10,77 @@
 	      (format nil "~a.~a" alias column))
 	  columns))
 
-(defun plan-superclass-mappings (alias &rest superclass-mappings)
-  (reduce #'(lambda (result superclass-mapping)
-	      (append (apply #'(lambda (class-mapping &rest foreign-key)
-				 (apply #'plan-superclass-mapping
-					(apply #'append-alias
-					       alias foreign-key)
-					class-mapping))
-			     superclass-mapping)
-		      result))
-	  superclass-mappings
-	  :initial-value nil))
+(defun plan-superclass-mappings (alias &optional superclass-mapping
+				 &rest superclass-mappings)
+  (when (not (null superclass-mapping))
+    (multiple-value-bind (from-clause)
+	(apply #'(lambda (class-mapping &rest foreign-key)
+		   (apply #'plan-superclass-mapping
+			  (apply #'append-alias
+				 alias foreign-key)
+			  class-mapping))
+	       superclass-mapping)
+      (multiple-value-bind (superclass-from-clause)
+	  (apply #'plan-superclass-mappings alias superclass-mappings)
+	(append from-clause superclass-from-clause)))))
 
 (defun plan-superclass-mapping (foreign-key class-name class-mapping
 				&rest superclass-mappings)
   (declare (ignore class-name))
   (let ((alias (make-alias)))
-    (list*
-     (apply #'(lambda (&key table-name primary-key
-			 &allow-other-keys)
-		(list* :inner-join table-name :as alias
-		       :on (pairlis foreign-key
-				    (apply #'append-alias
-					   alias primary-key))))
-	    class-mapping)
-     (apply #'plan-superclass-mappings alias superclass-mappings))))
+    (multiple-value-bind (superclass-from-clause)
+	(apply #'plan-superclass-mappings alias superclass-mappings)
+      (apply #'(lambda (&key table-name primary-key
+			  &allow-other-keys)
+		 (list* (list* :inner-join table-name :as alias
+			       :on (pairlis foreign-key
+					    (apply #'append-alias
+						   alias primary-key)))
+			superclass-from-clause))
+	     class-mapping))))
 
 (defun plan-subclass-mappings (superclass-primary-key
+			       &optional subclass-mapping
 			       &rest subclass-mappings)
-  (mapcar #'(lambda (subclass-mapping)
-	      (apply #'(lambda (class-mapping &rest foreign-key)
-			 (let ((alias (make-alias)))
-			   (apply #'(lambda (first &rest rest)
-				      (append (list* :left-join
-						     (append first
-							     (list* :on (pairlis superclass-primary-key
-										 (apply #'append-alias
-											alias foreign-key)))))
-					      rest))
-				  (apply #'plan-class-mapping alias class-mapping))))
-		     subclass-mapping))
-	  subclass-mappings))
-
+  (when (not (null subclass-mapping))
+    (multiple-value-bind (from-clause)
+	(apply #'(lambda (class-mapping &rest foreign-key)
+		   (let ((alias (make-alias)))
+		     (multiple-value-bind (from-clause)
+			 (apply #'plan-class-mapping alias class-mapping)
+		       (apply #'(lambda (first &rest rest)
+				  (list (list* :left-join
+						 (append first
+							 (list* :on (pairlis superclass-primary-key
+									     (apply #'append-alias
+										    alias foreign-key)))))
+					  rest))
+			      from-clause))))
+	       subclass-mapping)
+      (multiple-value-bind (subclass-from-clause)
+	  (apply #'plan-subclass-mappings
+		 superclass-primary-key subclass-mappings)
+	(append from-clause subclass-from-clause)))))
+  
+  
 (defun plan-class-mapping (alias class-mapping &rest subclass-mappings)
   (apply #'(lambda (class-name class-mapping &rest superclass-mappings)
 	     (declare (ignore class-name))
-	     (append
-	      (apply #'(lambda (&key table-name primary-key
-				  &allow-other-keys)
-			 (list*
-			  (list table-name :as alias)
-			  (apply #'plan-subclass-mappings
-				 (apply #'append-alias alias
-					primary-key)
-				 subclass-mappings)))
-		     class-mapping)
-	      (apply #'plan-superclass-mappings alias
-		     superclass-mappings)))
+	     (multiple-value-bind (from-clause)
+		 (apply #'(lambda (&key table-name primary-key
+				     &allow-other-keys)
+			    (multiple-value-bind (from-clause)
+				(apply #'plan-subclass-mappings
+				       (apply #'append-alias alias
+					      primary-key)
+				       subclass-mappings)
+			      (list* (list table-name :as alias)
+				     from-clause)))
+			class-mapping)
+	       (multiple-value-bind (superclasses-from-clause)
+		   (apply #'plan-superclass-mappings alias
+			  superclass-mappings)
+		 (append from-clause superclasses-from-clause))))
 	 class-mapping))
 
 (defun make-join-plan (class-mapping)
