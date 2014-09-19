@@ -8,7 +8,8 @@
   :serial t
   :depends-on (#:alexandria
 	       #:ironclad
-	       #:closer-mop)
+	       #:closer-mop
+	       #:yacc)
   :components ((:file "package")
 ;;	       (:file "database-interface")
 	       (:file "cl-db")
