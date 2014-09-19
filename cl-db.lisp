@@ -2,6 +2,48 @@
 
 (in-package #:cl-db)
 
+(defclass class-mapping ()
+  ((class-name :initarg :class-name
+	       :reader class-name-of)
+   (table-name :initarg :table-name
+	       :reader table-name-of)
+   (primary-key :initarg :primary-key
+		:reader primary-key-of)
+   (superclass-mappings :initarg :superclass-mapping
+			:reader superclass-mappings-of)
+   (subclass-mappings :initarg :subclass-mappings
+		      :reader subclass-mappings-of)))
+
+(defclass inheritance-mapping ()
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
+
+(defclass slot-mapping ()
+  ((slot-name :initarg :class-name
+	      :reader slot-name-of)))
+
+(defclass value-mapping (slot-mapping)
+  ((columns :initarg :columns
+	    :reader columns-of)
+   (serializer :initarg :serializer
+	       :reader serializer-of)
+   (deserializer :initarg :deserializer
+		 :reader deserializer-of)))
+
+(defclass reference-mapping (slot-mapping)
+  ((referenced-class-name :initarg :referenced-class-name
+			  :reader referenced-class-name-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
+
+(defclass many-to-one-mapping (reference-mapping)
+  ())
+
+(defclass one-to-many-mapping (reference-mapping)
+  ())
+
 (defvar *class-mappings*)
 
 (defun parse-slot-mappings (&rest slot-mappings)
@@ -12,23 +54,21 @@
 	   slot-mapping
 	 (case mapping-type
 	   (:property
-	    (list :property
-		  (list :slot-name slot-name
-			:columns params
-			:serializer serializer
-			:deserializer deserializer)))
+	    (make-instance 'value-mapping
+			   :slot-name slot-name
+			   :columns params
+			   :serializer serializer
+			   :deserializer deserializer))
 	   (:many-to-one
-	    (list :many-to-one
-		  (list :slot-name slot-name
-			:reference-class-name (first params)
-			:foreign-key (rest params))))
+	    (make-instance 'many-to-one-mapping
+			   :slot-name slot-name
+			   :reference-class-name (first params)
+			   :foreign-key (rest params)))
 	   (:one-to-many
-	    (list :one-to-many
-		  (list :slot-name slot-name
-			:reference-class-name (first params)
-			:foreign-key (rest params)
-			:serializer serializer
-			:deserializer deserializer)))))))
+	    (make-inastance 'one-to-many
+			    :slot-name slot-name
+			    :reference-class-name (first params)
+			    :foreign-key (rest params)))))))
 
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind

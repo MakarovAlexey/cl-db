@@ -1776,43 +1776,6 @@ Expand into:
 
 
 
-(defclass class-mapping ()
-  ((class-name :initarg :class-name :reader class-name-of)
-   (table-name :initarg :class-name :reader table-name-of)
-   (primary-key :initarg :foreign-key :reader foreign-key)))
 
-(defclass superclass-mapping ()
-  ((class-name :initarg :class-name :reader class-name-of)
-   (superclass-name :initarg :superclass-name :reader superclass-name-of)
-   (foreign-key :initarg :foreign-key :reader foreign-key)))
-
-(defclass slot-mapping ()
-  ((class-name :initarg :class-name
-	       :reader class-name-of)
-   (slot-name :initarg :class-name
-	      :reader slot-name-of)))
-
-(defclass value-mapping (slot-mapping)
-  ((columns :initarg :columns
-	    :reader columns-of)
-   (serializer :initarg :serializer
-	       :reader serializer-of)
-   (deserializer :initarg :deserializer
-		 :reader deserializer-of)))
-
-(defclass reference-mapping (slot-mapping)
-  ((referenced-class-name :initarg :referenced-class-name
-			  :reader referenced-class-name-of)
-   (foreign-key :initarg :foreign-key
-		:reader foreign-key-of)))
-
-(defclass many-to-one-mapping (reference-mapping)
-  ())
-
-(defclass one-to-many-mapping (reference-mapping)
-  ((serializer :initarg :serializer
-	       :reader serializer-of)
-   (deserializer :initarg :deserializer
-		 :reader deserializer-of)))
 
 
