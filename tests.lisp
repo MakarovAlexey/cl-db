@@ -24,62 +24,68 @@
   (:dynamic-variables
    (*mapping-schema* (make-mapping-schema 'projects-managment))))
 
-(define-schema projects-managment ()
-  (user
-   (("users" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (login (:property ("login" "varchar")))
-   (password (:property ("password" "varchar")))
-   (project-managments
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (project-of role) role))
-		 roles)))
+(define-mapping-schema projects-managment)
+
+(use-mapping-schema projects-managment)
+
+(define-class-mapping user
+    (("users" "id"))
+  (id (:property ("id" "uuid")))
+  (name (:property ("name" "varchar")))
+  (login (:property ("login" "varchar")))
+  (password (:property ("password" "varchar")))
+  (project-managments
+   (:one-to-many project-managment "user_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
+		    (cons (project-of role) role))
+		roles)))
     #'alexandria:hash-table-values)
-   (project-participations
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
+  (project-participations
+   (:one-to-many project-managment "user_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
 		     (cons (project-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values))
-  (project-participation
-   (("project_memebers" "project_id" "user_id"))
-   (project (:many-to-one project "project_id"))
-   (user (:many-to-one user "user_id")))
-  (project-managment
-   (("project_managers" "project_id" "user_id")
-    (project-participation "project_id" "user_id")))
-  (project
-   (("projects" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (begin-date (:property ("begin_date" "date")))
-   (objects
-    (:many-to-one project-root-object "project_id"))
-   (document-directories
-    (:many-to-one root-document-directory "project_id"))
-   (document-registrations
-    (:one-to-many document-registration "project_id")
-    #'(lambda (&rest registrations)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (registration)
+		roles)))
+   #'alexandria:hash-table-values))
+
+(define-class-mapping project-participation
+    (("project_memebers" "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+
+(define-class-mapping project-managment
+    (("project_managers" "project_id" "user_id")
+     (project-participation "project_id" "user_id")))
+
+(define-class-mapping project
+    (("projects" "id"))
+  (id (:property ("id" "uuid")))
+  (name (:property ("name" "varchar")))
+  (begin-date (:property ("begin_date" "date")))
+  (objects
+   (:many-to-one project-root-object "project_id"))
+  (document-directories
+   (:many-to-one root-document-directory "project_id"))
+  (document-registrations
+   (:one-to-many document-registration "project_id")
+   #'(lambda (&rest registrations)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (registration)
 		     (cons (document-of registration)
 			   registration))
-		 registrations)))
-    #'alexandria:hash-table-values)
-   (project-members
-    (:one-to-many project-member "project_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (user-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values)))
+		registrations)))
+   #'alexandria:hash-table-values)
+  (project-members
+   (:one-to-many project-member "project_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
+		    (cons (user-of role) role))
+		roles)))
+   #'alexandria:hash-table-values))
 
 ;;(defun print-extension (class-mapping alias columns &rest superclasses)
 ;;  (list :class-mapping class-mapping
