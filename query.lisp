@@ -10,16 +10,17 @@
 	      (format nil "~a.~a" alias column))
 	  columns))
 
-(defun plan-superclass-mappings (alias &optional superclass-mapping
+(defun plan-superclass-mappings (alias superclass-mapping
 				 &rest superclass-mappings)
-  (when (not (null superclass-mapping))
-    (multiple-value-bind (from-clause)
-	(apply #'(lambda (class-mapping &rest foreign-key)
-		   (apply #'plan-superclass-mapping
-			  (apply #'append-alias
-				 alias foreign-key)
-			  class-mapping))
-	       superclass-mapping)
+  (
+  (multiple-value-bind (from-clause)
+      (apply #'(lambda (class-mapping &rest foreign-key)
+		 (apply #'plan-superclass-mapping
+			(apply #'append-alias
+			       alias foreign-key)
+			class-mapping))
+	     superclass-mapping)
+    (when (not (null superclass-mappings))
       (multiple-value-bind (superclass-from-clause)
 	  (apply #'plan-superclass-mappings alias superclass-mappings)
 	(append from-clause superclass-from-clause)))))
@@ -62,7 +63,9 @@
 		 superclass-primary-key subclass-mappings)
 	(append from-clause subclass-from-clause)))))
 
-(defun plan-class-mapping (alias class-mapping &rest subclass-mappings)
+(defun plan-class-mapping (alias class-mapping)
+  (apply #'plan-superclass-mappings alias
+	 (superclass-mappings-of class-mapping))
   (apply #'(lambda (class-name class-mapping &rest superclass-mappings)
 	     (declare (ignore class-name))
 	     (multiple-value-bind (from-clause)
@@ -89,8 +92,8 @@
 
 ;;(defun join (class-names root reference &key (join #'skip) where order-by having))
 
-(defun db-read (class-name &key (mapping-schema *mapping-schema*))
+(defun db-read (class-name)
   (let* ((class-mapping
-	  (assoc class-name mapping-schema :key #'first))
+	  (get-class-mapping class-name))
 	 (*table-index* 0))
     (make-join-plan class-mapping)))
