@@ -1815,4 +1815,142 @@ Expand into:
    (deserializer :initarg :deserializer
 		 :reader deserializer-of)))
 
+(defvar *superclass-primary-key*)
+(defvar *subclass-alias*)
 
+(define-query select (from-clause)
+  (root
+   (let ((alias (make-alias)))
+     (lisp*
+      (list :from table-name :as alias)
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append superclasses subclasses))
+  (subclasses
+   (let ((alias (make-alias)))
+     (lisp*
+      (list :left-join table-name :as alias
+	    :on (pairlis *superclass-primary-key*
+			 (apply #'append-alias alias foreign-key)))
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append
+	 (superclasses)
+	 (subclasses))))))
+  (superclasses
+   (let ((alias (make-alias)))
+     (lisp*
+      (list :inner-join table-name :as alias
+	    :on (pairlis
+		 (apply #'append-alias alias foreign-key)
+		 (apply #'append-alias *subclass-alias* primary-key)))
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append
+	 (superclasses)
+	 (subclasses)))))))
+
+(defun select (class-mapping)
+  (destructuring-bind (table-name)
+  #'(lambda (alias-fn)
+      (values
+       (:from table-name :as (funcall alias-fn))))))
+
+
+  
+(define-query select (select-list from-clause)
+  (root
+   ((*subclass-alias* (make-alias))
+    ((table-name primary-key)
+    
+   
+   (superclass-mappings subclass-mappings))
+  (superclass-mappings
+   ((*subclass-alias* (make-alias)))
+   (superclass-mapping superclass-mappings))
+  (subclass-mappings
+   ((*subclass-alias* (make-alias)))
+   (subclass-mapping subclass-mappings))
+  (superclass-mapping
+   ())
+  (subclass-mapping))
+  
+   (let ((alias (make-alias)))
+     
+     (lisp*
+      (list :from table-name :as alias)
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append superclasses subclasses))
+  (subclasses
+   (let ((alias (make-alias)))
+     (lisp*
+      (list :left-join table-name :as alias
+	    :on (pairlis *superclass-primary-key*
+			 (apply #'append-alias alias foreign-key)))
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append
+	 (superclasses)
+	 (subclasses))))))
+  (superclasses
+   (let ((alias (make-alias)))
+     (lisp*
+      (list :inner-join table-name :as alias
+	    :on (pairlis
+		 (apply #'append-alias alias foreign-key)
+		 (apply #'append-alias *subclass-alias* primary-key)))
+      (let ((*subclass-alias* alias)
+	    (*superclass-primary-key*
+	     (apply #'append-alias alias primary-key)))
+	(append
+	 (superclasses)
+	 (subclasses)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(defun select (arg &rest args)
+  (optima:match arg
+    ((property :class-name class-name))
+    ()))
+
+(define-query select
+    ((select-list (list))
+     (from-clause (list))
+     (unique-table-index 0))
+  ((:class-name class-name) ;; (property :class-name class-name)
+   ((:select-list select-list)
+    (:from-clause from-clause)
+    (:alias (make-alia))))
+  ((:table-name table-name)
+   ((list* (list :from ) from-clasuse  format from-clause "FROM ")))
+  ((:table-name table-name)
+   #'(lambda (&key alias &allow-other-keys)
+       (format from-clause "~a AS ~a~% " table-name)))
+  ((:primary-key primary-key))
+  ((:superclass-name superclass-name)
+   (:subclass-alias alias)
+   (:alias (make-alias))
+   #'(lambda (&key &allow-other-keys)
+       (format from-clause "INNER JOIN ")))
+  ((:superclass-foreign-key foreign-key))
+  
+   #'(lambda (&key subclass-alias alias &allow-other-keys)
+       (format from-clause "ON ~{~a = ~a ~}" (mapcar #'list foreign-key
+   
+
+		    
+		   
+   (:var alias (format nil "table_~a" (incf unique-table-index))))
+  (root-table-name
+   ()
+   (format *from-clause* "  FROM ~a AS ~a~%" table-name alias)
+   (format from-clause ""
+
+(let ((x 10))
+  #'(lambda (fn)
+      #'(lambda (&resrt
+      (apply #'fn 
