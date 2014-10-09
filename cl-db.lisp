@@ -135,13 +135,9 @@
 				(apply #'compute-class-mapping class-mapping))
 			    *class-mappings*)))))
 
-;;(class-name
-;;  (table-name primary-key &rest subclass-mappings)
-;;  &rest superclass-mappings)
-
-;;			  &rest value-mappings)
-;;			 &rest reference-mappings)
-;;			&rest subclass-mappings))
-;;reference-mappigs => (slot-name (query-modifier &rest columns)
-;;			   deserializer
-;;			   serializer)
+;;(defmacro abs (class-name
+;;	       ((((table-name primary-key &rest subclass-mappings)
+;;		  &rest one-to-many-mappings)
+;;		 &rest many-to-one-mappings)
+;;		&rest value-mappings)
+;;	       &rest superclass-mappings))
