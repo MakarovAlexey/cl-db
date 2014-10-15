@@ -1,5 +1,11 @@
 (in-package #:cl-db)
 
+(defclass class-node ()
+  (alias table properties))
+
+(defclass reference-node (query-node)
+  ())
+
 (defvar *table-index*)
 
 (defun make-alias (&optional (name "table"))
@@ -58,6 +64,8 @@
 	       subclass-mappings)))
     (apply #'plan-subclass-mappings
 	   superclass-primary-key subclass-mappings)))
+
+
 
 (defun plan-class-mapping (alias class-mapping)
   (destructuring-bind ((class-name
