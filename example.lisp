@@ -1936,21 +1936,121 @@ Expand into:
    (:alias (make-alias))
    #'(lambda (&key &allow-other-keys)
        (format from-clause "INNER JOIN ")))
-  ((:superclass-foreign-key foreign-key))
-  
-   #'(lambda (&key subclass-alias alias &allow-other-keys)
-       (format from-clause "ON ~{~a = ~a ~}" (mapcar #'list foreign-key
-   
+  ((:superclass-foreign-key foreign-key)))
 
-		    
-		   
-   (:var alias (format nil "table_~a" (incf unique-table-index))))
-  (root-table-name
-   ()
-   (format *from-clause* "  FROM ~a AS ~a~%" table-name alias)
-   (format from-clause ""
 
-(let ((x 10))
-  #'(lambda (fn)
-      #'(lambda (&resrt
-      (apply #'fn 
+Structure of a Query
+
+Simple Expressions
+
+(with-session ((:mapping-schema mapping-name)
+	       (:database-interface session-config))
+  (db-read 'cat))
+
+IList<Cat> cats =
+    session.QueryOver<Cat>()
+        .Where(c => c.Name == "Max")
+
+(db-read 'cat
+	 :where #'(lambda (cat)
+		    (expression-eq cat #'name-of "Max")))
+
+Additional Restrictions
+
+var catNames = session.QueryOver<Cat>()
+        .WhereRestrictionOn(c => c.Age).IsBetween(2).And(8)
+        .Select(c => c.Name)
+        .OrderBy(c => c.Name).Asc
+        .List<string>();
+
+(db-read 'cat
+	 :select #'(lambda (cat)
+		     (list (property-of cat #'name-of)))
+	 :where #'(lambda (cat)
+		    (expression-between cat #'age-of 2 8))
+	 :order-by #'(lambda (cat)
+		       (ascending cat #'name-of)))
+
+var cats =
+    session.QueryOver<Cat>()
+        .Where(c => c.Name == "Max")
+        .And(c => c.Age > 4)
+        .List();
+
+(db-read 'cat
+	 :where #'(lambda (cat)
+		    (list
+		     (expression-more root #'age-of 8)
+		     (expression-eq root #'name-of "Max"))))
+
+Associations
+
+IQueryOver<Cat,Kitten> catQuery =
+    session.QueryOver<Cat>()
+        .JoinQueryOver(c => c.Kittens)
+            .Where(k => k.Name == "Tiddles");
+
+(db-read 'cat
+	 :alias #'(lambda (cat)
+		    (alias cat :cat))
+	 :join #'(lambda (&key cat)
+		   (join-reference cat #'kittens-of :kitten))
+	 :where #'(lambda (&key kitten &allow-other-keys) ;; cat
+		    (expression-eq kitten #'name-of "Tiddles")))
+
+Projections
+
+IList selection =
+    session.QueryOver<Cat>()
+        .Select(
+            c => c.Name,
+            c => c.Age)
+        .List<object[]>();
+
+(db-read 'cat :select #'(lambda (cat)
+			  (list
+			   (property-of cat #'age-of)
+			   (property-of cat #'name-of))))
+
+IList selection =
+    session.QueryOver<Cat>()
+        .Select(Projections.ProjectionList()
+            .Add(Projections.Property<Cat>(c => c.Name))
+            .Add(Projections.Avg<Cat>(c => c.Age)))
+        .List<object[]>();
+
+(db-read 'cat :select #'(lambda (cat)
+			  (list
+			   (property-of cat #'name-of)
+			   (projection-avg cat #'age-of))))
+
+Subqueries (no subqueries)
+
+QueryOver<Cat> maximumAge =
+    QueryOver.Of<Cat>()
+        .SelectList(p => p.SelectMax(c => c.Age));
+
+IList<Cat> oldestCats =
+    session.QueryOver<Cat>()
+        .WithSubquery.WhereProperty(c => c.Age).Eq(maximumAge)
+        .List();
+
+(db-read 'cat :having #'(lambda (cat)
+			  (property-more-than cat #'age-of
+					      (projection-max cat #'age-of))))
+
+Limit, offset
+
+(db-read 'cat :limit 100 :offset 100)
+
+Fetching
+
+(db-read 'cat
+	 :fetch #'(lambda (cat)
+		    (fetch cat #'kittens-of)))
+
+Single instance
+
+(db-read 'cat :single t
+	 :where (lambda (cat)
+		  (expression-eq cat #'id-of 35)))
