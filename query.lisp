@@ -68,14 +68,12 @@
 				  one-to-many-mappings
 				  many-to-one-mappings
 				  superclass-mappings)
-  (let* ((foreign-key
-	  (apply #'append-alias subclass-alias foreign-key))
-	 (alias
+  (let* ((alias
 	  (make-alias))
 	 (primary-key
 	  (apply #'append-alias alias primary-key))
-	 (properties
-	  (apply #'plan-properties alias properties))
+	 (foreign-key
+	  (apply #'append-alias subclass-alias foreign-key))
 	 (table-join
 	  (list :inner-join table-name alias
 		(mapcar #'append primary-key foreign-key))))
@@ -83,57 +81,34 @@
 	(apply #'plan-superclass-mappings alias superclass-mappings)
       (values
        (apply #'plan-slot-mappings
-	      properties table-join super-properties)
+	      (apply #'plan-properties alias properties)
+	      table-join super-properties)
        (apply #'plan-slot-mappings
-	      reference-mappings table-join super-reference-mappings)))))
-       (reduce #'(lambda (result mapping)
-		   (destructuring-bind (slot-definition . mapping)
-		       mapping
-		     (acons slot-definition
-			    (append-from-clause mapping table-join)
-			    result)))
-	       super-properties :initial-value properties)
-       (reduce #'(lambda (result mapping)
-		   (destructuring-bind (slot-definition . mapping)
-		       mapping
-		     (acons slot-definition
-			    (append-from-clause mapping table-join)
-			    result)))
-	       super-properties :initial-values properties)
-       
-       (mapcar #'(lambda (append-from-clause
-	       super-properties)
-       (append (apply #'plan-one-to-many-mappings
-		      primary-key one-to-many-mappings)
-	       super-one-to-many-mappings)
-       (append (apply #'plan-many-to-one-mappings
-		      alias many-to-one-mappings)
-	       super-many-to-one-mappings)))))
+	      (append
+	       (apply #'plan-many-to-one-mappings alias
+		      many-to-one-mappings)
+	       (apply #'plan-one-to-many-mappings primary-key
+		      one-to-many-mappings))
+	      table-join super-reference-mappings)))))
 
 (defun plan-superclass-mappings (subclass-alias superclass-mapping
 				 &rest superclass-mappings)
-  (multiple-value-bind (from-clause-list property-list
-					 one-to-many-mapping-list
-					 many-to-one-mapping-list)
+  (multiple-value-bind (super-properties super-reference-mappings)
       (when (not (null superclass-mappings))
 	(apply #'plan-superclass-mappings
 	       subclass-alias superclass-mappings))
-    (multiple-value-bind (from-clause properties
-				      one-to-many-mappings
-				      many-to-one-mappings)
+    (multiple-value-bind (properties reference-mappings)
 	(apply #'plan-superclass-mapping superclass-mapping)
       (values
-       (append from-clause from-clause-list)
-       (append properties property-list)
-       (append one-to-many-mappings one-to-many-mapping-list)
-       (append many-to-one-mappings many-to-one-mapping-list)))))
+       (append properties super-properties)
+       (append references super-references)))))
 
-(defun plan-superclass-mapping (subclass-alias class-name
-				 &key table-name primary-key
-				   foreign-key properties
-				   one-to-many-mappings
-				   many-to-one-mappings
-				   superclass-mappings)
+(defun plan-subclass-mapping (subclass-alias class-name
+			      &key table-name primary-key
+				foreign-key properties
+				one-to-many-mappings
+				many-to-one-mappings
+				superclass-mappings)
   (let* ((foreign-key
 	  (apply #'append-alias subclass-alias foreign-key))
 	 (alias
@@ -183,15 +158,11 @@
 ;;      (apply #'plan-subclass-mappings primary-key
 ;;	     subclass-mappings))
 
-
-  
 (defun plan-class-mapping (alias class-name
 			   &key table-name primary-key properties
 			     one-to-many-mappings many-to-one-mappings
 			     superclass-mappings subclass-mappings)
-  (multiple-value-bind (super-from-clause super-properties
-					  super-one-to-many-mappings
-					  super-many-to-one-mappings)
+  (multiple-value-bind (super-properties super-references)
       (apply #'plan-superclass-mappings alias superclass-mappings)
     (let ((primary-key
 	   (apply #'append-alias alias primary-key)))
