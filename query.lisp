@@ -47,8 +47,7 @@
 				(append-alias alias foreign-key))))))
 	  one-to-many-mappings))
 
-(defun plan-slot-mappings (slot-mappings table-join
-			   &rest super-slot-mappings)
+(defun append-join (table-join &rest super-slot-mappings)
   (reduce #'(lambda (result mapping)
 	      (destructuring-bind (slot-definition . mapping)
 		  mapping
@@ -62,12 +61,13 @@
 		       result)))
 	  super-slot-mappings :initial-value slot-mappings))
 
-(defun plan-superclass-mapping (subclass-alias class-name
-				&key table-name primary-key
-				  foreign-key properties
-				  one-to-many-mappings
-				  many-to-one-mappings
-				  superclass-mappings)
+(defun plan-superclass-slot-mappings (rest-properties rest-references
+				      subclass-alias class-name
+				      &key table-name primary-key
+					foreign-key properties
+					one-to-many-mappings
+					many-to-one-mappings
+					superclass-mappings)
   (let* ((alias
 	  (make-alias))
 	 (primary-key
@@ -77,31 +77,32 @@
 	 (table-join
 	  (list :inner-join table-name alias
 		(mapcar #'append primary-key foreign-key))))
-    (multiple-value-bind (super-properties super-reference-mappings)
-	(apply #'plan-superclass-mappings alias superclass-mappings)
+    (multiple-value-bind (super-properties super-references)
+	(apply #'plan-superclasses-slot-mappings
+	       alias superclass-mappings)
       (values
-       (apply #'plan-slot-mappings
-	      (apply #'plan-properties alias properties)
-	      table-join super-properties)
-       (apply #'plan-slot-mappings
-	      (append
-	       (apply #'plan-many-to-one-mappings alias
-		      many-to-one-mappings)
-	       (apply #'plan-one-to-many-mappings primary-key
-		      one-to-many-mappings))
-	      table-join super-reference-mappings)))))
+       (append rest-properties
+	       (apply #'plan-properties alias properties)
+	       (apply #'append-join table-join super-properties))
+       (append rest-references
+	       (apply #'plan-many-to-one-mappings
+		      alias many-to-one-mappings)
+	       (apply #'plan-one-to-many-mappings
+		      primary-key one-to-many-mappings)
+	       (apply #'append-join table-join super-references))))))
 
-(defun plan-superclass-mappings (subclass-alias superclass-mapping
-				 &rest superclass-mappings)
-  (multiple-value-bind (super-properties super-reference-mappings)
-      (when (not (null superclass-mappings))
-	(apply #'plan-superclass-mappings
-	       subclass-alias superclass-mappings))
-    (multiple-value-bind (properties reference-mappings)
-	(apply #'plan-superclass-mapping superclass-mapping)
-      (values
-       (append properties super-properties)
-       (append references super-references)))))
+(defun plan-superclasses-slot-mappings (properties references
+					subclass-alias
+					&optional superclass-mapping
+					&rest superclass-mappings)
+  (if (not (null superclass-mapping))
+      (multiple-value-bind (properties references)
+	  (apply #'plan-superclass-slot-mappings
+		 properties references
+		 subclass-alias superclass-mapping)
+	(apply #'plan-superclasses-slot-mappings properties
+	       references subclass-alias superclass-mappings))
+      (values properties references)))
 
 (defun plan-subclass-mapping (subclass-alias class-name
 			      &key table-name primary-key
@@ -162,17 +163,20 @@
 			   &key table-name primary-key properties
 			     one-to-many-mappings many-to-one-mappings
 			     superclass-mappings subclass-mappings)
-  (multiple-value-bind (super-properties super-references)
-      (apply #'plan-superclass-mappings alias superclass-mappings)
+  (multiple-value-bind (properties references)
+      (apply #'plan-superclass-mappings
+	     (apply #'plan-properties alias properties)
+	     (apply #'plan-one-to-many-mappings
+		    primary-key one-to-many-mappings)
+	     alias superclass-mappings)
     (let ((primary-key
 	   (apply #'append-alias alias primary-key)))
       (values
        (list* table-name alias
 	      (append super-from-clause sub-from-clause))
-       (append (apply #'plan-properties alias properties)
+       (append 
 	       super-properties sub-properties)
-       (append (apply #'plan-one-to-many-mappings
-		      primary-key one-to-many-mappings)
+       (append 
 	       super-one-to-many-mappings
 	       sub-one-to-many-mappings)
        (append (apply #'plan-one-to-many-mappings
