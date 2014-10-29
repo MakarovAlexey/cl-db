@@ -61,8 +61,7 @@
 		       result)))
 	  super-slot-mappings :initial-value slot-mappings))
 
-(defun plan-superclass-slot-mappings (rest-properties rest-references
-				      subclass-alias class-name
+(defun plan-superclass-slot-mappings (subclass-alias class-name
 				      &key table-name primary-key
 					foreign-key properties
 					one-to-many-mappings
@@ -73,36 +72,35 @@
 	 (primary-key
 	  (apply #'append-alias alias primary-key))
 	 (foreign-key
-	  (apply #'append-alias subclass-alias foreign-key))
-	 (table-join
-	  (list :inner-join table-name alias
-		(mapcar #'append primary-key foreign-key))))
-    (multiple-value-bind (super-properties super-references)
-	(apply #'plan-superclasses-slot-mappings
-	       alias superclass-mappings)
-      (values
-       (append rest-properties
-	       (apply #'plan-properties alias properties)
-	       (apply #'append-join table-join super-properties))
-       (append rest-references
-	       (apply #'plan-many-to-one-mappings
-		      alias many-to-one-mappings)
-	       (apply #'plan-one-to-many-mappings
-		      primary-key one-to-many-mappings)
-	       (apply #'append-join table-join super-references))))))
+	  (apply #'append-alias subclass-alias foreign-key)))
+    (apply #'plan-superclasses-slot-mappings
+	   (apply #'plan-properties alias properties)
+	   (append
+	    (apply #'plan-many-to-one-mappings
+		   alias many-to-one-mappings)
+	    (apply #'plan-one-to-many-mappings
+		   primary-key one-to-many-mappings))
+	   (list :inner-join table-name alias
+		 (mapcar #'append primary-key foreign-key))
+	   alias superclass-mappings)))
 
 (defun plan-superclasses-slot-mappings (properties references
-					subclass-alias
+					table-join subclass-alias
 					&optional superclass-mapping
 					&rest superclass-mappings)
-  (if (not (null superclass-mapping))
-      (multiple-value-bind (properties references)
-	  (apply #'plan-superclass-slot-mappings
-		 properties references
-		 subclass-alias superclass-mapping)
-	(apply #'plan-superclasses-slot-mappings properties
-	       references subclass-alias superclass-mappings))
-      (values properties references)))
+  (multiple-value-bind (rest-properties rest-references)
+      (when (not (null superclass-mapping))
+	(multiple-value-bind (properties references)
+	    (apply #'plan-superclass-slot-mappings
+		   subclass-alias superclass-mapping)
+	  (apply #'plan-superclasses-slot-mappings properties
+		 references table-join subclass-alias
+		 superclass-mappings)))
+    (values
+     (append (append-join properties table-join)
+	     rest-properties)
+     (append (append-join references table-join)
+	     rest-references))))
 
 (defun plan-subclass-mapping (subclass-alias class-name
 			      &key table-name primary-key
@@ -163,26 +161,16 @@
 			   &key table-name primary-key properties
 			     one-to-many-mappings many-to-one-mappings
 			     superclass-mappings subclass-mappings)
-  (multiple-value-bind (properties references)
-      (apply #'plan-superclass-mappings
-	     (apply #'plan-properties alias properties)
-	     (apply #'plan-one-to-many-mappings
-		    primary-key one-to-many-mappings)
-	     alias superclass-mappings)
-    (let ((primary-key
-	   (apply #'append-alias alias primary-key)))
-      (values
-       (list* table-name alias
-	      (append super-from-clause sub-from-clause))
-       (append 
-	       super-properties sub-properties)
-       (append 
-	       super-one-to-many-mappings
-	       sub-one-to-many-mappings)
-       (append (apply #'plan-one-to-many-mappings
-		      primary-key one-to-many-mappings)
-	       super-one-to-many-mappings
-	       sub-one-to-many-mappings))))))
+  (apply #'plan-superclass-mappings
+	 (apply #'plan-properties alias properties)
+	 (append
+	  (apply #'plan-many-to-one-mappings alias
+		 many-to-one-mappings)
+	  (apply #'plan-one-to-many-mappings
+		 (apply #'append-alias alias primary-key)
+		 one-to-many-mappings))
+	 (list table-name alias)
+	 alias superclass-mappings))
 
 (defun make-join-plan (class-mapping)
   (plan-class-mapping (make-alias) class-mapping))
@@ -199,4 +187,6 @@
   (let* ((class-mapping
 	  (assoc class-name mapping-schema :key #'first))
 	 (*table-index* 0))
-    (make-join-plan class-mapping )))
+    (multiple-value-bind (properties )
+	(plan-class-mapping (make-alias) class-mapping)
+    (make-join-plan class-mapping
