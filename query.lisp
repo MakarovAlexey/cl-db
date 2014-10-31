@@ -161,16 +161,20 @@
 			   &key table-name primary-key properties
 			     one-to-many-mappings many-to-one-mappings
 			     superclass-mappings subclass-mappings)
-  (apply #'plan-superclass-mappings
-	 (apply #'plan-properties alias properties)
-	 (append
-	  (apply #'plan-many-to-one-mappings alias
-		 many-to-one-mappings)
-	  (apply #'plan-one-to-many-mappings
-		 (apply #'append-alias alias primary-key)
-		 one-to-many-mappings))
-	 (list table-name alias)
-	 alias superclass-mappings))
+  (multiple-value-bind (properties references)
+      (apply #'plan-superclass-mappings
+	     (apply #'plan-properties alias properties)
+	     (append
+	      (apply #'plan-many-to-one-mappings alias
+		     many-to-one-mappings)
+	      (apply #'plan-one-to-many-mappings
+		     (apply #'append-alias alias primary-key)
+		     one-to-many-mappings))
+	     (list table-name alias)
+	     alias superclass-mappings))
+  #'(lambda ()
+      (values properties
+	      references)))
 
 (defun make-join-plan (class-mapping)
   (plan-class-mapping (make-alias) class-mapping))
@@ -179,14 +183,17 @@
 
 ;;(defun join (class-names root reference &key (join #'skip) where order-by having))
 
-(defun db-read (class-name &key select-list transform fetch-also where
-			     order-by having offset limit
-			     (mapping-schema *mapping-schema*))
+(defun db-read (roots &key select-list transform fetch-also where
+			order-by having offset limit
+			(mapping-schema *mapping-schema*))
   (declare (ignore select-list transform fetch-also where order-by
 		   having offset limit))
-  (let* ((class-mapping
-	  (assoc class-name mapping-schema :key #'first))
-	 (*table-index* 0))
-    (multiple-value-bind (properties )
-	(plan-class-mapping (make-alias) class-mapping)
-    (make-join-plan class-mapping
+  (let* ((*table-index* 0)
+	 (class-mappings
+	  (reduce #'(lambda (result class-name)
+		      (list* (make-join-plan
+			      (assoc class-name mapping-schema
+				     :key #'first))
+			     result))
+		  roots :initial-value nil)))
+    class-mappings))
