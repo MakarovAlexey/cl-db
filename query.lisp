@@ -102,79 +102,90 @@
      (append (append-join references table-join)
 	     rest-references))))
 
-(defun plan-subclass-mapping (subclass-alias class-name
+(defun plan-subclass-mapping (superclass-primary-key class-name
 			      &key table-name primary-key
 				foreign-key properties
 				one-to-many-mappings
 				many-to-one-mappings
-				superclass-mappings)
-  (let* ((foreign-key
-	  (apply #'append-alias subclass-alias foreign-key))
-	 (alias
+				superclass-mappings
+				subclass-mappings)
+  (let* ((alias
 	  (make-alias))
+	 (foreign-key
+	  (apply #'append-alias alias foreign-key))
+	 (table-join
+	  (list* :inner-join table-name alias
+		 (mapcar #'append superclass-primary-key foreign-key)))
 	 (primary-key
 	  (apply #'append-alias alias primary-key)))
-    (multiple-value-bind (super-from-clause super-properties
-					    super-one-to-many-mappings
-					    super-many-to-one-mappings)
-	(apply #'plan-superclass-mappings alias superclass-mappings)
-      (values
-       (list* :inner-join table-name alias
-	      (mapcar #'append primary-key foreign-key)
-	      super-from-clause)
-       (append (apply #'plan-properties alias properties)
-	       super-properties)
-       (append (apply #'plan-one-to-many-mappings
-		      primary-key one-to-many-mappings)
-	       super-one-to-many-mappings)
-       (append (apply #'plan-many-to-one-mappings
-		      alias many-to-one-mappings)
-	       super-many-to-one-mappings)))))
+    (multiple-value-bind (superclass-properties superclass-references)
+	(apply #'plan-superclass-mappings
+	       (apply #'plan-properties alias properties)
+	       (append (apply #'plan-one-to-many-mappings
+			      primary-key one-to-many-mappings)
+		       (apply #'plan-many-to-one-mappings
+			      alias many-to-one-mappings))
+	       table-join alias superclass-mappings)
+      (multiple-value-bind (all-references)
+	  (apply #'plan-subclass-mappings references
+		 table-join
+		 (apply #'append-alias alias primary-key)
+		 subclass-mappings)
+	(values
+	 #'(lambda (&optional (property-name nil name-present-p))
+	     (if name-present-p
+		 (rest (assoc property-name properties))))
+	 #'(lambda (reference-name)
+	     (rest (assoc refernce-name references)))
+	 #'(lambda (reference-name)
+	     (rest (assoc refernce-name all-references))))))))
 
-(defun plan-subclass-mappings (superclass-primary-key subclass-mapping
+(defun plan-subclass-mappings (references table-join
+			       superclass-primary-key
+			       &optional subclass-mapping
 			       &rest subclass-mappings)
-  (multiple-value-bind (from-clause-list property-list
-					 one-to-many-mapping-list
-					 many-to-one-mapping-list)
-      (when (not (null subclass-mappings))
-	(apply #'plan-subclass-mappings
-	       superclass-primary-key subclass-mappings))
-    (multiple-value-bind (from-clause properties
-				      one-to-many-mappings
-				      many-to-one-mappings)
-	(apply #'plan-subclass-mapping
-	       superclass-primary-key subclass-mapping)
-      (values
-       (append from-clause from-clause-list)
-       (append properties property-list)
-       (append one-to-many-mappings one-to-many-mapping-list)
-       (append many-to-one-mappings many-to-one-mapping-list)))))
-
-;;(multiple-value-bind (sub-from-clause sub-properties
-;;				      sub-one-to-many-mappings
-;;				      sub-many-to-one-mappings)
-;;    (when (not (null plan-subclass-p))
-;;      (apply #'plan-subclass-mappings primary-key
-;;	     subclass-mappings))
+  (multiple-value-bind (subclass-references)
+      (when (not (null subclass-mapping))
+	(multiple-value-bind (subclass-references)
+	    (apply #'plan-subclass-mapping
+		   superclass-primary-key
+		   subclass-mapping)
+	  (apply #'plan-subclass-mappings
+		 subclass-references
+		 table-join
+		 superclass-primary-key
+		 subclass-mapping)))
+    (append references
+	    (apply #'append-join subclass-references table-join))))
 
 (defun plan-class-mapping (alias class-name
 			   &key table-name primary-key properties
 			     one-to-many-mappings many-to-one-mappings
 			     superclass-mappings subclass-mappings)
-  (multiple-value-bind (properties references)
-      (apply #'plan-superclass-mappings
-	     (apply #'plan-properties alias properties)
-	     (append
-	      (apply #'plan-many-to-one-mappings alias
-		     many-to-one-mappings)
-	      (apply #'plan-one-to-many-mappings
-		     (apply #'append-alias alias primary-key)
-		     one-to-many-mappings))
-	     (list table-name alias)
-	     alias superclass-mappings))
-  #'(lambda ()
-      (values properties
-	      references)))
+  (let ((table-join (list table-name alias)))
+    (multiple-value-bind (properties references)
+	(apply #'plan-superclass-mappings
+	       (apply #'plan-properties alias properties)
+	       (append
+		(apply #'plan-many-to-one-mappings alias
+		       many-to-one-mappings)
+		(apply #'plan-one-to-many-mappings
+		       (apply #'append-alias alias primary-key)
+		       one-to-many-mappings))
+	       table-join alias superclass-mappings)
+      (multiple-value-bind (all-references)
+	  (apply #'plan-subclass-mappings references
+		 table-join
+		 (apply #'append-alias alias primary-key)
+		 subclass-mappings)
+	(values
+	 #'(lambda (&optional (property-name nil name-present-p))
+	     (if name-present-p
+		 (rest (assoc property-name properties))))
+	 #'(lambda (reference-name)
+	     (rest (assoc refernce-name references)))
+	 #'(lambda (reference-name)
+	     (rest (assoc refernce-name all-references))))))))
 
 (defun make-join-plan (class-mapping)
   (plan-class-mapping (make-alias) class-mapping))
