@@ -220,12 +220,17 @@
 			superclass-mappings subclass-mappings)))
 
 (defun make-join-plan (class-mapping &rest class-mappings)
-  (multiple-value-bind (properties-and-loaders
-			join-references fetch-references)
-      
-      (multiple-value-bind (properties-and-loaders
-			    join-references fetch-references)
-      (apply #'plan-root-class-mapping (make-alias) class-mapping))
+  (multiple-value-bind (rest-properties-and-loaders
+			rest-join-references rest-fetch-references)
+      (when (not (null class-mappings))
+	(apply #'make-join-plan class-mappings))
+    (multiple-value-bind (properties-and-loaders
+			  join-references fetch-references)
+	(apply #'plan-root-class-mapping (make-alias) class-mapping)
+      (values
+       (append properties-and-loaders rest-properties-and-loaders)
+       (append join-references rest-join-references)
+       (apprnd fetch-references rest-fetch-references)))))
 
 ;;(defun fetch (root reference &rest references))
 
