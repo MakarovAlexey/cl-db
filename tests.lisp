@@ -1,36 +1,62 @@
 (in-package #:cl-db)
 
-(define-database-interface postgresql-postmodern
-  (:open-connection #'cl-postgres:open-database)
-  (:close-connection #'cl-postgres:close-database)
-  (:prepare #'cl-postgres:prepare-query)
-  (:execute
-   #'(lambda (connection name &rest params)
-       (cl-postgres:exec-prepared connection name params
-				  'cl-postgres:alist-row-reader))))
+;;(define-database-interface postgresql-postmodern
+;;  (:open-connection #'cl-postgres:open-database)
+;;  (:close-connection #'cl-postgres:close-database)
+;;  (:prepare #'cl-postgres:prepare-query)
+;;  (:execute
+;;   #'(lambda (connection name &rest params)
+;;       (cl-postgres:exec-prepared connection name params
+;;				  'cl-postgres:alist-row-reader))))
 
-(lift:deftestsuite session ()
+;;(lift:deftestsuite session ()
+;;  ())
+
+;;(lift:addtest session-open-and-close
+;;  (lift:ensure-no-warning
+;;    (with-session ((:mapping-schema cats-mapping)
+;;		   (:database-interface postgresql-postmodern)
+;;		   (:connection-args "projects" "makarov"
+;;				     "zxcvb" "localhost")))))
+
+(defclass user ()
+  ((id :initarg :id
+       :reader id-of)
+   (name :initarg :name
+	 :accessor name-of)
+   (login :initarg :name
+	  :accessor login-of)
+   (password :initarg :password
+	     :accessor password-of)
+   (project-managments :initarg :project-managments
+		       :accessor project-managments-of)
+   (project-participations :initarg :project-participations
+			   :accessor project-participations-of)))
+
+(defclass project-participation ()
+  ((project :initarg :project
+	    :reader project-of)
+   (user :initarg :user
+	 :reader user-of)))
+
+(defclass project-managment (project-participation)
   ())
 
-(lift:addtest session-open-and-close
-  (lift:ensure-no-warning
-    (with-session ((:mapping-schema cats-mapping)
-		   (:database-interface postgresql-postmodern)
-		   (:connection-args "projects" "makarov"
-				     "zxcvb" "localhost")))))
-
-(lift:deftestsuite query ()
-  ()
-  (:dynamic-variables
-   (*mapping-schema* (make-mapping-schema 'projects-managment))))
+(defclass project ()
+  ((id :initarg :id
+       :reader id-of)
+   (name :initarg :name
+	 :accessor name-of)
+   (begin-date :initarg :begin-date
+	       :accessor begin-date-of)))
 
 (define-schema projects-managment ()
   (user
    (("users" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (login (:property ("login" "varchar")))
-   (password (:property ("password" "varchar")))
+   (id (:property "id" "uuid"))
+   (name (:property "name" "varchar"))
+   (login (:property "login" "varchar"))
+   (password (:property "password" "varchar"))
    (project-managments
     (:one-to-many project-managment "user_id")
     #'(lambda (&rest roles)
@@ -56,22 +82,9 @@
     (project-participation "project_id" "user_id")))
   (project
    (("projects" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (begin-date (:property ("begin_date" "date")))
-   (objects
-    (:many-to-one project-root-object "project_id"))
-   (document-directories
-    (:many-to-one root-document-directory "project_id"))
-   (document-registrations
-    (:one-to-many document-registration "project_id")
-    #'(lambda (&rest registrations)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (registration)
-		     (cons (document-of registration)
-			   registration))
-		 registrations)))
-    #'alexandria:hash-table-values)
+   (id (:property "id" "uuid"))
+   (name (:property "name" "varchar"))
+   (begin-date (:property "begin_date" "date"))
    (project-members
     (:one-to-many project-member "project_id")
     #'(lambda (&rest roles)
@@ -81,36 +94,67 @@
 		 roles)))
     #'alexandria:hash-table-values)))
 
-;;(defun print-extension (class-mapping alias columns &rest superclasses)
-;;  (list :class-mapping class-mapping
-;;	:alias alias
-;;	:columns columns
-;;	:superclasses (mapcar #'(lambda (superclass)
-;;				  (apply #'print-inheritance superclass))
-;;			      superclasses)))
+(lift:deftestsuite query-execute-tests ()
+  ()
+  (:dynamic-variables
+   (*mapping-schema* (projects-managment))))
 
-;;(defun print-extensions (extension &rest extensions)
-;;  (list :extension (apply #'print-extension extension)
-;;	:extensions (mapcar #'(lambda (extension)
-;;				(apply #'print-extensions extension))
-;;			    extensions)))
+(lift:addtest list-projects
+  (lift:ensure
+   (db-read 'project)))
 
-;;(defun print-inheritance (class-mapping columns &rest superclasses)
-;;  (list :class-mapping class-mapping
-;;	:alias (sxhash class-mapping)
-;;	:columns columns
-;;	:superclasses (mapcar #'(lambda (superclass)
-;;				  (apply #'print-inheritance superclass))
-;;			      superclasses)))
+(lift:addtest slot-definition-found
+  (lift:ensure
+   (get-slot-definition (find-class 'project) #'id-of)))
 
-;;(defun print-root (class-mapping &rest superclasses)
-;;  (list :class-mapping class-mapping
-;;	:alias (sxhash class-mapping)
-;;	:superclasses (mapcar #'(lambda (superclass)
-;;				  (apply #'print-inheritance superclass))
-;;			      superclasses)))
+(lift:addtest slot-definition-not-found
+  (lift:ensure-error
+    (get-slot-definition (find-class 'project) #'project-of)))
 
-;;(defun print-from-clause (alias root &rest extensions)
-;;  (list :root root
-;;	:alias alias
-;;	:extension extensions))
+(lift:addtest property-found
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'project
+	       :select-list #'(lambda (project)
+				(list (property #'name-of project)))
+	       :mapping-schema (projects-managment))
+    (lift:ensure
+     (first select-list))))
+
+(lift:addtest select-properties-list
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'project
+	       :select-list #'(lambda (project)
+				(list (property #'name-of project)))
+	       :mapping-schema (projects-managment))
+    (lift:ensure
+     (listp select-list))))
+
+(lift:addtest select-single-property
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'project
+	       :select-list #'(lambda (project)
+				(property #'name-of project))
+	       :mapping-schema (projects-managment))
+    (lift:ensure
+     (not (listp select-list)))))
+
+(lift:addtest list-objects
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'project :mapping-schema (projects-managment))
+    (lift:ensure
+     (not (listp select-list)))))
+
+(lift:addtest list-objects
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'user :mapping-schema (projects-managment)
+	       :where #'(lambda (user)
+			  (expression-eq user #'login-of "user")))))
+
+(lift:addtest check-schema
+  (destructuring-bind (class-name &key properties &allow-other-keys)
+      (fourth *mapping-schema*)
+    (declare (ignore class-name))
+    (lift:ensure properties)))
+
+(defun test ()
+  (describe (lift:run-tests)))

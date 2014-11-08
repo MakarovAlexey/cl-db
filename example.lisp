@@ -16,7 +16,7 @@
 ;; нет необходимости, компиляция будет ленивой
 ;; (compile-mapping-schema)- копилируем текущую схему отображения
 (with-session (connection-args) &body body) - Контекст для работы с объектами из БД.
-(db-persist object) - добавление объектав контекст работы с БД
+(db-persist object) - добавление объектов контекст работы с БД
 (db-remove object) - удаление коневого объекта из контекста
 (db-query (&rest bindings) (&rest options) (&rest cortesian-product))
 
