@@ -390,4 +390,11 @@
     Computes the sample standard deviation of all expression values in
     a group
 ** Scalar functions
-   
+* Schedule
+** Object quering and loading
+*** SQL select list and select list from clause parts
+*** SQL where clause and from clause parts
+*** fetching reference
+*** Quering and loading single object
+** Object persistence (inserting and updateing queries)
+** Selecting values (slot values, functions, aggegation)

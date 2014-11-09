@@ -70,7 +70,7 @@
 	   #'(lambda (object &rest row)
 	       (setf
 		(slot-value object slot-name)
-		(rest (assoc column row) result))))))))
+		(rest (assoc column row) result)))))))
 
 (defun plan-many-to-one (slot-definition class-name &rest foreign-key)
   (destructuring-bind (class-name &key table-name primary-key
@@ -160,7 +160,7 @@
 	   (list :inner-join table-name alias
 		 (mapcar #'append primary-key foreign-key))
 	   alias superclass-mappings)))
-;; (append-join subclass-table-join 
+
 (defun plan-superclasses-slot-mappings (properties references
 					subclass-table-join subclass-alias
 					&optional superclass-mapping
@@ -175,15 +175,17 @@
 		 superclass-mappings)))
     (values
      #'(lambda (&optional slot-name)
-	 (if (not (null slot-name))
-	     (or
-	      (funcall properties slot-name)
-	      (funcall rest-properties slot-name))
-	     
-
-	       
-     (append (apply #'append-join subclass-table-join properties)
-	     rest-properties)
+	 (or
+	  (when (not (null slot-name))
+	    (or
+	     (let ((mapping (funcall properties slot-name)))
+	       (when (not (null mapping))
+		 (append-join subclass-table-join mapping)))
+	     (funcall rest-properties slot-name)))
+	  (append
+	   (funcall properties)
+	   (when (not (null rest-properties))
+	     (funcall rest-properties)))))
      (append (apply #'append-join subclass-table-join references)
 	     rest-references))))
 
@@ -208,11 +210,10 @@
 		 (apply #'append-alias alias primary-key)
 		 subclass-mappings)
 	(values
-	 #'(lambda (&optional (property-reader nil name-present-p))
-	     (if name-present-p
+	 #'(lambda (&optional slot-name)
+	     (if (not (null slt-name))
 		 (rest
-		  (assoc (get-slot-definition class property-reader)
-			 properties))
+		  (assoc slot-name properties))
 		 (select-class-mapping class-name primary-key
 				       properties)))
 	 #'(lambda (reference-reader)
@@ -266,10 +267,21 @@
 				  one-to-many-mappings many-to-one-mappings
 				  superclass-mappings subclass-mappings)
   (let ((table-join (list table-name alias)))
-    (plan-class-mapping class-name alias table-join primary-key
-			properties one-to-many-mappings
-			many-to-one-mappings superclass-mappings
-			subclass-mappings)))
+    (multiple-value-bind (properties-and-loaders-fn
+			  join-references-fn fetch-references-fn)
+	(plan-class-mapping class-name alias table-join primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings superclass-mappings
+			    subclass-mappings)
+      (values
+       #'(lambda (&optional (property-reader nil name-present-p))
+	   (if name-present-p
+	       (funcall properties-and-loaders-fn
+			(get-slot-definition (find-class class-name)
+					     property-reader))
+	       (funcall properties-and-loaders-fn)))
+       join-references-fn
+       fetch-references-fn))))
 
 (defun make-join-plan (mapping-schema class-name &rest class-names)
   (multiple-value-bind (rest-properties-and-loaders
@@ -296,14 +308,14 @@
 (defun property (reader entity)
   (funcall entity reader))
 
-(defun compute-select-list (select-list-element
-			    &rest select-list-elements)
-  (if (not (null select-list-element))
-      (apply #'compute-list root
-	     (apply #'compute-select-list select-list-elements))
-      root))
+;;(defun compute-select-list (select-list-element
+;;			    &rest select-list-elements)
+;;  (if (not (null select-list-element))
+;;      (apply #'compute-list root
+;;	     (apply #'compute-select-list select-list-elements))
+;;      root))
 
-(defun db-read (roots &key select-list
+(defun db-read (roots &key ;;select-list
 			where order-by having offset limit fetch-also
 			singlep transform
 			(mapping-schema *mapping-schema*))
@@ -316,7 +328,6 @@
 	    (make-join-plan mapping-schema roots)
 	    (apply #'make-join-plan mapping-schema roots))
       (values
-       (apply (or select-list #'compute-select-list)
-	      properties-and-loaders)
+       (funcall properties-and-loaders)
        :join-references join-references
        :fetch-references fetch-references))))
