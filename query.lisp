@@ -58,19 +58,28 @@
 			 result))))
 	  properties :initial-value nil))
 
-(defun plan-properties (alias &rest properties)
-  #'(lambda (&optional slot-name)
-      (destructuring-bind (slot-name column-name column-type)
-	  (rest (assoc slot-name properties))
-	(declare (ignore column-type))
-	(let ((column
-	       (concatenate 'string alias "." column-name)))
-	  (values
-	   (list alias column-name)
-	   #'(lambda (object &rest row)
-	       (setf
-		(slot-value object slot-name)
-		(rest (assoc column row) result)))))))
+(defun plan-properties (continuation class-name alias primary-key
+			&rest properties)
+  #'(lambda (function)
+      (funcall function
+	       continuation
+	       (apply #'append-alias alias primary-key)
+	       (mapcar #'(lambda (slot-mapping)
+			   (destructuring-bind
+				 (slot-name column-name column-type)
+			       slot-mapping
+			     (declare (ignore column-type))
+			     (cons slot-name
+				   (list alias column-name))))
+		       properties))))
+
+(defun collect-properties (property-selector)
+  (funcall property-selector
+	   #'(lambda (continuation class-name primary-key properties)
+	       (append primary-key (slots porperties))
+	       (make-loader class-name primary-key ;; ????
+		   (select-property slot-name continuation)))))
+			       
 
 (defun plan-many-to-one (slot-definition class-name &rest foreign-key)
   (destructuring-bind (class-name &key table-name primary-key
@@ -262,6 +271,38 @@
     (append references
 	    (apply #'append-join table-join subclass-references))))
 
+(defun select-roperty (slot-name properties-and-loaders-fn)
+  (funcall properties-and-loaders-fn
+	   #'(lambda (class-name primary-key table-join properties
+		      superclass-continuation subclass-continuation)
+	       (declare (ignore subclass-continuation
+				class-name primary-key))
+	       (or
+		(funcall (rest (assoc slot-name properties)))
+		(select-property slot-name superclass-continuation)))))
+
+(defun select-class (class primary-key table-join
+		     properties superclass-continuations
+		     &rest subclass-continuations)
+  (multiple-value-bind (columns from-clause superclasses-loader-fn)
+      (apply #'select-superclasses class primary-key table-join
+	     properties superclass-continuations)
+    (multiple-value-bind (subclasses-columns
+			  subclasses-from-clause subclasses-loader-fn)
+	(when (not (null subclass-continuations))
+	  (apply #'select-subclasses superclasses-loader-fn
+		 subclass-continuations))
+      (values
+       (append columns subclasses-columns)
+       (append from-clause subclasses-from-clause)
+       #'(lambda (objects &rest row)
+	   (when (reduce #'and primary-key
+			 :key #'(lambda (column-name)
+				  (rest (assoc columns-name row))))
+	     (apply #'superclasses-loader-fn objects
+		    (or (apply #'subclasses-loader-fn objects row)
+			(allocate-instance class)))))))))
+
 (defun plan-root-class-mapping (alias class-name
 				&key table-name primary-key properties
 				  one-to-many-mappings many-to-one-mappings
@@ -276,10 +317,9 @@
       (values
        #'(lambda (&optional (property-reader nil name-present-p))
 	   (if name-present-p
-	       (funcall properties-and-loaders-fn
-			(get-slot-definition (find-class class-name)
-					     property-reader))
-	       (funcall properties-and-loaders-fn)))
+	       (properties-and-loaders-fn #'select-property
+					  (get-slot-definition property-reader))
+	       (properties-and-loaders-fn #'select-class)))
        join-references-fn
        fetch-references-fn))))
 
