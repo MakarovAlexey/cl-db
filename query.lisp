@@ -271,19 +271,34 @@
     (append references
 	    (apply #'append-join table-join subclass-references))))
 
-(defun select-roperty (slot-name properties-and-loaders-fn)
+(defun select-property (slot-name properties-and-loaders-fn)
   (funcall properties-and-loaders-fn
-	   #'(lambda (class-name primary-key table-join properties
+	   #'(lambda (class primary-key table-join properties
 		      superclass-continuation subclass-continuation)
-	       (declare (ignore subclass-continuation
-				class-name primary-key))
+	       (declare (ignore subclass-continuation class-name
+				primary-key table-join))
 	       (or
 		(funcall (rest (assoc slot-name properties)))
 		(select-property slot-name superclass-continuation)))))
 
-(defun select-class (class primary-key table-join
-		     properties superclass-continuations
-		     &rest subclass-continuations)
+(defun select-superclasses (class primary-key table-join properties
+			    superclasses superclass-continuation)
+  
+  (multiple-value-bind (columns from-clause superclass-loader)
+      (funcall superclass-continuation #'select-superclasses)
+    (multiple-value-bind (property-columns property-loader)
+	(apply #'select-properties properties)
+      (values
+       (append primary-key property-columns columns)
+       (list* table-join from-clause)
+       #'(lambda (objects object)
+	   (funcall superclass-loader object)
+	   (funcall property-loader object)
+	   (register-object object class objects)
+	   
+    
+(defun select-class (class primary-key table-join properties
+		     superclass-continuations subclass-continuation)
   (multiple-value-bind (columns from-clause superclasses-loader-fn)
       (apply #'select-superclasses class primary-key table-join
 	     properties superclass-continuations)
