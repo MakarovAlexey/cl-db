@@ -281,11 +281,14 @@
 		(funcall (rest (assoc slot-name properties)))
 		(select-property slot-name superclass-continuation)))))
 
-(defun select-superclasses (class primary-key table-join properties
-			    superclasses superclass-continuation)
+(defun select-superclass (class primary-key table-join properties
+			  superclasses-cintinuations)
   
+
+(defun select-superclasses (class primary-key table-join properties
+			    superclass-continuation)
   (multiple-value-bind (columns from-clause superclass-loader)
-      (funcall superclass-continuation #'select-superclasses)
+      (funcall superclass-continuation #'select-superclass)
     (multiple-value-bind (property-columns property-loader)
 	(apply #'select-properties properties)
       (values
@@ -294,7 +297,7 @@
        #'(lambda (objects object)
 	   (funcall superclass-loader object)
 	   (funcall property-loader object)
-	   (register-object object class objects)
+	   (register-object object class objects
 	   
     
 (defun select-class (class primary-key table-join properties
