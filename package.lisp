@@ -1,7 +1,7 @@
 ;;;; package.lisp
 
 (defpackage #:cl-db
-  (:use #:closer-common-lisp)
+  (:use #:closer-common-lisp #:alexandria)
   (:export :define-database-interface
 	   :define-mapping-schema
 	   :define-class-mapping
