@@ -193,61 +193,10 @@
 			superclass-references)
 		subclass-references)))))
 
-(defun plan-subclass-mapping (superclass-primary-key class-name
-			      &key table-name primary-key
-				foreign-key properties
-				one-to-many-mappings
-				many-to-one-mappings
-				superclass-mappings
-				subclass-mappings)
-  (let* ((alias
-	  (make-alias))
-	 (foreign-key
-	  (apply #'append-alias alias foreign-key))
-	 (table-join
-	  (list* :inner-join table-name alias
-		 (mapcar #'append superclass-primary-key foreign-key))))
-    (multiple-value-bind (property-fn class-references subclass-references)
-	(plan-class-mapping class-name alias table-join primary-key
-			    properties one-to-many-mappings
-			    many-to-one-mappings superclass-mappings
-			    subclass-mappings)
-      (values property-fn
-	      (append class-references subclass-references)))))
 
-(defun plan-subclass-mappings (table-join superclass-primary-key
-			       &optional subclass-mapping
-			       &rest subclass-mappings)
-  (when (not (null subclass-mapping))
-    (multiple-value-bind (property-fn subclass-references)
-	(apply #'plan-subclass-mapping
-	       superclass-primary-key
-	       subclass-mapping)
-      (multiple-value-bind (next-property-fn rest-subclass-references)
-	  (apply #'plan-subclass-mappings
-		 table-join
-		 superclass-primary-key
-		 subclass-mappings)
-	(values
-	 #'(lambda (function)
-	     (funcall property-fn function next-property-fn))
-	 (append subclass-references
-		 (apply #'append-join
-			table-join
-			subclass-references
-			rest-subclass-references)))))))
+
 
 ;; path dispatch (next-property, next-superclass)?
-
-(defun select-property (slot-name class primary-key table-join properties
-			superclass-continuation subclass-continuation)
-  (declare (ignore subclass-continuation class primary-key))
-  (multiple-value-bind (columns from-clause loader)
-      (or (funcall (rest (assoc slot-name properties)))
-	  (funcall superclass-continuation
-		   #'(lambda (&rest args)
-		       (apply #'select-property slot-name args))))
-    (values columns (list* table-join from-clause loader) loader)))
 
 (defun register-object (class primary-key object objects)
   (setf (gethash primary-key
@@ -267,20 +216,7 @@
 	     (funcall loader object)
 	     (funcall rest-loader object)))))))
 
-(defun select-superclass (class primary-key table-join properties
-			  superclasses-fn next-superclass-fn)
-  (multiple-value-bind
-	(super-columns super-from-clause super-superclass-loader)
-      (select-superclasses class primary-key table-join
-			   properties superclasses-fn)
-    (multiple-value-bind (columns from-clause superclass-loader)
-	(funcall next-superclass-fn #'select-superclass)
-      (values
-       (append super-columns columns)
-       (append super-from-clause from-clause)
-       #'(lambda (objects object)
-	   (funcall super-superclass-loader objects object)
-	   (funcall superclass-loader objects object))))))
+
 
 (defun select-superclasses (class primary-key table-join
 			    properties next-superclass-fn)
@@ -315,32 +251,117 @@
 		      (or (funcall subclasses-loader-fn objects row)
 			  (allocate-instance class)))))))))
 
+(defun plan-class-slots (class alias table-join primary-key
+			 properties one-to-many-mappings
+			 many-to-one-mappingsuperclass-mappings)
+
+
+  (multiple-value-bind (rest-columns rest-from-clause rest-loaders)
+      (plan-superclasses alias superclasss-mappings)
+    (multiple-value-bind (columns from-clause loader)
+	(funcall next-superclass-fn #'select-superclass)
+      (values
+       (append super-columns primary-key columns)
+       (append super-from-clause from-clause)
+       #'(lambda (objects object)
+	   (funcall super-superclass-loader objects object)
+	   (funcall superclass-loader objects object))))))
+
+
+
+
+
+
+(defun plan-subclass-slots (class alias table-join primary-key
+			    properties superclass-mappings)
+  (
+
+(defun plan-subclass-mapping (superclass-primary-key
+			      &key class-name primary-key foreign-key
+			      properties one-to-many-mappings
+			      many-to-one-mappings superclass-mappings
+			      subclass-mappings)
+  (let* ((alias
+	  (make-alias))
+	 (foreign-key
+	  (apply #'append-alias alias foreign-key))
+	 (table-join
+	  (list* :inner-join table-name alias
+		 (mapcar #'append superclass-primary-key foreign-key))))
+    (multiple-value-bind (references columns from-clause class-loader)
+	(plan-subclass-mapping-slots class alias table-join primary-key
+				     properties superclass-mappings)
+      (multiple-value-bind (fetch-references columns from-clause loader)
+	  (plan-class-selection references columns from-clause
+				class-loader class alias
+				subclass-mappings)
+	(values references columns from-clause loader)))))
+
+(defun plan-subclass-mappings (superclass-primary-key
+			       &optional subclass-mapping
+			       &rest subclass-mappings)
+  (when (not (null subclass-mapping))
+    (multiple-value-bind (rest-references rest-columns
+			  rest-from-clause loaders)
+	(apply #'plan-subclass-mappings
+	       superclass-primary-key subclass-mappings)
+      (multiple-value-bind (references columns from-clause loader)
+	  (apply #'plan-subclass-mapping
+		 superclass-primary-key subclass-mapping)
+	(values
+	 (append references rest-references)
+	 (append columns rest-columns)
+	 (append from-clause rest-from-clause)
+	 (list* loader loaders))))))
+
+(defun plan-class-selection (refernces columns from-clause
+			     superclass-loader-fn class primary-key
+			     subclass-mappings)
+  (multiple-value-bind (subclass-references subclass-columns
+			subclass-from-clause subclasses-loader-fn)
+      (plan-subclass-mappings primary-key subclass-mappings)
+    (values (append references subclass-refernces)
+	    (append columns subclass-columns)
+	    (append from-clause subclass-from-clause)
+	    #'(lambda (objects &rest row)
+		(when (every #'(lambda (column-name)
+				 (rest (assoc column-name row)))
+			     primary-key)
+		  (funcall superclasses-loader-fn objects
+			   (or (some #'(lambda (loader)
+					 (funcall loader objects row))
+				     subclass-loaders)
+			       (allocate-instance class))))))))
+
 (defun plan-root-class-mapping (alias class-name
 				&key table-name primary-key properties
-				  one-to-many-mappings many-to-one-mappings
-				  superclass-mappings subclass-mappings)
+				  one-to-many-mappings
+				  many-to-one-mappings
+				  superclass-mappings
+				  subclass-mappings)
   (let ((class (find-class class-name))
 	(table-join (list table-name alias)))
-    (multiple-value-bind (properties-and-loaders-fn
-			  class-references subclass-references)
-	(plan-class-mapping class-name alias table-join primary-key
-			    properties one-to-many-mappings
-			    many-to-one-mappings superclass-mappings
-			    subclass-mappings)
-      (values
-       #'(lambda (&optional (property-reader nil name-present-p))
-	   (if name-present-p
-	       (funcall properties-and-loaders-fn 
-			(let ((property
-			       (get-slot-definition class
-						    property-reader)))
-			  #'(lambda (&rest args)
-			      (apply #'select-property
-				     property args))))
-	       (funcall properties-and-loaders-fn #'select-class)))
-       class-references
-       (append class-references subclass-references)))))
-
+    (multiple-value-bind (properties join-references columns
+			  from-clause superclass-loader)
+	(plan-class-slots class alias table-join primary-key
+			  properties one-to-many-mappings
+			  many-to-one-mappings superclass-mappings)
+      (multiple-value-bind (fetch-references columns from-clause
+			    loader)
+	  (plan-class-selection join-references columns from-clause
+				superclass-loader class alias
+				subclass-mappings)
+	(values
+	 #'(lambda (&optional (property-reader nil name-present-p))
+	     (if name-present-p
+		 (rest
+		  (assoc (get-slot-definition class property-reader)
+			 properties))
+		 #'(lambda ()
+		     (values columns from-clause loader))))
+	 join-references
+	 fetch-references)))))
+  
 (defun make-join-plan (mapping-schema class-name &rest class-names)
   (multiple-value-bind (rest-properties-and-loaders
 			rest-join-references rest-fetch-references)
