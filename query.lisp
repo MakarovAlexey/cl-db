@@ -57,33 +57,43 @@
 		  (list* column columns)
 		  (list* loader loaders)))))))
 
-(defun plan-many-to-one (slot-definition class-name &rest foreign-key)
-  (destructuring-bind (class-name &key table-name primary-key
-				  properties one-to-many-mappings
-				  many-to-one-mappings
-				  superclass-mappings
-				  subclass-mappings)
-      (get-class-mapping class-name)
-    (let* ((alias (make-alias))
-	   (table-join
-	    (list :left-join table-name alias
-		  (mapcar #'append foreign-key
-			  (append-alias alias primary-key)))))
-      (plan-class-mapping class-name alias table-join primary-key
-			  properties one-to-many-mappings
-			  many-to-one-mappings superclass-mappings
-			  subclass-mappings))))
+(defun make-selector (columns from-clause loader properties)
+  #'(lambda (&optional (property-reader nil name-present-p))
+      (if name-present-p
+	  (funcall
+	   (rest
+	    (assoc (get-slot-definition class property-reader)
+		   properties)))
+	  (values columns from-clause loader))))
+
+    ;; join - as root
+    ;; fetch - slot load
+(defun plan-many-to-one (slot-name foreign-key class-name
+			 &key table-name primary-key properties
+			   one-to-many-mappings many-to-one-mappings
+			   superclass-mappings subclass-mappings)
+  (let* ((alias (make-alias))
+	 (table-join
+	  (list :left-join table-name alias
+		(mapcar #'append foreign-key
+			(append-alias alias primary-key)))))
+    (multiple-value-bind (columns from-clause loader properties
+			  join-references fetch-references)
+	(plan-class-mapping class-name alias table-join primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings superclass-mappings
+			    subclass-mappings))))
 
 (defun plan-many-to-one-mappings (alias &rest many-to-one-mappings)
   (reduce #'(lambda (result many-to-one-mapping)
-	      (destructuring-bind (slot-definition
-				   &key reference-class-name foreign-key)
-		  many-to-one-mapping
+	      (destructuring-bind (slot-name &key class-name
+					     foreign-key)
+		  many-to-one-mappings
 		(acons slot-definition
 		       #'(lambda ()
-			   (apply #'plan-many-to-one
-				  slot-definition reference-class-name
-				  (append-alias alias foreign-key)))
+			   (apply #'plan-many-to-one slot-name
+				  (append-alias alias foreign-key)
+				  (get-class-mapping class-name)))
 		       result)))
 	  many-to-one-mappings :initial-value nil))
 
@@ -250,14 +260,11 @@
 				    subclass-loaders)
 			      (allocate-instance class))))))))
 
-(defun plan-root-class-mapping (alias class-name
-				&key table-name primary-key properties
-				  one-to-many-mappings
-				  many-to-one-mappings
-				  superclass-mappings
-				  subclass-mappings)
+(defun plan-class-mapping (alias class-name table-join primary-key
+			   properties one-to-many-mappings
+			   many-to-one-mappings superclass-mappings
+			   subclass-mappings)
   (let ((class (find-class class-name))
-	(table-join (list table-name alias))
 	(primary-key (append-alias alias primary-key)))
     (multiple-value-bind (properties join-references columns
 			  from-clause superclass-loader)
@@ -279,6 +286,22 @@
 		 (values columns from-clause loader)))
 	 join-references
 	 fetch-references)))))
+
+(defun plan-root-class-mapping (alias class-name
+				&key table-name primary-key properties
+				  one-to-many-mappings
+				  many-to-one-mappings
+				  superclass-mappings
+				  subclass-mappings)
+  (multiple-value-bind (columns from-clause loader
+			properties join-references fetch-references)
+      (plan-class-mapping alias class-name (list table-name alias)
+			  primary-key properties one-to-many-mappings
+			  many-to-one-mappings superclass-mappings
+			  subclass-mappings)
+    (values (make-selector columns from-clause loader properties)
+	    join-references
+	    fetch-references)))
   
 (defun make-join-plan (mapping-schema class-name &rest class-names)
   (multiple-value-bind (selectors rest-join-references
