@@ -48,7 +48,9 @@
    (name :initarg :name
 	 :accessor name-of)
    (begin-date :initarg :begin-date
-	       :accessor begin-date-of)))
+	       :accessor begin-date-of)
+   (project-members :initarg :project-members
+		    :accessor project-members-of)))
 
 (define-schema projects-managment ()
   (user
@@ -86,7 +88,7 @@
    (name (:property "name" "varchar"))
    (begin-date (:property "begin_date" "date"))
    (project-members
-    (:one-to-many project-member "project_id")
+    (:one-to-many project-participation "project_id")
     #'(lambda (&rest roles)
 	(alexandria:alist-hash-table
 	 (mapcar #'(lambda (role)
@@ -155,6 +157,14 @@
       (fourth *mapping-schema*)
     (declare (ignore class-name))
     (lift:ensure properties)))
+
+(lift:addtest join-reference
+  (multiple-value-bind (select-list references fetch)
+      (db-read 'project :mapping-schema (projects-managment)
+	       :join #'(lambda (project)
+			 (join-reference project #'project-members-of)))
+    (lift:ensure
+     (not (listp select-list)))))
 
 (defun test ()
   (describe (lift:run-tests)))
