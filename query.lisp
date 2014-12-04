@@ -16,12 +16,6 @@
 	      (concatenate 'string alias "." column-name))
 	  column-names))
 
-(defun append-join (table-join selector)
-  #'(lambda (&rest args)
-      (multiple-value-bind (columns loader from-clause)
-	  (apply selector args)
-	(values columns loader (list* table-join from-clause)))))
-
 (defun get-slot-name (class reader)
   (let ((slot-definition
 	 (find-if #'(lambda (slot-definition)
@@ -162,6 +156,20 @@
 				 (make-hash-table :test #'equal)))
 	object))
 
+(defun append-join (table-join selector)
+  #'(lambda (&rest args)
+      (multiple-value-bind (columns from-clause loader)
+	  (apply selector args)
+	(values columns (list* table-join from-clause) loader))))
+
+(defun reference-append-join (table-join reference-fn)
+  #'(lambda (&rest args)
+      (multiple-value-bind (selector references)
+	  (apply reference-fn args)
+	(values
+	 (append-join table-join selector)
+	 (reference-append-join table-join references)))))
+;; implement column alias
 (defun plan-class-slots (class alias table-join primary-key
 			 properties one-to-many-mappings
 			 many-to-one-mappings superclass-mappings)
@@ -181,11 +189,7 @@
        (reduce #'(lambda (result reference)
 		   (destructuring-bind (slot-name . mapping) reference
 		     (acons slot-name
-			    #'(lambda (&rest args)
-				(multiple-value-bind (selector references)
-				    (apply mapping args)
-				  (values (append-join table-join selector)
-					  references))) ;; refs
+			    (reference-append-join table-join mapping)
 			    result)))
 	       (append (apply #'plan-one-to-many-mappings
 			      primary-key one-to-many-mappings)
