@@ -165,7 +165,7 @@
 	(values
 	 (append-join table-join selector)
 	 (reference-append-join table-join references)))))
-;; implement column alias
+
 (defun plan-class-slots (class alias table-join primary-key
 			 properties one-to-many-mappings
 			 many-to-one-mappings superclass-mappings)
