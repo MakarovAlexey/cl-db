@@ -13,7 +13,7 @@
 
 (defun append-alias (alias column-names)
   (mapcar #'(lambda (column-name)
-	      (concatenate 'string alias "." column-name))
+	      (list alias column-name (make-alias "column")))
 	  column-names))
 
 (defun get-slot-name (class reader)
@@ -34,7 +34,7 @@
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
-	(let* ((column (concatenate 'string alias "." column-name))
+	(let* ((column (list alias column-name (make-alias "column")))
 	       (loader #'(lambda (object row)
 			   (setf
 			    (slot-value object slot-name)
@@ -53,14 +53,12 @@
 			 &key table-name primary-key properties
 			   one-to-many-mappings many-to-one-mappings
 			   superclass-mappings subclass-mappings)
-  (declare (ignore slot-name))
+  (declare (ignore slot-name mode))
   (let* ((alias (make-alias))
 	 (table-join
-	  (if (eq mode 'join)
-	      (list :left-join table-name alias
-		    (mapcar #'list foreign-key
-			    (append-alias alias primary-key)))
-	      (list :cross-join table-name alias))))
+	  (list :left-join table-name alias
+		(mapcar #'list foreign-key
+			(append-alias alias primary-key)))))
     (plan-class-mapping alias class-name table-join primary-key
 			properties one-to-many-mappings
 			many-to-one-mappings superclass-mappings
@@ -84,14 +82,12 @@
 			 &key table-name primary-key properties
 			   one-to-many-mappings many-to-one-mappings
 			   superclass-mappings subclass-mappings)
-  (declare (ignore slot-name serializer deserializer))
+  (declare (ignore slot-name serializer deserializer mode))
   (let* ((alias (make-alias))
 	 (table-join
-	  (if (eq mode 'join)
-	      (list :left-join table-name alias
-		    (mapcar #'list root-primary-key
-			    (append-alias alias foreign-key)))
-	      (list :cross-join table-name alias))))
+	  (list :left-join table-name alias
+		(mapcar #'list root-primary-key
+			(append-alias alias foreign-key)))))
     (plan-class-mapping alias class-name table-join primary-key
 			properties one-to-many-mappings
 			many-to-one-mappings superclass-mappings
