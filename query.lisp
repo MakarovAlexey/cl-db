@@ -13,7 +13,7 @@
 
 (defun append-alias (alias column-names)
   (mapcar #'(lambda (column-name)
-	      (list alias column-name (make-alias "column")))
+	      (list alias column-name))
 	  column-names))
 
 (defun get-slot-name (class reader)
@@ -34,12 +34,16 @@
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
-	(let* ((column (list alias column-name (make-alias "column")))
+	(let* ((column-alias (make-alias "column"))
+	       (column #'(lambda ()
+			   (values (list alias column-name)
+				   column-alias)))
 	       (loader #'(lambda (object row)
 			   (setf
 			    (slot-value object slot-name)
 			    (rest
-			     (assoc column row :test #'string=))))))
+			     (assoc column-alias row
+				    :test #'string=))))))
 	  (values (acons slot-name
 			 #'(lambda ()
 			     (values column nil loader))
@@ -193,7 +197,7 @@
 			      alias many-to-one-mappings)
 		       references)
 	       :initial-value nil)
-       (append primary-key columns rest-columns)
+       (append columns rest-columns)
        (list* table-join from-clause)
        (list* #'(lambda (objects object row)
 		  (dolist (loader property-loaders)
