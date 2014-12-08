@@ -16,6 +16,17 @@
 	      (list alias column-name))
 	  column-names))
 
+(defun plan-primary-key (pk-column &rest primary-key)
+  (multiple-value-bind (primary-key-columns primary-key-loader)
+      (when (not (null primary-key))
+	(apply #'plan-primary-key primary-key))
+    (let ((column-alias (make-alias "column")))
+      (value 
+      (list* #'(lambda ()
+		 (values pk-column column-alias))
+	     primary-key-columns
+	     
+
 (defun get-slot-name (class reader)
   (let ((slot-definition
 	 (find-if #'(lambda (slot-definition)
@@ -130,9 +141,12 @@
 	 (table-join
 	  (list* :inner-join table-name alias
 		 (mapcar #'list primary-key foreign-key))))
-    (plan-class-slots class alias table-join primary-key
-		      properties one-to-many-mappings
-		      many-to-one-mappings superclass-mappings)))
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(plan-primary-key primary-key)
+      (plan-class-slots class alias table-join primary-key
+			 primary-key-loader properties
+			 one-to-many-mappings many-to-one-mappings
+			 superclass-mappings))))
 
 (defun plan-superclasses (alias &optional superclass-mapping
 			  &rest superclass-mappings)
@@ -143,7 +157,7 @@
       (multiple-value-bind (rest-properties rest-references
 			    rest-columns rest-from-clause rest-loaders)
 	  (apply #'plan-superclasses alias superclass-mappings)
-	(values 
+	(values
 	 (append properties rest-properties)
 	 (append references rest-references)
 	 (append columns rest-columns)
@@ -171,8 +185,9 @@
 	 (reference-append-join table-join references)))))
 
 (defun plan-class-slots (class alias table-join primary-key
-			 properties one-to-many-mappings
-			 many-to-one-mappings superclass-mappings)
+			 primary-key-loader properties
+			 one-to-many-mappings many-to-one-mappings
+			 superclass-mappings)
   (multiple-value-bind (properties columns property-loaders)
       (apply #'plan-properties alias properties)
     (multiple-value-bind (rest-properties references
@@ -197,12 +212,15 @@
 			      alias many-to-one-mappings)
 		       references)
 	       :initial-value nil)
-       (append columns rest-columns)
+       (append primary-key columns rest-columns)
        (list* table-join from-clause)
        (list* #'(lambda (objects object row)
 		  (dolist (loader property-loaders)
 		    (funcall loader object row))
-		  (register-object class primary-key object objects))
+		  (register-object class
+				   (funcall primary-key-loader
+					    primary-key)
+				   object objects))
 	      loaders)))))
 
 (defun plan-subclass-mapping (superclass-primary-key class-name
@@ -217,15 +235,18 @@
 	  (list* :left-join table-name alias
 		 (mapcar #'list superclass-primary-key foreign-key)))
 	 (primary-key (append-alias alias primary-key)))
-    (multiple-value-bind (properties references columns
-			  from-clause superclass-loaders)
-	(plan-class-slots class alias table-join primary-key
-			  properties one-to-many-mappings
-			  many-to-one-mappings superclass-mappings)
-      (declare (ignore properties))
-      (plan-class-selection references columns from-clause
-			    superclass-loaders class alias
-			    subclass-mappings))))
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(plan-primary-key primary-key)
+      (multiple-value-bind (properties references columns
+			    from-clause superclass-loaders)
+	  (plan-class-slots class alias table-join primary-key
+			    primary-key-loader properties
+			    one-to-many-mappings many-to-one-mappings
+			    superclass-mappings)
+	(declare (ignore properties))
+	(plan-class-selection references columns from-clause
+			      superclass-loaders class alias
+			      subclass-mappings)))))
 
 (defun plan-subclass-mappings (superclass-primary-key
 			       &optional subclass-mapping
@@ -272,16 +293,19 @@
 			   subclass-mappings)
   (let ((class (find-class class-name))
 	(primary-key (append-alias alias primary-key)))
-    (multiple-value-bind (properties join-references columns
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(plan-primary-key primary-key)
+      (multiple-value-bind (properties join-references columns
 			  from-clause superclass-loader)
 	(plan-class-slots class alias table-join primary-key
-			  properties one-to-many-mappings
-			  many-to-one-mappings superclass-mappings)
+			  primary-key-loader properties
+			  one-to-many-mappings many-to-one-mappings
+			  superclass-mappings)
       (multiple-value-bind (fetch-references columns
 			    from-clause loader)
 	  (plan-class-selection join-references columns from-clause
 				superclass-loader class primary-key
-				subclass-mappings)
+				primary-key-loader subclass-mappings)
 	(values
 	 #'(lambda (&optional (property-reader nil name-present-p))
 	     (if name-present-p
