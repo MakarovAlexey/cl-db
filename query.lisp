@@ -89,7 +89,7 @@
 					     foreign-key)
 		  many-to-one-mapping
 		(acons slot-name
-		       #'(lambda (mode) ;;mode - join (default) or fetch
+		       #'(lambda (mode)
 			   (apply #'plan-many-to-one mode slot-name
 				  (append-alias alias foreign-key)
 				  (get-class-mapping reference-class-name)))
@@ -120,7 +120,7 @@
 					     serializer deserializer)
 		  one-to-many-mapping
 		(acons slot-name
-		       #'(lambda (mode) ;;mode - join (default) or fetch
+		       #'(lambda (mode)
 			   (apply #'plan-one-to-many mode slot-name
 				  primary-key foreign-key
 				  serializer deserializer
