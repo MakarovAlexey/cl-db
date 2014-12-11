@@ -71,7 +71,7 @@
 
 ;; (define-aggregate-function :count "count")
 
-(defun db-logical-oexpression (operator expression &rest rest-expressions)
+(defun db-logical-expression (operator expression &rest rest-expressions)
   (multiple-value-bind (expression from-clause loader alias)
       (funcall expression)
     (declare (ignore loader alias))
@@ -90,17 +90,19 @@
 
 (defun db-and (expression &rest rest-expressions)
   (:documentation "Logical AND operator")
-  (apply #'db-logical-oexpression :and expression rest-expressions))
+  (apply #'db-logical-expression :and expression rest-expressions))
 
 (defun db-or (expression &rest rest-expressions)
   (:documentation "Logical OR operator")
-  (apply #'db-logical-oexpression :or expression rest-expressions))
+  (apply #'db-logical-expression :or expression rest-expressions))
 
 (defun db-not (expression &rest rest-expressions)
   (:documentation "Logical NOT operator")
-  (apply #'db-logical-oexpression :not expression rest-expressions))
+  (apply #'db-logical-expression :not expression rest-expressions))
 
-
+(defun db-less-than (expression &rest rest-expressions)
+  (:documentation "Less than")
+  (apply #'db-logical-expression :< expression rest-expressions))
 
 < 	less than
 > 	greater than

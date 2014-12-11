@@ -373,27 +373,60 @@
     (list* selector
 	   (when (not (null fetch))
 	     (funcall fetch references)))))
+;; stubfunction, implement query creation.
+;; implement GROUP BY clause
+(defun make-query (select-list where-clause order-by-clause
+		   having-clause limit offset)
+  (lambda (&optional table-alias column-name)
+    (if (and table-alias column-name)
+	(list table-alias column-name)
+	(values select-list where-clause order-by-clause having-clause
+		limit offset))))
 
-(defun db-read (roots &key join fetch
-			where order-by having offset limit 
-			singlep transform
+;; implemnt column name and table alias search
+(defun make-subquery (query)
+  (lambda (&optional table-alias column-name)
+    query
+    nil))
+
+(defun compute-clause (args clause &optional default)
+  (if (not (null clause))
+      (multiple-value-list
+       (apply clause args))
+      default))
+
+(defun db-read (roots &key join select where order-by having
+			offset limit singlep transform fetch
 			(mapping-schema *mapping-schema*))
-  (declare (ignore where order-by having limit offset
-		   transform singlep))
+  (declare (ignore transform singlep))
   (let ((*table-index* 0)
 	(*mapping-schema* mapping-schema))
     (multiple-value-bind (selectors references)
 	(if (not (listp roots))
 	    (make-join-plan mapping-schema roots)
 	    (apply #'make-join-plan mapping-schema roots))
-      (list :select selectors
-	    :join (when (not (null join))
-		    (reduce #'append
+      (let* ((joined-references
+	      (list* selectors (compute-clause references join)))
+	     (select-list
+	      (compute-clause joined-references join roots))
+	     (fetched-references
+	      (compute-clause select-list fetch))
+	     (query
+	      (make-query select-list
+			  (compute-clause joined-references where)
+			  (compute-clause select-list order-by)
+			  (when (not (null order-by))
 			    (multiple-value-list
-			     (apply join references))
-			    :initial-value nil))
-	    :fetch (when (not (null fetch))
-		     (reduce #'append
-			     (multiple-value-list
-			      (apply fetch references))
-			     :initial-value nil))))))
+			     (apply order-by select-list)))
+			  (multiple-value-list
+			   (when (not (null having))
+			     (apply having select-list)))
+			  limit
+			  offset)))
+	     (reduce (lambda (query fetched-reference)
+			 (funcall fetched-reference query))
+		     fetched-references
+		     :initial-value
+		     (if (not (null (and fetch (or limit offset))))
+			 (make-subquery query)
+			 query))))))
