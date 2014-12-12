@@ -373,15 +373,27 @@
     (list* selector
 	   (when (not (null fetch))
 	     (funcall fetch references)))))
+
 ;; stubfunction, implement query creation.
-;; implement GROUP BY clause
 (defun make-query (select-list where-clause order-by-clause
 		   having-clause limit offset)
+  (let (select-list
+	from-clause
+	where-clause
+	group-by-clause
+	having-clause
+	order-by-clause)
   (lambda (&optional table-alias column-name)
     (if (and table-alias column-name)
 	(list table-alias column-name)
-	(values select-list where-clause order-by-clause having-clause
-		limit offset))))
+	(values select-list
+		from-clause
+		where-clause
+		group-by-clause
+		having-clause
+		order-by-clause
+		limit
+		offset)))))
 
 ;; implemnt column name and table alias search
 (defun make-subquery (query)
@@ -415,18 +427,13 @@
 	      (make-query select-list
 			  (compute-clause joined-references where)
 			  (compute-clause select-list order-by)
-			  (when (not (null order-by))
-			    (multiple-value-list
-			     (apply order-by select-list)))
-			  (multiple-value-list
-			   (when (not (null having))
-			     (apply having select-list)))
+			  (compute-clause having select-list)
 			  limit
 			  offset)))
-	     (reduce (lambda (query fetched-reference)
-			 (funcall fetched-reference query))
-		     fetched-references
-		     :initial-value
-		     (if (not (null (and fetch (or limit offset))))
-			 (make-subquery query)
-			 query))))))
+	(reduce (lambda (query fetched-reference)
+		  (funcall fetched-reference query))
+		fetched-references
+		:initial-value
+		(if (not (null (and fetch (or limit offset))))
+		    (make-subquery query)
+		    query))))))
