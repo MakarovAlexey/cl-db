@@ -420,7 +420,7 @@
       (let* ((joined-references
 	      (list* selectors (compute-clause references join)))
 	     (select-list
-	      (compute-clause joined-references join roots))
+	      (compute-clause joined-references join selectors))
 	     (fetched-references
 	      (compute-clause select-list fetch))
 	     (query
