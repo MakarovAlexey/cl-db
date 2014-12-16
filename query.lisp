@@ -25,16 +25,20 @@
 		(rest
 		 (assoc alias row :test #'string=))))))
 
-(defun plan-primary-key (table-alias pk-column &rest primary-key)
-  (multiple-value-bind (primary-key-columns primary-key-loaders)
-      (when (not (null primary-key))
-	(apply #'plan-primary-key primary-key))
-    (multiple-value-bind (column alias loader)
-	(plan-column table-alias pk-column)
+(defun plan-key (table-alias column &rest columns)
+  (multiple-value-bind (key-columns key-loader)
+      (when (not (null columns))
+	(apply #'plan-key columns))
+    (multiple-value-bind (key-column columns-alias column-loader)
+	(plan-column table-alias column)
       (values
-       (list* column primary-key-columns)
+       (list* key-column key-columns)
        nil
-       (list* loader primary-key-loaders)))))
+       #'(lambda (row)
+	   (list*
+	    (funcall column-loader row)
+	    (when (not (null key-loader))
+	      ((funcall key-loader row)))))))))
 
 (defun get-slot-name (class reader)
   (let ((slot-definition
@@ -84,18 +88,23 @@
 			many-to-one-mappings superclass-mappings
 			subclass-mappings)))
 
-(defun plan-many-to-one-mappings (alias &rest many-to-one-mappings)
-  (reduce #'(lambda (result many-to-one-mapping)
-	      (destructuring-bind (slot-name &key reference-class-name
-					     foreign-key)
-		  many-to-one-mapping
-		(acons slot-name
-		       #'(lambda (mode)
-			   (apply #'plan-many-to-one mode slot-name
-				  (append-alias alias foreign-key)
-				  (get-class-mapping reference-class-name)))
-		       result)))
-	  many-to-one-mappings :initial-value nil))
+(defun plan-many-to-one-mappings (alias &optional many-to-one-mapping
+				  &rest many-to-one-mappings)
+  (when (not (null many-to-one-mapping))
+    (multiple-value-bind (references columns)
+	(apply #'plan-many-to-one-mappings alias many-to-one-mappings)
+      (destructuring-bind (slot-name
+			   &key reference-class-name foreign-key)
+	  (multiple-value-bind (foreign-key-columns foreign-key-loader)
+	      (plan-key alias foreign-key-loader)
+	    (values
+	     (acons slot-name
+		    #'(lambda (mode)
+			(apply #'plan-many-to-one
+			       mode slot-name foreign-key-columns
+			       (get-class-mapping reference-class-name)))
+		    references)
+	     (append foreign-key-columns columns)))))))
 
 (defun plan-one-to-many (mode slot-name root-primary-key foreign-key
 			 serializer deserializer class-name
@@ -147,7 +156,7 @@
 	  (list* :inner-join table-name alias
 		 (mapcar #'list primary-key foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
-	(apply #'plan-primary-key alias primary-key)
+	(apply #'plan-key alias primary-key)
       (plan-class-slots class alias table-join primary-key
 			 primary-key-columns primary-key-loader
 			 properties one-to-many-mappings
@@ -190,7 +199,7 @@
 	 (reference-append-join table-join references)))))
 
 (defun plan-class-slots (class alias table-join primary-key
-			 primary-key-columns primary-key-loaders
+			 primary-key-columns primary-key-loader
 			 properties one-to-many-mappings
 			 many-to-one-mappings superclass-mappings)
   (multiple-value-bind (properties columns property-loaders)
@@ -223,9 +232,7 @@
 		  (dolist (loader property-loaders)
 		    (funcall loader object row))
 		  (register-object class
-				   (mapcar #'(lambda (loader)
-					       (funcall loader row))
-					    primary-key-loaders)
+				   (funcall primary-key-loader row)
 				   object objects))
 	      loaders)))))
 
@@ -241,18 +248,18 @@
 	  (list* :left-join table-name alias
 		 (mapcar #'list superclass-primary-key foreign-key)))
 	 (primary-key (append-alias alias primary-key)))
-    (multiple-value-bind (primary-key-columns primary-key-loaders)
-	(apply #'plan-primary-key alias primary-key)
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(apply #'plan-key alias primary-key)
       (multiple-value-bind (properties references columns
 			    from-clause superclass-loaders)
 	  (plan-class-slots class alias table-join primary-key
-			    primary-key-columns primary-key-loaders
+			    primary-key-columns primary-key-loader
 			    properties one-to-many-mappings
 			    many-to-one-mappings superclass-mappings)
 	(declare (ignore properties))
 	(plan-class-selection references columns from-clause
 			      superclass-loaders class primary-key
-			      primary-key-loaders
+			      primary-key-loader
 			      subclass-mappings)))))
 
 (defun plan-subclass-mappings (superclass-primary-key
@@ -274,7 +281,7 @@
 
 (defun plan-class-selection (references columns from-clause
 			     superclass-loaders class primary-key
-			     primary-key-loaders subclass-mappings)
+			     primary-key-loader subclass-mappings)
   (multiple-value-bind (subclass-references subclass-columns
 			subclass-from-clause subclass-loaders)
       (apply #'plan-subclass-mappings primary-key subclass-mappings)
@@ -282,9 +289,7 @@
 	    (append columns subclass-columns)
 	    (append from-clause subclass-from-clause)
 	    #'(lambda (objects row)
-		(when (every #'(lambda (loader)
-				 (funcall loader row))
-			     primary-key-loaders)
+		(when (notevery #'null (funcall #'primary-key-loader row))
 		  (reduce #'(lambda (object loader)
 			      (funcall loader objects object row))
 			  superclass-loaders
@@ -300,19 +305,19 @@
 			   subclass-mappings)
   (let ((class (find-class class-name))
 	(primary-key (append-alias alias primary-key)))
-    (multiple-value-bind (primary-key-columns primary-key-loaders)
-	(apply #'plan-primary-key alias primary-key)
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(apply #'plan-key alias primary-key)
       (multiple-value-bind (properties join-references columns
 			    from-clause superclass-loader)
 	  (plan-class-slots class alias table-join primary-key
-			    primary-key-columns primary-key-loaders
+			    primary-key-columns primary-key-loader
 			    properties one-to-many-mappings
 			    many-to-one-mappings superclass-mappings)
 	(multiple-value-bind (fetch-references columns
 			      from-clause loader)
 	    (plan-class-selection join-references columns from-clause
 				  superclass-loader class primary-key
-				  primary-key-loaders subclass-mappings)
+				  primary-key-loader subclass-mappings)
 	  (values
 	   #'(lambda (&optional (property-reader nil name-present-p))
 	       (if name-present-p
