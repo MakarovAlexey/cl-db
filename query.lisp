@@ -16,20 +16,25 @@
 	      (list alias column-name))
 	  column-names))
 
-(defun plan-primary-key (pk-column &rest primary-key)
-  (multiple-value-bind (primary-key-columns primary-key-loader)
+(defun plan-column (table-alias column-name)
+  (let ((alias (make-alias column-name)))
+    (values #'(lambda ()
+		(values column-name alias table-alias))
+	    alias
+	    #'(lambda (row)
+		(rest
+		 (assoc alias row :test #'string=))))))
+
+(defun plan-primary-key (table-alias pk-column &rest primary-key)
+  (multiple-value-bind (primary-key-columns primary-key-loaders)
       (when (not (null primary-key))
 	(apply #'plan-primary-key primary-key))
-    (let ((column-alias (make-alias "column")))
+    (multiple-value-bind (column alias loader)
+	(plan-column table-alias pk-column)
       (values
-       (list* #'(lambda ()
-		  (values pk-column column-alias))
-	      primary-key-columns)
+       (list* column primary-key-columns)
        nil
-       (list* #'(lambda (row)
-		  (rest
-		   (assoc column-alias row :test #'string=)))
-	      primary-key-loader)))))
+       (list* loader primary-key-loaders)))))
 
 (defun get-slot-name (class reader)
   (let ((slot-definition
@@ -49,22 +54,18 @@
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
-	(let* ((column-alias (make-alias "column"))
-	       (column #'(lambda ()
-			   (values (list alias column-name)
-				   column-alias)))
-	       (loader #'(lambda (object row)
-			   (setf
-			    (slot-value object slot-name)
-			    (rest
-			     (assoc column-alias row
-				    :test #'string=))))))
-	  (values (acons slot-name
-			 #'(lambda ()
-			     (values column nil loader))
-			 planned-properties)
-		  (list* column columns)
-		  (list* loader loaders)))))))
+	(multiple-value-bind (column column-alias column-loader)
+	    (let ((loader #'(lambda (object row)
+			      (setf
+			       (slot-value object slot-name)
+			       (funcall column-loader row)))))
+	      (values
+	       (acons slot-name
+		      #'(lambda ()
+			  (values column nil loader))
+		      planned-properties)
+	       (list* column columns)
+	       (list* loader loaders))))))))
 
 ;; join - as root
 ;; fetch - slot load
@@ -146,7 +147,7 @@
 	  (list* :inner-join table-name alias
 		 (mapcar #'list primary-key foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
-	(apply #'plan-primary-key primary-key)
+	(apply #'plan-primary-key alias primary-key)
       (plan-class-slots class alias table-join primary-key
 			 primary-key-columns primary-key-loader
 			 properties one-to-many-mappings
@@ -241,7 +242,7 @@
 		 (mapcar #'list superclass-primary-key foreign-key)))
 	 (primary-key (append-alias alias primary-key)))
     (multiple-value-bind (primary-key-columns primary-key-loaders)
-	(apply #'plan-primary-key primary-key)
+	(apply #'plan-primary-key alias primary-key)
       (multiple-value-bind (properties references columns
 			    from-clause superclass-loaders)
 	  (plan-class-slots class alias table-join primary-key
@@ -300,7 +301,7 @@
   (let ((class (find-class class-name))
 	(primary-key (append-alias alias primary-key)))
     (multiple-value-bind (primary-key-columns primary-key-loaders)
-	(apply #'plan-primary-key primary-key)
+	(apply #'plan-primary-key alias primary-key)
       (multiple-value-bind (properties join-references columns
 			    from-clause superclass-loader)
 	  (plan-class-slots class alias table-join primary-key
@@ -421,18 +422,16 @@
 	      (list* selectors (compute-clause references join)))
 	     (select-list
 	      (compute-clause joined-references join selectors))
-	     (fetched-references
-	      (compute-clause select-list fetch))
 	     (query
 	      (make-query select-list
 			  (compute-clause joined-references where)
 			  (compute-clause select-list order-by)
-			  (compute-clause having select-list)
+			  (compute-clause select-list having)
 			  limit
 			  offset)))
 	(reduce (lambda (query fetched-reference)
 		  (funcall fetched-reference query))
-		fetched-references
+		(compute-clause select-list fetch)
 		:initial-value
 		(if (not (null (and fetch (or limit offset))))
 		    (make-subquery query)
