@@ -73,6 +73,7 @@
 
 ;; join - as root
 ;; fetch - slot load
+;; implement fetch plan and join plans
 (defun plan-many-to-one (mode slot-name foreign-key class-name
 			 &key table-name primary-key properties
 			   one-to-many-mappings many-to-one-mappings
@@ -344,7 +345,7 @@
 		      primary-key properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings
 		      subclass-mappings))
-  
+;; add value for fetch-refernces
 (defun make-join-plan (mapping-schema class-name &rest class-names)
   (multiple-value-bind (selectors rest-references)
       (when (not (null class-names))
