@@ -74,11 +74,11 @@
 ;; join - as root
 ;; fetch - slot load
 ;; implement fetch plan and join plans
-(defun plan-many-to-one (mode slot-name foreign-key class-name
-			 &key table-name primary-key properties
-			   one-to-many-mappings many-to-one-mappings
-			   superclass-mappings subclass-mappings)
-  (declare (ignore slot-name mode))
+(defun plan-many-to-one-join (alias foreign-key class-name
+			      &key table-name primary-key properties
+				one-to-many-mappings
+				many-to-one-mappings
+				superclass-mappings subclass-mappings)
   (let* ((alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
@@ -89,23 +89,60 @@
 			many-to-one-mappings superclass-mappings
 			subclass-mappings)))
 
+(defun plan-many-to-one-fetch (query slot-name alias foreign-key
+			       class-name
+			       &key table-name primary-key
+				 properties one-to-many-mappings
+				 many-to-one-mappings
+				 superclass-mappings
+				 subclass-mappings)
+  (let* ((foreign-key
+	  (reduce #'(lambda (foreign-key column)
+		      (list* (funcall query alias column)
+			     foreign-key))
+		  foreign-key :initial-value nil))
+	 (alias (make-alias))
+	 (table-join
+	  (list :left-join table-name alias
+		(mapcar #'list foreign-key
+			(append-alias alias primary-key)))))
+    (multiple-value-bind (selector join-references fetch-references)
+	(plan-class-mapping alias class-name table-join primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings superclass-mappings
+			    subclass-mappings)
+      (multiple-value-bind (columns from-clause loader)
+	  (funcall selector)
+	(values columns
+		from-clause
+		#'(lambda (object primary-key rows)
+		    (setf (slot-value object slot-name)
+			  (funcall loader))) ;; stub
+		fetch-references)))))
+
 (defun plan-many-to-one-mappings (alias &optional many-to-one-mapping
 				  &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
-    (multiple-value-bind (references columns)
+    (multiple-value-bind (join-references fetch-references columns)
 	(apply #'plan-many-to-one-mappings alias many-to-one-mappings)
       (destructuring-bind (slot-name
 			   &key reference-class-name foreign-key)
-	  (multiple-value-bind (foreign-key-columns foreign-key-loader)
-	      (plan-key alias foreign-key-loader)
+;;	  (multiple-value-bind (foreign-key-columns foreign-key-loader)
+;;	      (plan-key alias foreign-key)
 	    (values
 	     (acons slot-name
-		    #'(lambda (mode)
-			(apply #'plan-many-to-one
-			       mode slot-name foreign-key-columns
+		    #'(lambda ()
+			(apply #'plan-many-to-one-join
+			       alias foreign-key
 			       (get-class-mapping reference-class-name)))
-		    references)
-	     (append foreign-key-columns columns)))))))
+		    join-references)
+	     (acons slot-name
+		    #'(lambda (query)
+			(apply #'plan-many-to-one-fetch
+			       query slot-name alias foreign-key
+			       (get-class-mapping reference-class-name)))
+		    fetch-references)
+	     (append foreign-key-columns columns))))))
 
 (defun plan-one-to-many (mode slot-name root-primary-key foreign-key
 			 serializer deserializer class-name
