@@ -89,7 +89,7 @@
 			many-to-one-mappings superclass-mappings
 			subclass-mappings)))
 
-(defun plan-many-to-one-fetch (query slot-name alias foreign-key
+(defun plan-many-to-one-fetch (fetch-query slot-name alias foreign-key
 			       class-name
 			       &key table-name primary-key
 				 properties one-to-many-mappings
@@ -123,26 +123,25 @@
 (defun plan-many-to-one-mappings (alias &optional many-to-one-mapping
 				  &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
-    (multiple-value-bind (join-references fetch-references columns)
+    (multiple-value-bind (references columns)
 	(apply #'plan-many-to-one-mappings alias many-to-one-mappings)
       (destructuring-bind (slot-name
 			   &key reference-class-name foreign-key)
-;;	  (multiple-value-bind (foreign-key-columns foreign-key-loader)
-;;	      (plan-key alias foreign-key)
-	    (values
-	     (acons slot-name
-		    #'(lambda ()
-			(apply #'plan-many-to-one-join
-			       alias foreign-key
-			       (get-class-mapping reference-class-name)))
-		    join-references)
-	     (acons slot-name
-		    #'(lambda (query)
-			(apply #'plan-many-to-one-fetch
-			       query slot-name alias foreign-key
-			       (get-class-mapping reference-class-name)))
-		    fetch-references)
-	     (append foreign-key-columns columns))))))
+	  many-to-one-mapping
+	(multiple-value-bind (foreign-key-columns foreign-key-loader)
+	    (plan-key alias foreign-key)
+	  (values
+	   (acons slot-name
+		  #'(lambda (&optional fetch-query)
+		      (if (null fetch-query)
+			  (apply #'plan-many-to-one-join
+				 alias foreign-key
+				 (get-class-mapping reference-class-name))
+			  (apply #'plan-many-to-one-fetch
+				 fetch-query slot-name alias foreign-key
+				 (get-class-mapping reference-class-name))))
+		  references)
+	   (append foreign-key-columns columns)))))))
 
 (defun plan-one-to-many (mode slot-name root-primary-key foreign-key
 			 serializer deserializer class-name
