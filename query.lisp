@@ -360,12 +360,10 @@
 				    subclass-loaders)
 			      (allocate-instance class))))))))
 
-(defun join-superclass (subclass-alias &key class-name table-name
-					 primary-key foreign-key
-					 properties
-					 one-to-many-mappings
-					 many-to-one-mappings
-					 superclass-mappings)
+(defun join-superclass (subclass-alias join-path
+			&key class-name table-name primary-key
+			  foreign-key properties one-to-many-mappings
+			  many-to-one-mappings superclass-mappings)
   (let* ((class
 	  (find-class class-name))
 	 (alias
@@ -379,12 +377,12 @@
 		 (mapcar #'list primary-key foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
 	(apply #'plan-key alias primary-key)
-      (join-class class alias table-join primary-key
-		  primary-key-columns primary-key-loader
-		  properties one-to-many-mappings
-		  many-to-one-mappings superclass-mappings))))
+      (join-class class alias (list* table-join join-path) primary-key
+		  primary-key-columns primary-key-loader properties
+		  one-to-many-mappings many-to-one-mappings
+		  superclass-mappings))))
 
-(defun join-superclasses (alias table-join
+(defun join-superclasses (alias join-path
 			  &optional superclass-mapping
 			  &rest superclass-mappings)
   (multiple-value-bind (superclasses-properties
@@ -395,7 +393,7 @@
 			superclasses-loaders)
       (when (not (null superclass-mapping))
 	(apply #'join-superclasses alias
-	       table-join superclass-mappings))
+	       join-path superclass-mappings))
     (multiple-value-bind (superclass-properties
 			  superclass-joined-references
 			  superclass-fetched-references
@@ -404,7 +402,7 @@
 			  superclass-loaders)
 	(when (not (null superclass-mapping))
 	  (apply #'join-superclass alias
-		 table-join superclass-mapping))
+		 join-path superclass-mapping))
       (values
        (append superclass-properties
 	       superclasses-properties)
@@ -414,13 +412,12 @@
 	       superclasses-fetched-references)
        (append superclass-columns
 	       superclasses-columns)
-       (or (append superclass-from-clause
-		   superclasses-from-clause)
-	   table-join)
+       (append superclass-from-clause
+	       superclasses-from-clause)
        (append superclass-loaders
 	       superclasses-loaders)))))
 
-(defun join-class (class alias table-join primary-key
+(defun join-class (class alias join-path primary-key
 		   primary-key-columns primary-key-loader properties
 		   one-to-many-mappings many-to-one-mappings
 		   superclass-mappings)
@@ -428,31 +425,31 @@
 			superclasses-joined-references
 			superclasses-fetched-references
 			superclasses-columns
-			from-clause
+			superclasses-from-clause
 			superclasses-loaders)
-      (apply #'join-superclasses alias table-join superclass-mappings)
+      (apply #'join-superclasses alias join-path superclass-mappings)
     (multiple-value-bind (properties property-columns property-loaders)
-	(apply #'plan-properties alias table-join properties)
+	(apply #'plan-properties alias join-path properties)
       (multiple-value-bind (many-to-one-fetched-references
 			    foreign-key-columns)
 	  (apply #'fetch-many-to-one alias
-		 table-join many-to-one-mappings)
+		 join-path many-to-one-mappings)
 	(values
 	 (append properties superclasses-properties)
 	 (append (apply #'join-many-to-one
-			alias many-to-one-mappings)
+			alias join-path many-to-one-mappings)
 		 (apply #'join-one-to-many-joins
-			primary-key one-to-many-mappings)
+			primary-key join-path one-to-many-mappings)
 		 superclass-joined-references)
 	 (append many-to-one-fetched-references
 		 (apply #'plan-one-to-many-fetchings
-			primary-key one-to-many-mappings)
+			primary-key join-path one-to-many-mappings)
 		 superclass-fetched-references)
 	 (append primary-key-columns
 		 foreign-key-columns
 		 property-columns
 		 superclasses-columns)
-	 superclasses-from-clause
+	 (append join-path superclasses-from-clause)
 	 (list* #'(lambda (objects object row)
 		    (dolist (loader property-loaders)
 		      (funcall loader object row))
@@ -473,7 +470,7 @@
 			    join-references class-fetch-references
 			    class-columns class-from-clause
 			    superclass-loaders)
-	  (join-class class alias table-join primary-key
+	  (join-class class alias join-path primary-key
 		      primary-key-columns primary-key-loader
 		      properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings)
@@ -507,7 +504,7 @@
 				  many-to-one-mappings
 				  superclass-mappings
 				  subclass-mappings)
-  (plan-class alias class-name (list table-name alias)
+  (plan-class alias class-name (list (list table-name alias))
 	      primary-key properties one-to-many-mappings
 	      many-to-one-mappings superclass-mappings
 	      subclass-mappings))
