@@ -51,10 +51,10 @@
 	     reader (class-name class)))
     (slot-definition-name slot-definition)))
 
-(defun join-properties (alias &optional property &rest properties)
+(defun plan-properties (alias &optional property &rest properties)
   (when (not (null property))
     (multiple-value-bind (columns loaders)
-	(apply #'join-properties alias properties)
+	(apply #'plan-properties alias properties)
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
@@ -64,8 +64,8 @@
 	   (list* column columns)
 	   (list* loader loaders)))))))
 
-(defun fetch-properties (join-path alias
-			 &optional property &rest properties)
+(defun join-properties (join-path alias
+			&optional property &rest properties)
   (when (not (null property))
     (destructuring-bind (slot-name column-name column-type)
 	property
@@ -99,7 +99,7 @@
 		one-to-many-mappings many-to-one-mappings
 		superclass-mappings subclass-mappings)))
 
-(defun join-many-to-one-mappings (join-path alias
+(defun join-many-to-one-mappings (join-path alias 
 				  &optional many-to-one-mapping
 				  &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
@@ -435,15 +435,15 @@
   (multiple-value-bind (superclasses-properties
 			superclasses-joined-references)
       (apply #'join-superclasses alias join-path superclass-mappings)
-    (multiple-value-bind (properties property-columns property-loaders)
-	(apply #'join-properties alias join-path properties)
-      (values
-	 (append properties superclasses-properties)
-	 (append (apply #'join-many-to-one
-			alias join-path many-to-one-mappings)
-		 (apply #'join-one-to-many-joins
-			primary-key join-path one-to-many-mappings)
-		 superclass-joined-references)))))
+    (values
+     (append (apply #'join-properties
+		    alias join-path properties)
+	     superclasses-properties)
+     (append (apply #'join-many-to-one-mappings
+		    join-path alias many-to-one-mappings)
+	     (apply #'join-one-to-many-mappings
+		    join-path primary-key one-to-many-mappings)
+	     superclass-joined-references))))
 
 (defun plan-class (alias class-name table-join primary-key properties
 		   one-to-many-mappings many-to-one-mappings
