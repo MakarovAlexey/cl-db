@@ -42,58 +42,48 @@
 (defun get-slot-name (class reader)
   (let ((slot-definition
 	 (find-if #'(lambda (slot-definition)
-		      (find (generic-function-name reader)
-			    (slot-definition-readers slot-definition)))
+		      (find
+		       (generic-function-name reader)
+		       (slot-definition-readers slot-definition)))
 		  (class-direct-slots class))))
     (when (null slot-definition)
       (error "Slot with reader ~a not found for class ~a"
 	     reader (class-name class)))
     (slot-definition-name slot-definition)))
 
-(defun plan-properties (alias &optional property &rest properties)
+(defun join-properties (alias &optional property &rest properties)
   (when (not (null property))
-    (multiple-value-bind (planned-properties columns loaders)
-	(apply #'plan-properties alias properties)
+    (multiple-value-bind (columns loaders)
+	(apply #'join-properties alias properties)
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
 	(multiple-value-bind (column column-loader)
 	    (plan-column alias column-name)
-	  (let ((loader #'(lambda (object row)
-			    (setf
-			     (slot-value object slot-name)
-			     (funcall column-loader row)))))
-	    (values
-	     (acons slot-name
-		    #'(lambda ()
-			(values column nil loader))
-		    planned-properties)
-	     (list* column columns)
-	     (list* loader loaders))))))))
+	  (values
+	   (list* column columns)
+	   (list* loader loaders)))))))
 
-(defun fetch-properties (alias join-path
+(defun fetch-properties (join-path alias
 			 &optional property &rest properties)
   (when (not (null property))
-    (multiple-value-bind (planned-properties columns loaders)
-	(apply #'plan-properties alias properties)
-      (destructuring-bind (slot-name column-name column-type)
-	  property
-	(declare (ignore column-type))
-	(multiple-value-bind (column column-loader)
-	    (plan-column alias column-name)
-	  (let ((loader #'(lambda (object row)
-			    (setf
-			     (slot-value object slot-name)
-			     (funcall column-loader row)))))
-	    (values
-	     (acons slot-name
-		    #'(lambda ()
-			(values column nil loader))
-		    planned-properties)
-	     (list* column columns)
-	     (list* loader loaders))))))))
+    (destructuring-bind (slot-name column-name column-type)
+	property
+      (declare (ignore column-type))
+      (multiple-value-bind (column column-loader)
+	  (plan-column alias column-name)
+	(let ((loader #'(lambda (object row)
+			  (setf
+			   (slot-value object slot-name)
+			   (funcall column-loader row)))))
+	  (values
+	   (acons slot-name
+		  #'(lambda ()
+		      (values column (reverse join-path) loader))
+		  (apply #'fetched-properties
+			 alias join-path properties))))))))
 
-(defun join-many-to-one (alias foreign-key class-name
+(defun join-many-to-one (join-path alias foreign-key class-name
 			 &key table-name primary-key properties
 			   one-to-many-mappings
 			   many-to-one-mappings
@@ -109,7 +99,8 @@
 		one-to-many-mappings many-to-one-mappings
 		superclass-mappings subclass-mappings)))
 
-(defun join-many-to-one-mappings (alias &optional many-to-one-mapping
+(defun join-many-to-one-mappings (join-path alias
+				  &optional many-to-one-mapping
 				  &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
     (destructuring-bind (slot-name &key reference-class-name
@@ -117,10 +108,11 @@
 	many-to-one-mapping
       (acons slot-name
 	     #'(lambda ()
-		 (apply #'join-many-to-one alias foreign-key
+		 (apply #'join-many-to-one
+			join-path alias foreign-key
 			(get-class-mapping reference-class-name)))
 	     (apply #'join-many-to-one-mappings
-		    alias many-to-one-mappings)))))
+		    join-path alias many-to-one-mappings)))))
 
 (defun join-one-to-many (join-path root-primary-key foreign-key
 			 class-name &key table-name primary-key
@@ -155,24 +147,16 @@
       (acons slot-name
 	     #'(lambda ()
 		 (apply #'join-one-to-many
-			primary-key foreign-key
+			join-path primary-key foreign-key
 			(get-class-mapping reference-class-name)))
-	     (apply #'join-one-to-many
+	     (apply #'join-one-to-many-mappings
 		    join-path primary-key one-to-many-mappings)))))
 
-(defun fetch-many-to-one (fetch-query slot-name alias foreign-key
-			  class-name &key table-name primary-key
-				       properties
-				       one-to-many-mappings
-				       many-to-one-mappings
-				       superclass-mappings
-				       subclass-mappings)
-  (let* ((foreign-key
-	  (reduce #'(lambda (foreign-key column)
-		      (list* (funcall fetch-query alias column)
-			     foreign-key))
-		  foreign-key :initial-value nil))
-	 (alias (make-alias))
+(defun fetch-many-to-one (slot-name alias foreign-key class-name
+			  &key table-name primary-key properties
+			  one-to-many-mappings many-to-one-mappings
+			  superclass-mappings subclass-mappings)
+  (let* ((alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'list foreign-key
@@ -204,14 +188,15 @@
 	  (values
 	   (acons slot-name
 		  #'(lambda (fetch-query)
+		      (declare (ignore fetch-query))
 		      (apply #'plan-many-to-one-fetch
-			     fetch-query slot-name alias foreign-key
+			     slot-name alias foreign-key-columns
 			     (get-class-mapping reference-class-name)))
 		  references)
-	   (append foreign-key-columns columns)))))))
+	   (append foreign-key-columns columns))))))
 
-(defun fetch-one-to-many (fetch-query slot-name root-primary-key
-			  foreign-key serializer class-name
+(defun fetch-one-to-many (fetch-query root-primary-key foreign-key
+			  serializer class-name
 			  &key table-name primary-key properties
 			    one-to-many-mappings many-to-one-mappings
 			    superclass-mappings subclass-mappings)
@@ -240,7 +225,7 @@
       (declare (ignore serializer))
       (acons slot-name
 	     #'(lambda (fetch-query)
-		 (apply #'getch-one-to-many fetch-query
+		 (apply #'fetch-one-to-many fetch-query
 			slot-name primary-key foreign-key
 			serializer
 			(get-class-mapping reference-class-name)))
@@ -451,7 +436,7 @@
 			superclasses-joined-references)
       (apply #'join-superclasses alias join-path superclass-mappings)
     (multiple-value-bind (properties property-columns property-loaders)
-	(apply #'plan-properties alias join-path properties)
+	(apply #'join-properties alias join-path properties)
       (values
 	 (append properties superclasses-properties)
 	 (append (apply #'join-many-to-one
@@ -460,10 +445,9 @@
 			primary-key join-path one-to-many-mappings)
 		 superclass-joined-references)))))
 
-(defun plan-class (alias class-name join-path primary-key
-		   properties one-to-many-mappings
-		   many-to-one-mappings superclass-mappings
-		   subclass-mappings)
+(defun plan-class (alias class-name table-join primary-key properties
+		   one-to-many-mappings many-to-one-mappings
+		   superclass-mappings subclass-mappings)
   (let ((class (find-class class-name))
 	(primary-key (append-alias alias primary-key)))
     (multiple-value-bind (primary-key-columns primary-key-loader)
