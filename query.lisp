@@ -577,7 +577,7 @@
     query
     nil))
 
-(defun compute-clause (args clause &optional default)
+(defun compute-clause (clause args &optional default)
   (if (not (null clause))
       (multiple-value-list
        (apply clause args))
@@ -595,19 +595,19 @@
 	    (apply #'make-join-plan mapping-schema roots))
       (let* ((joined-list
 	      (append selectors
-		      (compute-clause joined-references join)))
+		      (compute-clause join joined-references)))
 	     (select-list
-	      (compute-clause joined-list select joined-list))
+	      (compute-clause select joined-list joined-list))
 	     (query
 	      (make-query select-list
-			  (compute-clause joined-list where)
-			  (compute-clause select-list order-by)
-			  (compute-clause select-list having)
+			  (compute-clause where joined-list)
+			  (compute-clause order-by select-list)
+			  (compute-clause having select-list)
 			  limit
 			  offset)))
 	(reduce (lambda (query fetched-reference)
 		  (funcall fetched-reference query))
-		(compute-clause select-list fetch)
+		(compute-clause fetch select-list)
 		:initial-value
 		(if (not (null (and fetch (or limit offset))))
 		    (make-subquery query)
