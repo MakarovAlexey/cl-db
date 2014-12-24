@@ -246,7 +246,7 @@
 			superclasses-loaders)
       (fetch-superclasses alias superclass-mappings)
     (multiple-value-bind (property-columns property-loaders)
-	(apply #'fetch-properties alias properties)
+	(apply #'plan-properties alias properties)
       (multiple-value-bind (many-to-one-fetched-references
 			    foreign-key-columns)
 	  (apply #'fetch-many-to-one alias many-to-one-mappings)
@@ -436,7 +436,7 @@
       (apply #'join-superclasses alias join-path superclass-mappings)
     (values
      (append (apply #'join-properties
-		    alias join-path properties)
+		    join-path alias properties)
 	     superclasses-properties)
      (append (apply #'join-many-to-one-mappings
 		    join-path alias many-to-one-mappings)
