@@ -486,17 +486,20 @@
 				 (or (some #'(lambda (loader)
 					       (funcall loader objects row))
 					   subclass-loaders)
-				     (allocate-instance class)))))))
+				     (allocate-instance class))))))
+		  (fetch (append fetched-references
+				 subclasses-fetched-references)))
 	      (values #'(lambda (&optional (property-reader nil name-present-p))
 			  (if name-present-p
 			      (funcall
 			       (rest
 				(assoc (get-slot-name class property-reader)
 				       joined-properties)))
-			      (values columns from-clause loader)))
-		      joined-references
-		      (append fetched-references
-			      subclasses-fetched-references)))))))))
+			      (values columns
+				      from-clause
+				      loader
+				      fetch)))
+		      joined-references))))))))
 
 (defun plan-root-class-mapping (alias class-name
 				&key table-name primary-key properties
@@ -586,17 +589,18 @@
   (declare (ignore transform singlep))
   (let ((*table-index* 0)
 	(*mapping-schema* mapping-schema))
-    (multiple-value-bind (selectors references)
+    (multiple-value-bind (selectors joined-references)
 	(if (not (listp roots))
 	    (make-join-plan mapping-schema roots)
 	    (apply #'make-join-plan mapping-schema roots))
-      (let* ((joined-references
-	      (list* selectors (compute-clause references join)))
+      (let* ((joined-list
+	      (append selectors
+		      (compute-clause joined-references join)))
 	     (select-list
-	      (compute-clause joined-references join selectors))
+	      (compute-clause joined-list select joined-list))
 	     (query
 	      (make-query select-list
-			  (compute-clause joined-references where)
+			  (compute-clause joined-list where)
 			  (compute-clause select-list order-by)
 			  (compute-clause select-list having)
 			  limit
