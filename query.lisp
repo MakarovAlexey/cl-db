@@ -151,7 +151,7 @@
 	     (apply #'join-one-to-many-mappings
 		    join-path primary-key one-to-many-mappings)))))
 
-(defun fetch-many-to-one (slot-name foreign-key class-name
+(defun fetch-many-to-one (root-class slot-name foreign-key class-name
 			  &key table-name primary-key properties
 			    one-to-many-mappings many-to-one-mappings
 			    superclass-mappings subclass-mappings)
@@ -169,16 +169,20 @@
       (values fetch-references
 	      columns
 	      from-clause
-	      #'(lambda (object rows)
-		  (setf (slot-value object slot-name)
-			(funcall object-loader (first rows))))))))
-;; fetch of fetch ???
+	      #'(lambda (object object-rows fetched-references)
+		  (when (typep object root-class)
+		    (setf (slot-value object slot-name)
+			  (funcall object-loader
+				   (first object-rows) object-rows
+				   fetched-references))))))))
 
-(defun fetch-many-to-one-mappings (alias &optional many-to-one-mapping
+(defun fetch-many-to-one-mappings (class alias
+				   &optional many-to-one-mapping
 				   &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
     (multiple-value-bind (references columns)
-	(apply #'fetch-many-to-one-mappings alias many-to-one-mappings)
+	(apply #'fetch-many-to-one-mappings
+	       class alias many-to-one-mappings)
       (destructuring-bind (slot-name
 			   &key reference-class-name foreign-key)
 	  many-to-one-mapping
@@ -190,16 +194,18 @@
 		  #'(lambda (fetch-query)
 		      (declare (ignore fetch-query))
 		      (apply #'fetch-many-to-one
-			     slot-name foreign-key-columns
+			     class slot-name foreign-key-columns
 			     (get-class-mapping reference-class-name)))
 		  references)
 	   (append foreign-key-columns columns)))))))
 
-(defun fetch-one-to-many (fetch-query root-primary-key foreign-key
-			  serializer class-name
-			  &key table-name primary-key properties
-			    one-to-many-mappings many-to-one-mappings
-			    superclass-mappings subclass-mappings)
+(defun fetch-one-to-many (root-class slot-name fetch-query
+			  root-primary-key foreign-key serializer
+			  class-name &key table-name primary-key
+				       properties one-to-many-mappings
+				       many-to-one-mappings
+				       superclass-mappings
+				       subclass-mappings)
   (let* ((root-primary-key
 	  (reduce #'(lambda (primary-key column)
 		      (list* (apply fetch-query column)
@@ -215,13 +221,22 @@
 		     properties one-to-many-mappings
 		     many-to-one-mappings superclass-mappings
 		     subclass-mappings)
-      (values fetch-references columns from-clause
-	      #'(lambda (object &rest args)
-		  (setf (slot-value object slot-name)
-		  (apply loader args)
+      (values fetch-references
+	      columns
+	      from-clause
+	      #'(lambda (object object-rows fetched-references)
+		  (when (typep object root-class)
+		    (setf (slot-value object slot-name)
+			  (apply serializer
+				 (remove-duplicates
+				  (mapcar #'(lambda (row)
+					      (funcall object-loader
+						       row object-rows
+						       fetched-references))
+					  object-rows))))))))))
 
-(defun fetch-one-to-many-mappings (primary-key &optional mapping
-				   &rest mappings)
+(defun fetch-one-to-many-mappings (class primary-key
+				   &optional mapping &rest mappings)
   (when (not (null mapping))
     (destructuring-bind (slot-name &key reference-class-name
 				   foreign-key serializer
@@ -230,22 +245,23 @@
       (declare (ignore serializer))
       (acons slot-name
 	     #'(lambda (fetch-query)
-		 (apply #'fetch-one-to-many fetch-query
-			slot-name primary-key foreign-key
-			serializer
+		 (apply #'fetch-one-to-many class slot-name
+			fetch-query primary-key foreign-key serializer
 			(get-class-mapping reference-class-name)))
 	     (apply #'fetch-one-to-many-mappings
-		    join-path primary-key mappings)))))
+		    class join-path primary-key mappings)))))
  
-(defun register-object (class primary-key object objects)
+(defun register-object (class primary-key object
+			&optional (objects *objects*))
   (setf (gethash primary-key
 		 (ensure-gethash class objects
 				 (make-hash-table :test #'equal)))
 	object))
 
-(defun fetch-slots (class alias table-join primary-key properties
-		    one-to-many-mappings many-to-one-mappings
-		    superclass-mappings)
+(defun fetch-slots (class alias table-join primary-key
+		    primary-key-loader primary-key-loader-columns
+		    properties one-to-many-mappings
+		    many-to-one-mappings superclass-mappings)
   (multiple-value-bind (superclasses-fetch-references
 			superclasses-columns
 			superclasses-from-clause
@@ -265,12 +281,12 @@
 		 property-columns
 		 superclasses-columns)
 	 (list* table-join superclasses-from-clause)
-	 (list* #'(lambda (objects object row)
-		    (dolist (loader property-loaders)
-		      (funcall loader object row))
+	 (list* #'(lambda (object row)
 		    (register-object class
 				     (funcall primary-key-loader row)
-				     object objects))
+				     object)
+		    (dolist (loader property-loaders object)
+		      (funcall loader object row)))
 		superclasses-loaders))))))
 
 (defun fetch-superclass (subclass-alias
@@ -315,13 +331,30 @@
        (append superclass-loaders
 	       superclasses-loaders)))))
 
+(defun load-object (class row result-set primary-key-loader
+		    superclass-loaders subclass-loaders)
+  (let ((primary-key
+	 (funcall #'primary-key-loader row)))
+    (when (notevery #'null primary-key)
+      (let ((object-rows
+	     (remove primary-key result-set
+		     :key primary-key-loader
+		     :test-not #'equal))
+	    (object
+	     (or (some #'(lambda (loader)
+			   (funcall loader row))
+		       subclass-loaders)
+		 (allocate-instance class))))
+	(dolist (superclass-loader superclass-loaders object)
+	  (funcall superclass-loader object row))))))
+
 (defun fetch-class (class alias table-join primary-key properties
-		     one-to-many-mappings many-to-one-mappings
-		     superclass-mappings subclass-mappings)
+		    one-to-many-mappings many-to-one-mappings
+		    superclass-mappings subclass-mappings)
   (multiple-value-bind (primary-key-columns primary-key-loader)
       (apply #'plan-key alias primary-key)
     (multiple-value-bind (fetched-references
-			  columns from-clause slot-loader)
+			  columns from-clause slot-loaders)
 	(fetch-slots class alias table-join primary-key
 		     primary-key-columns primary-key-loader
 		     properties one-to-many-mappings
@@ -334,17 +367,10 @@
 	 (append fetched-references
 		 subclass-fetched-references)
 	 (append columns subclasses-columns)
-	 (append from-class subclasses-from-clause))
-	#'(lambda (objects row &rest fetch-references)
-	    (when (notevery #'null (funcall #'primary-key-loader row))
-	      (reduce #'(lambda (object loader)
-			  (funcall loader objects object row))
-		      superclass-loaders
-		      :initial-value
-		      (or (some #'(lambda (loader)
-				    (funcall loader objects row))
-				subclass-loaders)
-			  (allocate-instance class)))))))))
+	 (append from-class subclasses-from-clause)
+	 #'(lambda (row)
+	     (load-object class row primary-key-loader
+			  superclass-mappings subclass-mappings)))))))
 
 (defun fetch-subclass (superclass-primary-key class-name
 		       &key primary-key table-name foreign-key
@@ -364,7 +390,6 @@
 		   primary-key-columns primary-key-loader properties
 		   one-to-many-mappings many-to-one-mappings
 		   superclass-mappings subclass-mappings))))
-	
 
 (defun fetch-subclasses (superclass-primary-key
 			 &optional subclass-mapping
@@ -482,16 +507,20 @@
 				       fetched-from-clause
 				       subclasses-from-clause))
 		  (loader
-		   #'(lambda (objects row &options fetch-references)
-		       (when (notevery #'null (funcall #'primary-key-loader row))
-			 (reduce #'(lambda (object loader)
-				     (funcall loader objects object row))
-				 superclass-loaders
-				 :initial-value
-				 (or (some #'(lambda (loader)
-					       (funcall loader objects row))
-					   subclass-loaders)
-				     (allocate-instance class))))))
+		   #'(lambda (row result-set reference-loaders)
+		       (let ((object
+			      (load-object class row
+					   primary-key-loader
+					   superclass-loaders
+					   subclasses-loaders))
+			     (object-rows
+			      (remove primary-key result-set
+				      :key primary-key-loader
+				      :test-not #'equal)))
+			 (dolist (reference-loader
+				   reference-loaders object)
+			   (funcall reference-loader
+				    object object-rows)))))
 		  (fetch (append fetched-references
 				 subclasses-fetched-references)))
 	      (values #'(lambda (&optional (property-reader nil name-present-p))
