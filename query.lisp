@@ -374,7 +374,7 @@
 	 (append from-clause subclasses-from-clause)
 	 #'(lambda (row)
 	     (load-object class row primary-key-loader
-			   superclass-loaders subclass-loaders)))))))
+			  superclass-loaders subclass-loaders)))))))
 
 (defun fetch-subclass (superclass-primary-key class-name
 		       &key primary-key table-name foreign-key
@@ -563,6 +563,8 @@
     (list* selector
 	   (when (not (null fetch))
 	     (funcall fetch references)))))
+
+;; (defun fetch-using-subclass (class-name references &rest fetch))
 
 ;; stubfunction, implement query creation.
 (defun make-query (select-list where-clause order-by-clause
