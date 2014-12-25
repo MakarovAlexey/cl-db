@@ -433,12 +433,9 @@
 	 (table-join
 	  (list* :inner-join table-name alias
 		 (mapcar #'list primary-key foreign-key))))
-    (multiple-value-bind (primary-key-columns primary-key-loader)
-	(apply #'plan-key alias primary-key)
-      (join-class class alias (list* table-join join-path) primary-key
-		  primary-key-columns primary-key-loader properties
-		  one-to-many-mappings many-to-one-mappings
-		  superclass-mappings))))
+    (join-class class alias (list* table-join join-path) primary-key
+		properties one-to-many-mappings many-to-one-mappings
+		superclass-mappings)))
 
 (defun join-superclasses (alias join-path
 			  &optional superclass-mapping
