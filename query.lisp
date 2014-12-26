@@ -285,10 +285,8 @@
 		 foreign-key-columns
 		 superclasses-columns)
 	 (list* table-join superclasses-from-clause)
-	 (list* #'(lambda (object row)
-		    (register-object class-name
-				     (funcall primary-key-loader row)
-				     object)
+	 (list* #'(lambda (object primary-key row)
+		    (register-object class-name primary-key object)
 		    (dolist (loader property-loaders object)
 		      (funcall loader object row)))
 		superclasses-loaders))))))
@@ -339,13 +337,14 @@
 ;; Carefully implement subclass dynamic association fetching (with
 ;; class specification) and remove multiple-values (return only object
 ;; with loaded associations)
-(defun load-object (class row superclass-loaders subclass-loaders)
+(defun load-object (class primary-key row
+		    superclass-loaders subclass-loaders)
   (let ((object (or (some #'(lambda (loader)
 			      (funcall loader row))
 			  subclass-loaders)
 		    (allocate-instance class))))
     (dolist (superclass-loader superclass-loaders object)
-      (funcall superclass-loader object row))))
+      (funcall superclass-loader object primary-key row))))
 
 (defun fetch-class (class-name alias table-join primary-key
 		    primary-key-columns primary-key-loader properties
@@ -368,7 +367,9 @@
 	 (append columns subclasses-columns)
 	 (append from-clause subclasses-from-clause)
 	 #'(lambda (row)
-	     (load-object class row
+	     (load-object class
+			  (funcall primary-key-loader row)
+			  row
 			  superclass-loaders
 			  subclass-loaders)))))))
 
