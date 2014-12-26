@@ -261,9 +261,9 @@
 	object))
 
 (defun fetch-slots (class-name alias table-join primary-key
-		    primary-key-columns primary-key-loader
-		    properties one-to-many-mappings
-		    many-to-one-mappings superclass-mappings)
+		    primary-key-columns primary-key-loader properties
+		    one-to-many-mappings many-to-one-mappings
+		    superclass-mappings)
   (multiple-value-bind (superclasses-fetched-references
 			superclasses-columns
 			superclasses-from-clause
@@ -285,8 +285,10 @@
 		 foreign-key-columns
 		 superclasses-columns)
 	 (list* table-join superclasses-from-clause)
-	 (list* #'(lambda (object primary-key row)
-		    (register-object class-name primary-key object)
+	 (list* #'(lambda (object row)
+		    (register-object class-name
+				     (funcall primary-key-loader row)
+				     object)
 		    (dolist (loader property-loaders object)
 		      (funcall loader object row)))
 		superclasses-loaders))))))
@@ -335,8 +337,7 @@
 		 superclasses-loaders))))))
 
 ;; Carefully implement subclass dynamic association fetching (with
-;; class specification) and remove multiple-values (return only object
-;; with loaded associations)
+;; class specification)
 (defun load-object (class primary-key row
 		    superclass-loaders subclass-loaders)
   (let ((object (or (some #'(lambda (loader)
@@ -354,9 +355,9 @@
     (multiple-value-bind (fetched-references
 			  columns from-clause superclass-loaders)
 	(fetch-slots class-name alias table-join primary-key
-		     primary-key-columns primary-key-loader
-		     properties one-to-many-mappings
-		     many-to-one-mappings superclass-mappings)
+		     primary-key-columns primary-key-loader properties
+		     one-to-many-mappings many-to-one-mappings
+		     superclass-mappings)
       (multiple-value-bind (subclass-fetched-references
 			    subclasses-columns
 			    subclasses-from-clause subclass-loaders)
@@ -373,7 +374,7 @@
 			  superclass-loaders
 			  subclass-loaders)))))))
 
-(defun fetch-object (class-name alias table-join join-path primary-key
+(defun fetch-object (class-name alias table-join primary-key
 		     properties one-to-many-mappings
 		     many-to-one-mappings superclass-mappings
 		     subclass-mappings)
@@ -389,7 +390,7 @@
 		     subclass-mappings)
       (values fetched-references
 	      fetched-columns
-	      (append (reverse join-path) fetched-from-clause)
+	      fetched-from-clause
 	      #'(lambda (row result-set reference-loaders)
 		  (let ((primary-key
 			 (funcall primary-key-loader row)))
@@ -460,10 +461,11 @@
 	 (list* subclass-loader
 		subclasses-loaders))))))
 
-(defun join-superclass (subclass-alias join-path
-			&key class-name table-name primary-key
-			  foreign-key properties one-to-many-mappings
-			  many-to-one-mappings superclass-mappings)
+(defun join-superclass (subclass-alias join-path class-name
+			&key table-name primary-key foreign-key
+			properties one-to-many-mappings
+			many-to-one-mappings superclass-mappings)
+  (declare (ignore class-name))
   (let* ((alias
 	  (make-alias))
 	 (foreign-key
@@ -520,19 +522,27 @@
       (join-class alias (list* table-join join-path) primary-key
 		  properties one-to-many-mappings many-to-one-mappings
 		  superclass-mappings)
-    (values #'(lambda (&optional (property-reader nil name-present-p))
-		(if name-present-p
-		    (funcall
-		     (rest
-		      (assoc (get-slot-name class property-reader)
-			     joined-properties)))
-		    (fetch-object class-name alias table-join
-				  join-path primary-key properties
-				  one-to-many-mappings
-				  many-to-one-mappings
-				  superclass-mappings
-				  subclass-mappings)))
-	    joined-references)))
+    (multiple-value-bind (fetched-references
+			  fetched-columns
+			  fetched-from-clause class-loader)
+	(fetch-object class-name alias table-join
+		      primary-key properties one-to-many-mappings
+		      many-to-one-mappings superclass-mappings
+		      subclass-mappings)
+      (let ((from-clause
+	     (append (reverse join-path) fetched-from-clause))
+	    (class (find-class class-name)))
+	(values #'(lambda (&optional (property-reader nil name-present-p))
+		    (if name-present-p
+			(funcall
+			 (rest
+			  (assoc (get-slot-name class property-reader)
+				 joined-properties)))
+			(values fetched-references
+				fetched-columns
+				from-clause
+				class-loader)))
+		joined-references)))))
 
 (defun plan-root-class-mapping (alias class-name
 				&key table-name primary-key properties
