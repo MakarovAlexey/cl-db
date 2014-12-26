@@ -647,7 +647,7 @@
 			      fetched-references)
 	    (compute-select (or select joined-list) joined-list)
 	  (let ((query
-		 (make-query select-list
+		 (make-query columns from-clause
 			     (compute-clause where joined-list)
 			     (compute-clause order-by select-list)
 			     (compute-clause having select-list)
