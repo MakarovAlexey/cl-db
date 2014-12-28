@@ -19,7 +19,7 @@
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name)))
     (values #'(lambda ()
-		(values column-name table-alias alias))
+		(values column-name alias table-alias))
 	    #'(lambda (row)
 		(rest
 		 (assoc alias row :test #'string=))))))
@@ -537,10 +537,10 @@
 			 (rest
 			  (assoc (get-slot-name class property-reader)
 				 joined-properties)))
-			(values fetched-references
-				fetched-columns
+			(values fetched-columns
 				from-clause
-				class-loader)))
+				class-loader
+				fetched-references)))
 		joined-references)))))
 
 (defun plan-root-class-mapping (class-name &key table-name primary-key
@@ -576,6 +576,49 @@
 ;;	     (apply #'compute-select-list select-list-elements))
 ;;      root))
 
+(defun compute-clause (expression &rest rest-clause)
+  (multiple-value-bind (result from-clause)
+      (funcall element)
+    (multiple-value-bind (rest-result rest-from-clause)
+	(when (not (null rest-clause))
+	  (apply #'compute-clause rest-clause))
+      (value
+       (list* result rest-result)
+       (append from-clause rest-from-clause)))))
+
+(defun make-query (select-list select-list-from-clause
+		   joined-list where order-by having limit offset)
+  (multiple-value-bind (where-clause where-from-clause)
+      (when (not (null where))
+	(apply #'compute-clause
+	       (multiple-value-list
+		(funcall where joined-list))))
+    (multiple-value-bind (having-clause having-from-clause)
+	(when (not (null having))
+	  (apply #'compute-clause
+		 (multiple-value-list
+		  (funcall having joined-list))))
+      (let ((from-clause
+	     (remove-duplicates (append select-list-from-clause
+					where-from-clause
+					having-from-clause)
+				:from-end t))
+	    (order-by-clause
+	     (compute-order-by-clause joined-list order-by))
+	    (group-by-clause
+	     (compute-group-by-clause select-list)))
+	#'(lambda (&rest args)
+	    (if (not (null args))
+		(values-list args)
+		(values select-list
+			from-clause
+			where-clause
+			order-by-clause
+			group-by-clause
+			having-clause
+			limit
+			offset)))))))
+
 (defun join (references accessor alias &optional join)
   (multiple-value-bind (selector references)
       (funcall references accessor 'join)
@@ -592,39 +635,6 @@
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 
-;; stubfunction, implement query creation.
-(defun make-query (columns from-clause where-clause order-by-clause
-		   having-clause limit offset)
-  (let (select-list
-	from-clause
-	where-clause
-	group-by-clause
-	having-clause
-	order-by-clause)
-  (lambda (&optional table-alias column-name)
-    (if (and table-alias column-name)
-	(list table-alias column-name)
-	(values select-list
-		from-clause
-		where-clause
-		group-by-clause
-		having-clause
-		order-by-clause
-		limit
-		offset)))))
-
-;; implemnt column name and table alias search
-(defun make-subquery (query)
-  (lambda (&optional table-alias column-name)
-    query
-    nil))
-
-(defun compute-clause (clause args &optional default)
-  (if (not (null clause))
-      (multiple-value-list
-       (apply clause args))
-      default))
-
 (defun db-read (roots &key join select where order-by having
 			offset limit singlep transform fetch
 			(mapping-schema *mapping-schema*))
@@ -635,24 +645,20 @@
 	(if (not (listp roots))
 	    (make-join-plan mapping-schema roots)
 	    (apply #'make-join-plan mapping-schema roots))
-      (let ((joined-list
-	     (append selectors
-		     (compute-clause join joined-references))))
-	(multiple-value-bind (columns
-			      from-clause loaders
-			      fetched-references)
-	    (compute-select (or select joined-list) joined-list)
-	  (let ((query
-		 (make-query columns from-clause
-			     (compute-clause where joined-list)
-			     (compute-clause order-by select-list)
-			     (compute-clause having select-list)
-			     limit
-			     offset)))
-	    (reduce (lambda (query fetched-reference)
-		      (funcall fetched-reference query))
-		    (compute-clause fetch select-list)
-		    :initial-value
-		    (if (not (null (and fetch (or limit offset))))
-			(make-subquery query)
-			query))))))))
+      (multiple-value-bind (select-list-items
+			    select-from-clause
+			    loaders fetch-refernces)
+	  (compute-select-clause select joined-list)
+	(make-query (append selectors
+			    (when (not (null join))
+			      (multiple-value-list
+			       (apply join joined-references))))
+		    select where order-by having limit offset)))))
+
+(reduce (lambda (query fetched-reference)
+		  (funcall fetched-reference query))
+		(compute-clause fetch select-list)
+		:initial-value
+		(if (not (null (and fetch (or limit offset))))
+		    (make-subquery query)
+		    query))))))
