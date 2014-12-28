@@ -11,15 +11,12 @@
 (defun make-alias (&optional (name "table"))
   (format nil "~a_~a" name (incf *table-index*)))
 
-(defun append-alias (alias column-names)
-  (mapcar #'(lambda (column-name)
-	      (list alias column-name))
-	  column-names))
-
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name)))
     (values #'(lambda ()
-		(values column-name alias table-alias))
+		(values #'(lambda ()
+			    (values column-name table-alias))
+			alias))
 	    #'(lambda (row)
 		(rest
 		 (assoc alias row :test #'string=))))))
@@ -93,7 +90,7 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'list foreign-key
-			(append-alias alias primary-key)))))
+			(apply #'plan-key alias primary-key)))))
     (plan-class alias class-name table-join join-path primary-key
 		properties one-to-many-mappings many-to-one-mappings
 		superclass-mappings subclass-mappings)))
@@ -128,7 +125,7 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'list root-primary-key
-			(append-alias alias foreign-key)))))
+			(apply #'plan-key alias foreign-key)))))
     (plan-class alias class-name table-join join-path primary-key
 		properties one-to-many-mappings many-to-one-mappings
 		superclass-mappings subclass-mappings)))
@@ -160,7 +157,7 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'list foreign-key
-			(append-alias alias primary-key)))))
+			(apply #'plan-key alias primary-key)))))
     (multiple-value-bind (fetch-references
 			  columns from-clause object-loader)
 	(fetch-object class-name alias table-join primary-key
@@ -216,7 +213,7 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'list root-primary-key
-			(append-alias alias foreign-key)))))
+			(apply #'plan-key alias foreign-key)))))
     (multiple-value-bind (fetch-references columns from-clause loader)
 	(fetch-object class-name alias table-join primary-key
 		      properties one-to-many-mappings
@@ -259,7 +256,7 @@
 				 (make-hash-table :test #'equal)))
 	object))
 
-(defun fetch-slots (class-name alias table-join primary-key
+(defun fetch-slots (class-name alias table-join
 		    primary-key-columns primary-key-loader properties
 		    one-to-many-mappings many-to-one-mappings
 		    superclass-mappings)
@@ -276,8 +273,8 @@
 		 class-name alias many-to-one-mappings)
 	(values
 	 (append many-to-one-fetched-references
-		 (apply #'fetch-one-to-many-mappings
-			class-name primary-key one-to-many-mappings)
+		 (apply #'fetch-one-to-many-mappings class-name
+			primary-key-columns one-to-many-mappings)
 		 superclasses-fetched-references)
 	 (append primary-key-columns
 		 property-columns
@@ -299,7 +296,7 @@
   (let* ((alias
 	  (make-alias))
 	 (foreign-key
-	  (append-alias subclass-alias foreign-key))
+	  (apply #'plan-key subclass-alias foreign-key))
 	 (primary-key
 	  (append-alias alias primary-key))
 	 (table-join
@@ -307,7 +304,7 @@
 		 (mapcar #'list primary-key foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
 	(apply #'plan-key alias primary-key)
-      (fetch-slots class-name alias table-join primary-key
+      (fetch-slots class-name alias table-join
 		   primary-key-columns primary-key-loader properties
 		   one-to-many-mappings many-to-one-mappings
 		   superclass-mappings))))
@@ -346,14 +343,14 @@
     (dolist (superclass-loader superclass-loaders object)
       (funcall superclass-loader object primary-key row))))
 
-(defun fetch-class (class-name alias table-join primary-key
+(defun fetch-class (class-name alias table-join
 		    primary-key-columns primary-key-loader properties
 		    one-to-many-mappings many-to-one-mappings
 		    superclass-mappings subclass-mappings)
   (let ((class (find-class class-name)))
     (multiple-value-bind (fetched-references
 			  columns from-clause superclass-loaders)
-	(fetch-slots class-name alias table-join primary-key
+	(fetch-slots class-name alias table-join
 		     primary-key-columns primary-key-loader properties
 		     one-to-many-mappings many-to-one-mappings
 		     superclass-mappings)
@@ -382,7 +379,7 @@
     (multiple-value-bind (fetched-references
 			  fetched-columns
 			  fetched-from-clause class-loader)
-	(fetch-class class-name alias table-join primary-key
+	(fetch-class class-name alias table-join
 		     primary-key-columns primary-key-loader
 		     properties one-to-many-mappings
 		     many-to-one-mappings superclass-mappings
@@ -409,18 +406,17 @@
 			 many-to-one-mappings superclass-mappings
 			 subclass-mappings)
   (let* ((alias (make-alias))
-	 (foreign-key (append-alias alias foreign-key))
+	 (foreign-key (apply #'plan-key alias foreign-key))
 	 (table-join
 	  (list* :left-join table-name alias
-		 (mapcar #'list superclass-primary-key foreign-key)))
-	 (primary-key (append-alias alias primary-key)))
+		 (mapcar #'list superclass-primary-key foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
 	(apply #'plan-key alias primary-key)
       (multiple-value-bind (class-fetched-references
 			    class-columns
 			    class-from-clause
 			    class-loader)
-	  (fetch-class class-name alias table-join primary-key
+	  (fetch-class class-name alias table-join
 		       primary-key-columns primary-key-loader
 		       properties one-to-many-mappings
 		       many-to-one-mappings superclass-mappings
@@ -468,9 +464,9 @@
   (let* ((alias
 	  (make-alias))
 	 (foreign-key
-	  (append-alias subclass-alias foreign-key))
+	  (apply #'plan-key subclass-alias foreign-key))
 	 (primary-key
-	  (append-alias alias primary-key))
+	  (apply #'plan-key alias primary-key))
 	 (table-join
 	  (list* :inner-join table-name alias
 		 (mapcar #'list primary-key foreign-key))))
@@ -618,6 +614,23 @@
 			having-clause
 			limit
 			offset)))))))
+
+(defun make-subquery (select-list query)
+  (let ((alias "subquery")
+	(query-select-list
+	 (reduce #'(lambda (result select-list-item)
+		     (multiple-value-bind (expression alias)
+			 (funcall select-list-item)
+		       (acons alias expression result)))
+		 select-list
+		 :initial-value nil)))
+    #'(lambda (&optional column-expression)
+	(if (not (null column-expression))
+	    #'(lambda ()
+		(values (rassoc column-expression query-select-list)
+			alias))
+	    ))))
+	    
 
 (defun join (references accessor alias &optional join)
   (multiple-value-bind (selector references)
