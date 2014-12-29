@@ -79,17 +79,19 @@
 		 (apply #'join-properties
 			alias join-path properties)))))))
 
-(defun join-many-to-one (join-path alias foreign-key class-name
+(defun join-many-to-one (join-path root-alias foreign-key class-name
 			 &key table-name primary-key properties
 			   one-to-many-mappings
 			   many-to-one-mappings
 			   superclass-mappings subclass-mappings)
-  (let* ((foreign-key
-	  (append-alias alias foreign-key))
-	 (alias (make-alias))
+  (let* ((alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
-		(mapcar #'list foreign-key
+		(mapcar #'(lambda (fk-column pk-column)
+			    (list
+			     (funcall fk-column)
+			     (funcall pk-column)))
+			(apply #'plan-key root-alias foreign-key)
 			(apply #'plan-key alias primary-key)))))
     (plan-class alias class-name table-join join-path primary-key
 		properties one-to-many-mappings many-to-one-mappings
@@ -124,7 +126,9 @@
 	 (alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
-		(mapcar #'list root-primary-key
+		(mapcar #'(lambda (pk-column fk-column)
+			    (list pk-column (funcall fk-column)))
+			root-primary-key
 			(apply #'plan-key alias foreign-key)))))
     (plan-class alias class-name table-join join-path primary-key
 		properties one-to-many-mappings many-to-one-mappings
@@ -156,7 +160,9 @@
   (let* ((alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
-		(mapcar #'list foreign-key
+		(mapcar #'(lambda (fk-column pk-column)
+			    (list fk-column (funcall pk-column)))
+			foreign-key
 			(apply #'plan-key alias primary-key)))))
     (multiple-value-bind (fetch-references
 			  columns from-clause object-loader)
@@ -192,7 +198,8 @@
 		  #'(lambda (fetch-query)
 		      (declare (ignore fetch-query))
 		      (apply #'fetch-many-to-one
-			     class-name slot-name foreign-key-columns
+			     class-name slot-name
+			     (mapcar #'funcall foreign-key-columns)
 			     (get-class-mapping reference-class-name)))
 		  references)
 	   (append foreign-key-columns columns)))))))
@@ -212,7 +219,10 @@
 	 (alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
-		(mapcar #'list root-primary-key
+		(mapcar #'(lambda (pk-column fk-column)
+			    (list pk-column
+				  (funcall fk-column)))
+			root-primary-key
 			(apply #'plan-key alias foreign-key)))))
     (multiple-value-bind (fetch-references columns from-clause loader)
 	(fetch-object class-name alias table-join primary-key
@@ -296,15 +306,17 @@
   (let* ((alias
 	  (make-alias))
 	 (foreign-key
-	  (apply #'plan-key subclass-alias foreign-key))
-	 (primary-key
-	  (append-alias alias primary-key))
-	 (table-join
-	  (list* :inner-join table-name alias
-		 (mapcar #'list primary-key foreign-key))))
+	  (apply #'plan-key subclass-alias foreign-key)))
     (multiple-value-bind (primary-key-columns primary-key-loader)
 	(apply #'plan-key alias primary-key)
-      (fetch-slots class-name alias table-join
+      (fetch-slots class-name alias
+		   (list* :inner-join table-name alias
+			  (mapcar #'(lambda (pk-column fk-column)
+				      (list
+				       (funcall pk-column)
+				       (funcall fk-column)))
+				  primary-key-columns
+				  foreign-key))
 		   primary-key-columns primary-key-loader properties
 		   one-to-many-mappings many-to-one-mappings
 		   superclass-mappings))))
@@ -354,13 +366,13 @@
 		     primary-key-columns primary-key-loader properties
 		     one-to-many-mappings many-to-one-mappings
 		     superclass-mappings)
-      (multiple-value-bind (subclass-fetched-references
+      (multiple-value-bind (subclasses-fetched-references
 			    subclasses-columns
 			    subclasses-from-clause subclass-loaders)
 	  (apply #'fetch-subclasses primary-key subclass-mappings)
 	(values
 	 (append fetched-references
-		 subclass-fetched-references)
+		 subclasses-fetched-references)
 	 (append columns subclasses-columns)
 	 (append from-clause subclasses-from-clause)
 	 #'(lambda (row)
@@ -409,7 +421,11 @@
 	 (foreign-key (apply #'plan-key alias foreign-key))
 	 (table-join
 	  (list* :left-join table-name alias
-		 (mapcar #'list superclass-primary-key foreign-key))))
+		 (mapcar #'(lambda (pk-column fk-column)
+			     (list pk-column
+				   (funcall fk-column)))
+			 superclass-primary-key
+			 foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
 	(apply #'plan-key alias primary-key)
       (multiple-value-bind (class-fetched-references
@@ -469,7 +485,12 @@
 	  (apply #'plan-key alias primary-key))
 	 (table-join
 	  (list* :inner-join table-name alias
-		 (mapcar #'list primary-key foreign-key))))
+		 (mapcar #'(lambda (pk-column fk-column)
+			     (list
+			      (funcall pk-column)
+			      (funcall fk-column)))
+			 primary-key
+			 foreign-key))))
     (join-class alias (list* table-join join-path) primary-key
 		properties one-to-many-mappings many-to-one-mappings
 		superclass-mappings)))
@@ -504,8 +525,10 @@
 	     superclasses-properties)
      (append (apply #'join-many-to-one-mappings
 		    join-path alias many-to-one-mappings)
-	     (apply #'join-one-to-many-mappings
-		    join-path (append-alias alias primary-key)
+	     (apply #'join-one-to-many-mappings join-path
+		    (mapcar #'funcall
+			    (apply #'plan-key
+				   alias primary-key))
 		    one-to-many-mappings)
 	     superclasses-joined-references))))
 
