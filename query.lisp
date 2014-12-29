@@ -617,18 +617,21 @@
 	  (apply #'compute-clause
 		 (multiple-value-list
 		  (funcall having joined-list))))
+      (multiple-value-bind (order-by-clause order-by-from-clause)
+	  (when (not (null order-by))
+	    (apply #'compute-clause
+		   (multiple-value-list
+		    (funcall order-by joined-list))))
       (let ((from-clause
 	     (remove-duplicates (append select-list-from-clause
 					where-from-clause
 					having-from-clause)
 				:from-end t))
-	    (order-by-clause
-	     (compute-order-by-clause joined-list order-by))
 	    (group-by-clause
 	     (compute-group-by-clause select-list)))
-	#'(lambda (&rest args)
-	    (if (not (null args))
-		(values-list args)
+	#'(lambda (&optional column-expression nil column-present-p)
+	    (if column-present-p
+		column-present-p
 		(values select-list
 			from-clause
 			where-clause
@@ -636,7 +639,7 @@
 			group-by-clause
 			having-clause
 			limit
-			offset)))))))
+			offset))))))))
 
 (defun make-subquery (select-list query)
   (let ((alias "subquery")
@@ -647,7 +650,7 @@
 		       (acons alias expression result)))
 		 select-list
 		 :initial-value nil)))
-    #'(lambda (&optional column-expression)
+    #'(lambda (&optional column-expression nil column-present-p)
 	(if (not (null column-expression))
 	    #'(lambda ()
 		(values (rassoc column-expression query-select-list)
