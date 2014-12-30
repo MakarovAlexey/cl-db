@@ -13,6 +13,15 @@
   | root        | -           | X    | -     | -        | -      |
   | superclass  | -           | X    | -     | -        | -      |
   | subclass    | -           | X    | -     | -        | -      |
+** arguments  
+   - select-list - joned-list
+   - where - joined-list
+   - from select-list + where
+   - group-by - select-list - argegate expressions
+   - having - select-list
+   - order-by - select-list
+   - fetch - select-list
+
 ** db-read (criteria-or-list &key select-list transform fetch-also where order-by having offset limit)
     |             | root      | superclass          | subclass  |
     |-------------+-----------+---------------------+-----------|
