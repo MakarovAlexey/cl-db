@@ -2054,3 +2054,41 @@ Single instance
 (db-read 'cat :single t
 	 :where (lambda (cat)
 		  (expression-eq cat #'id-of 35)))
+
+
+(db-read '(commit commit)
+	 :join #'(lambda (commit-1 commit-2)
+		   (values (join commit-1 #'branch-of)
+			   (join commit-2 #'branch-of)))
+	 :select #'(lambda (commit-1 commit-2 branch-1 branch-2)
+		     (declare (ignore branch-1 branch-2))
+		     (db-or commit-1 commit-2))
+	 :where #'(lambda (commit-1 commit-2 branch-1 branch-2)
+		    (declare (ignore branch-1 branch-2))
+		    (db-and
+		     (slot-eq commit-1 #'branch-of branch-1)
+		     (slot-eq commit-2 #'branch-of branch-2)
+		     (db-not (db-eq commit-1 commit-2))))
+	 :order-by #'(lambda (commit)
+		       (ascending commit #'date-of)))
+
+Или
+
+(db-read '(branch-1 branch-2)
+	 :join #'(lambda (branch-1 branch-2)
+		   (values
+		    (join branch-1 #'commit-of
+			  :recursive #'parent-commit-of)
+		    (join branch-2 #'commit-of
+			  :recursive #'parent-commit-of)))
+	 :select #'(lambda (branch-1 branch-2 commit-1 commit-2)
+		     (declare (ignore branch-1 branch-2))
+		     (commit-1 commit-2))
+	 :where #'(lambda (branch-1 branch-2 commit-1 commit-2)
+		    (db-and
+		     (slot-eq commit-1 #'branch-of branch-1)
+		     (slot-eq commit-2 #'branch-of branch-2)
+		     (db-not (db-eq commit-1 commit-2))))
+	 :order-by #'(lambda (commit)
+		       (ascending commit #'date-of))))
+;;; ?????

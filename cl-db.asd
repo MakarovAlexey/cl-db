@@ -16,7 +16,9 @@
 	       (:file "session")
 ;;	       (:file "bindings")
 ;;	       (:file "expressions")
-	       (:file "query")))
+	       (:file "query-plan")
+	       (:file "query")
+	       (:file "db-read")))
 
 (asdf:defsystem #:cl-db.tests
   :serial t

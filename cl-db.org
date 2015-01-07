@@ -420,3 +420,6 @@
 *** Quering and loading single object
 ** Object persistence (inserting and updateing queries)
 ** Selecting values (slot values, functions, aggegation)
+* Query examples
+** Рекурсиваня выборка с ограничением "до об"
+   

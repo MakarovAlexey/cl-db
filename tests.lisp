@@ -158,6 +158,13 @@
     (declare (ignore class-name))
     (lift:ensure properties)))
 
+(lift:addtest make-join-plan
+  (let ((*table-index* 0))
+    (make-join-plan (projects-managment) 'project)
+    (make-join-plan (projects-managment) 'project-participation)
+    (make-join-plan (projects-managment) 'project-managment)
+    (make-join-plan (projects-managment) 'user)))
+
 (lift:addtest join-reference
   (multiple-value-bind (select-list references fetch)
       (db-read 'project :mapping-schema (projects-managment)
@@ -165,6 +172,21 @@
 			 (join-reference project #'project-members-of)))
     (lift:ensure
      (not (listp select-list)))))
+
+(lift:addtest ascending-order ()
+  (db-read 'project
+	   :mapping-schema (projects-managment)
+	   :order-by #'(lambda (project)
+			 (ascending project #'name-of))))
+(lift:addtest joining ()
+  (db-read 'project
+	   :mapping-schema (projects-managment)
+	   :join #'(lambda (project)
+		     (lift:ensure (listp project))
+		     (join project #'project-members-of :members))
+	   :select #'(lambda (project &key members)
+		       (lift:ensure (not (null members)))
+		       (values project members))))
 
 (defun test ()
   (describe (lift:run-tests)))
