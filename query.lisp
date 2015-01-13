@@ -102,7 +102,21 @@
        (list* result rest-result)
        (append from-clause rest-from-clause)))))
 
+(defun compute-group-by-clause (select-list-item
+				&rest select-list-items)
+  (multiple-value-bind (group-by-clause group-present-p)
+      (when (not (null select-list-items))
+	(apply #'compute-group-by-clause select-list-items))
+    (multiple-value-bind (expression alias group-by-columns)
+	(funcall select-list-item)
+      (declare (ignore expression alias))
+      (values (append group-by-columns group-by-clause)
+	      (or (null group-by-columns)
+		  group-present-p)))))
+
 (defun compute-select-clause (select-item &rest select-list)
+;;(multiple-value-bind (group-by-clause group-by-present-p)
+;;	(apply #'compute-group-by-clause select-list-items)
   (multiple-value-bind (select-list-items
 			select-from-clause
 			loader
@@ -120,50 +134,71 @@
        (list* loader rest-loaders)
        (list* fetched-refernces rest-fetched-refernces)))))
 
-(defun compute-group-by-clause (select-list-item
-				&rest select-list-items)
-  (multiple-value-bind (group-by-clause group-present-p)
-      (when (not (null select-list-items))
-	(apply #'compute-group-by-clause select-list-items))
-    (multiple-value-bind (expression alias group-by-columns)
-	(funcall select-list-item)
-      (declare (ignore expression alias))
-      (values (append group-by-columns group-by-clause)
-	      (or (null group-by-columns)
-		  group-present-p)))))
-
-(defun compute-query (joined-list select-list where
-		      order-by having limit offset fetch)
+(defun compute-query (joined-list select-list where-clause
+		      order-by-clause having-clause
+		      fetched-references limit offset)
   (multiple-value-bind (select-list-items
-			select-list-from-clause
-			loaders
-			fetched-references)
+			select-list-from-clause loaders)
+      (apply #'compute-select-clause select-list)
+    (multiple-value-bind (group-by-clause group-by-present-p)
+	(apply #'compute-group-by-clause select-list-items)
+      (multiple-value-bind (where-clause where-from-clause)
+	  (apply #'compute-clause where-clause)
+	(multiple-value-bind (having-clause having-from-clause)
+	    (apply #'compute-clause having-clause)
+	  (let ((from-clause
+		 (remove-duplicates (append select-list-from-clause
+					    where-from-clause
+					    having-from-clause)
+				    :from-end t)))
+	    (multiple-value-bind (query
+				  fetched-references-loaders
+				  placeholder-values)
+		(if (not (null (and fetch (or limit offset))))
+		    (make-subquery select-list-items from-clause
+				   where-clause order-by-clause
+				   (when group-by-present-p
+				     group-by-clause)
+				   having-clause
+				   limit offset
+				   references-to-fetch)
+		    (make-query select-list-items from-clause
+				where-clause order-by-clause
+				(when group-by-present-p
+				  group-by-clause)
+				having-clause
+				limit offset
+				references-to-fetch))
+	      (values query
+		      (mapcar #'(lambda (select-list-item item-loader)
+				  (let ((reference-loaders
+					 (mapcar #'rest
+						 (remove select-list-item
+							 fetched-references-loaders
+							 :test-not #'eq
+							 :key #'first))))
+				    #'(lambda (object object-rows)
+					(funcall item-loader
+						 object
+						 object-rows
+						 reference-loaders))))
+			      loaders)
+		      placeholder-values))))))))
+
+(defun compute-query (joined-list select-list where-clause
+		      order-by-clause having-clause
+		      fetched-references limit offset)
+  (multiple-value-bind (query loaders)
       (apply #'compute-select-clause select-list)
     (multiple-value-bind (where-clause where-from-clause)
-	(when (not (null where))
-	  (apply #'compute-clause
-		 (multiple-value-list
-		  (apply where joined-list))))
+	(apply #'compute-clause where-clause)
       (multiple-value-bind (having-clause having-from-clause)
-	  (when (not (null having))
-	    (apply #'compute-clause
-		   (multiple-value-list
-		    (apply having joined-list))))
-	(multiple-value-bind (group-by-clause group-by-present-p)
-	    (apply #'compute-group-by-clause select-list-items)
+	  (apply #'compute-clause having-clause)
 	(let ((from-clause
 	       (remove-duplicates (append select-list-from-clause
 					  where-from-clause
 					  having-from-clause)
-				  :from-end t))
-	      (references-to-fetch
-	       (when (not (null fetch))
-		 (multiple-value-list
-		  (apply fetch fetched-references))))
-	      (order-by-clause
-	       (when (not (null order-by))
-		 (multiple-value-list
-		  (apply order-by select-list)))))
+				  :from-end t)))
 	  (multiple-value-bind (query
 				fetched-references-loaders
 				placeholder-values)

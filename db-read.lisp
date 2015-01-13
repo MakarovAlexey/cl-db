@@ -1,5 +1,15 @@
 (in-package #:cl-db)
 
+(defun compute-select (select-item &rest select-list)
+  (multiple-value-bind (selector fetch-refernces)
+      (funcall select-item)
+    (multiple-value-bind (selectors rest-fetch-refernces)
+	(when (not (null select-list))
+	  (apply #'compute-select select-list))
+      (values
+       (list* selector selectors)
+       (append fetched-refernces rest-fetched-refernces)))))
+
 (defun property (reader entity)
   (funcall entity reader))
 		    
@@ -48,9 +58,25 @@
 		     (when (not (null join))
 		       (multiple-value-call #'append
 			 (apply join joined-references))))))
-	(compute-query joined-list
-		       (if (not (null select))
+	(multiple-value-bind (select-list fetch-references)
+	    (compute-select
+	     (if (not (null select))
+		 (multiple-value-list
+		  (apply select joined-list))
+		 selectors))
+	  (compute-query joined-list
+			 select-list
+			 (when (not (null where))
 			   (multiple-value-list
-			    (apply select joined-list))
-			   selectors)
-		       where order-by having limit offset fetch)))))
+			    (apply where joined-list)))
+			 (when (not (null order-by))
+			   (multiple-value-list
+			    (apply order-by select-list)))
+			 (when (not (null having))
+			   (multiple-value-list
+			    (apply having joined-list)))
+			 (when (not (null fetch))
+			   (multiple-value-list
+			    (apply fetch fetch-references)))
+			 limit
+			 offset))))))

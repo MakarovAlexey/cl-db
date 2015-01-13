@@ -553,19 +553,21 @@
       (let ((from-clause
 	     (append (reverse join-path) fetched-from-clause))
 	    (class (find-class class-name)))
-	(values #'(lambda (&optional (property-reader nil name-present-p))
-		    (if name-present-p
-			(funcall
-			 (rest
-			  (assoc (get-slot-name class property-reader)
-				 joined-properties)))
-			(values fetched-columns
-				from-clause
-				class-loader
-				#'(lambda (reader)
-				    (rest
-				     (assoc (get-slot-name class reader)
-					    fetched-references))))))
+	(values #'(lambda ()
+		    (values #'(lambda (&optional (property-reader
+						  nil name-present-p))
+				(if name-present-p
+				    (funcall
+				     (rest
+				      (assoc (get-slot-name class property-reader)
+					     joined-properties)))
+				    (values fetched-columns
+					    from-clause
+					    class-loader)))
+			    #'(lambda (reader)
+				(rest
+				 (assoc (get-slot-name class reader)
+					fetched-references)))))
 		#'(lambda (reader)
 		    (funcall
 		     (rest
