@@ -8,14 +8,28 @@
       (funcall references accessor)
     (list* alias selector
 	   (when (not (null join))
-	     (funcall join references)))))
+	     (multiple-value-list
+	      (funcall join references))))))
 
 (defun fetch (references accessor &optional fetch)
-  (multiple-value-bind (selector references)
-      (funcall references accessor 'fetch)
-    (list* selector
-	   (when (not (null fetch))
-	     (funcall fetch references)))))
+  (values #'(lambda (query)
+	      (multiple-value-bind (columns
+				    from-clause
+				    loader
+				    references)
+		  (funcall references accessor query)
+		(multiple-value-bind (reference-columns
+				      reference-from-clause
+				      reference-loaders)
+		    (when (not (null fetch))
+		      (apply #'compute-fetch
+			     (multiple-value-list
+			      (funcall fetch references))))
+		  (values (append columns reference-columns)
+			  (append from-clause reference-from-clause)
+			  #'(lambda (&rest args)
+			      (apply loader (append args reference-loaders)))))))
+	  references))
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 

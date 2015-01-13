@@ -8,8 +8,7 @@
   (when (not (null reference))
     (multiple-value-bind (fetch-columns
 			  fetch-from-clause
-			  fetch-loader
-			  select-list-item)
+			  fetch-loader)
 	(funcall reference column-selector)
       (multiple-value-bind (rest-fetch-columns
 			    rest-fetch-from-clause
@@ -21,7 +20,7 @@
 	 (remove-duplicates (append fetch-from-clause
 				    rest-fetch-from-clause)
 			    :from-end t)
-	 (acons select-list-item fetch-loader rest-fetch-loaders))))))
+	 (list* fetch-loader rest-fetch-loaders)))))) ;; loaders as alist
 
 (defun make-subquery (select-list-items from-clause
 		      where-clause order-by-clause
@@ -196,6 +195,5 @@
 					       object
 					       object-rows
 					       reference-loaders))))
-			    select-list
 			    loaders)
 		    placeholder-values))))))))

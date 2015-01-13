@@ -159,8 +159,10 @@
 			    (list fk-column (funcall pk-column)))
 			foreign-key
 			(apply #'plan-key alias primary-key)))))
-    (multiple-value-bind (fetch-references
-			  columns from-clause object-loader)
+    (multiple-value-bind (columns
+			  from-clause
+			  reference-loader
+			  fetch-references)
 	(fetch-object class-name alias table-join primary-key
 		      properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings
@@ -171,7 +173,7 @@
 	      #'(lambda (object object-rows fetched-references)
 		  (when (typep object root-class-name)
 		    (setf (slot-value object slot-name)
-			  (funcall object-loader
+			  (funcall reference-loader
 				   (first object-rows) object-rows
 				   fetched-references))))))))
 
@@ -219,7 +221,10 @@
 				  (funcall fk-column)))
 			root-primary-key
 			(apply #'plan-key alias foreign-key)))))
-    (multiple-value-bind (fetch-references columns from-clause loader)
+    (multiple-value-bind (columns
+			  from-clause
+			  reference-loader
+			  fetch-references)
 	(fetch-object class-name alias table-join primary-key
 		      properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings
@@ -233,8 +238,9 @@
 			  (apply serializer
 				 (remove-duplicates
 				  (mapcar #'(lambda (row)
-					      (funcall loader
-						       row object-rows
+					      (funcall reference-loader
+						       row
+						       object-rows
 						       fetched-references))
 					  object-rows))))))))))
 
@@ -556,7 +562,10 @@
 			(values fetched-columns
 				from-clause
 				class-loader
-				fetched-references)))
+				#'(lambda (reader)
+				    (rest
+				     (assoc (get-slot-name class reader)
+					    fetched-references))))))
 		#'(lambda (reader)
 		    (funcall
 		     (rest
