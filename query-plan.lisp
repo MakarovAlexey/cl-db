@@ -2,6 +2,9 @@
 
 (defvar *table-index*)
 
+(defun make-alias (&optional (name "table"))
+  (format nil "~a_~a" name (incf *table-index*)))
+
 (defun get-class-mapping (class-name
 			  &optional (mapping-schema *mapping-schema*))
   (or

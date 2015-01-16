@@ -1,14 +1,14 @@
 (in-package #:cl-db)
 
 (defun compute-select (select-item &rest select-list)
-  (multiple-value-bind (selector fetch-refernces)
+  (multiple-value-bind (selector fetched-refernces)
       (funcall select-item)
-    (multiple-value-bind (selectors rest-fetch-refernces)
+    (multiple-value-bind (selectors rest-fetched-refernces)
 	(when (not (null select-list))
 	  (apply #'compute-select select-list))
       (values
        (list* selector selectors)
-       (append fetched-refernces rest-fetched-refernces)))))
+       (list* fetched-refernces rest-fetched-refernces)))))
 
 (defun property (reader entity)
   (funcall entity reader))
@@ -22,24 +22,25 @@
 	      (funcall join references))))))
 
 (defun fetch (references accessor &optional fetch)
-  (values #'(lambda (query)
-	      (multiple-value-bind (columns
-				    from-clause
-				    loader
-				    references)
-		  (funcall references accessor query)
-		(multiple-value-bind (reference-columns
-				      reference-from-clause
-				      reference-loaders)
-		    (when (not (null fetch))
-		      (apply #'compute-fetch
-			     (multiple-value-list
-			      (funcall fetch references))))
-		  (values (append columns reference-columns)
-			  (append from-clause reference-from-clause)
-			  #'(lambda (&rest args)
-			      (apply loader (append args reference-loaders)))))))
-	  references))
+  (let ((reference-fn (funcall references accessor)))
+    #'(lambda (query)
+	(multiple-value-bind (columns
+			      from-clause
+			      loader
+			      references)
+	    (funcall reference-fn query)
+	  (multiple-value-bind (reference-columns
+				reference-from-clause
+				reference-loaders)
+	      (when (not (null fetch))
+		(apply #'compute-fetch
+		       (multiple-value-list
+			(funcall fetch references))))
+	    (values (append columns reference-columns)
+		    (append from-clause reference-from-clause)
+		    #'(lambda (&rest args)
+			(apply loader (append args reference-loaders)))
+		    references))))))
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 
@@ -64,8 +65,7 @@
 		 (multiple-value-list
 		  (apply select joined-list))
 		 selectors))
-	  (compute-query joined-list
-			 select-list
+	  (compute-query select-list
 			 (when (not (null where))
 			   (multiple-value-list
 			    (apply where joined-list)))
