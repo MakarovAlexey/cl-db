@@ -568,9 +568,10 @@
 					    from-clause
 					    class-loader)))
 			    #'(lambda (reader)
-				(rest
-				 (assoc (get-slot-name class reader)
-					fetched-references)))))
+				(values (rest
+					 (assoc (get-slot-name class reader)
+						fetched-references))
+					class-loader))))
 		#'(lambda (reader)
 		    (funcall
 		     (rest

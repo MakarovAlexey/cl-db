@@ -51,7 +51,7 @@
   (multiple-value-bind (where-expression from-clause)
       (funcall expression)
     (query-append (if (not (null rest-clause))
-		      (apply #'compute-where-clause
+		      (apply #'append-where-clause
 			     query rest-clause)
 		      query)
 		  :where-clause where-expression
@@ -61,7 +61,7 @@
   (multiple-value-bind (having-expression from-clause)
       (funcall expression)
     (query-append (if (not (null rest-clause))
-		      (apply #'compute-having-clause
+		      (apply #'append-having-clause
 			     query rest-clause)
 		      query)
 		  :having-clause having-expression
