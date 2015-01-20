@@ -21,10 +21,17 @@
 	     (multiple-value-list
 	      (funcall join references))))))
 
-;;(defun compute-fetch (fetched-references &rest fetched-references)
-;;  (multiple-value-bind (reference-columns
-;;			reference-from-clause
-;;			reference-loaders)
+(defun compute-fetch (query loader
+		      &optional reference-fetching
+		      &rest reference-fetchings)
+  (if (not (null reference-fetching))
+      (multiple-value-bind (query reference-loader class-loader)
+	  (funcall reference-fetching query)
+	(declare (ignore query))
+	(values query
+		
+		
+	  (values query loader))
 ;;      (when (not (null fetched-references))
 ;;	(apply #'compute-fetch fetched-references))
 ;;    (multiple-value-bind (columns
@@ -36,23 +43,16 @@
   (multiple-value-bind (reference class-loader)
       (funcall references accessor)
     #'(lambda (query)
-	(multiple-value-bind (columns
-			      from-clause
-			      loader
-			      references)
+	(multiple-value-bind (query reference-loader references)
 	    (funcall reference query)
-	  (multiple-value-bind (reference-columns
-				reference-from-clause
-				reference-loaders)
-	      (when (not (null fetch))
-		(apply #'compute-fetch
+	  (multiple-value-bind (query reference-loader)
+	      (apply #'compute-fetch
+		     query
+		     reference-loader
+		     (when (not (null fetch))
 		       (multiple-value-list
 			(funcall fetch references))))
-	    (values (append columns reference-columns)
-		    (append from-clause reference-from-clause)
-		    #'(lambda (&rest args)
-			(apply loader (append args reference-loaders)))
-		    class-loader))))))
+	    (values query reference-loader class-loader))))))
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 
