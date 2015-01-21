@@ -21,38 +21,13 @@
 	     (multiple-value-list
 	      (funcall join references))))))
 
-(defun compute-fetch (query loader
-		      &optional reference-fetching
-		      &rest reference-fetchings)
-  (if (not (null reference-fetching))
-      (multiple-value-bind (query reference-loader class-loader)
-	  (funcall reference-fetching query)
-	(declare (ignore query))
-	(values query
-		
-		
-	  (values query loader))
-;;      (when (not (null fetched-references))
-;;	(apply #'compute-fetch fetched-references))
-;;    (multiple-value-bind (columns
-;;			      from-clause
-;;			      loader
-;;			      references)
-
 (defun fetch (references accessor &optional fetch)
   (multiple-value-bind (reference class-loader)
       (funcall references accessor)
-    #'(lambda (query)
-	(multiple-value-bind (query reference-loader references)
-	    (funcall reference query)
-	  (multiple-value-bind (query reference-loader)
-	      (apply #'compute-fetch
-		     query
-		     reference-loader
-		     (when (not (null fetch))
-		       (multiple-value-list
-			(funcall fetch references))))
-	    (values query reference-loader class-loader))))))
+    #'(lambda ()
+	(values #'(lambda (query loader)
+		    (apply reference query loader fetch))
+		class-loader))))
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 

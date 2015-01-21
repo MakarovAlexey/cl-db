@@ -149,12 +149,26 @@
 	     (apply #'join-one-to-many-mappings
 		    join-path primary-key one-to-many-mappings)))))
 
-(defun fetch-many-to-one (root-class-name slot-name foreign-key
-			  class-name &key table-name primary-key
-				       properties one-to-many-mappings
-				       many-to-one-mappings
-				       superclass-mappings
-				       subclass-mappings)
+(defun compute-fetch (query loader
+		      &optional reference-fetching
+		      &rest reference-fetchings)
+  (if (not (null reference-fetching))
+      (multiple-value-bind (query loader)
+	  (funcall reference-fetching query loader)
+	(apply #'compute-fetch query loader reference-fetchings))
+      (values query loader)))
+
+(defun loader-append (loader reference-loader)
+  #'(lambda (row result-set &rest reference-loaders)
+      (apply loader row result-set
+	     (list* reference-loader
+		    reference-loaders))))
+
+(defun fetch-many-to-one (query loader fetch root-class-name
+			  slot-name foreign-key class-name
+			  &key table-name primary-key properties
+			    one-to-many-mappings many-to-one-mappings
+			    superclass-mappings subclass-mappings)
   (let* ((alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
@@ -170,15 +184,20 @@
 		      properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings
 		      subclass-mappings)
-      (values fetch-references
-	      columns
-	      from-clause
-	      #'(lambda (object object-rows fetched-references)
-		  (when (typep object root-class-name)
-		    (setf (slot-value object slot-name)
-			  (funcall reference-loader
-				   (first object-rows) object-rows
-				   fetched-references))))))))
+      (apply #'compute-fetch
+	     (query-append query
+			   :select-list columns
+			   :from-clause from-clause)
+	     (loader-append loader
+			    #'(lambda (object object-rows fetched-references)
+				(when (typep object root-class-name)
+				  (setf
+				   (slot-value object slot-name)
+				   (funcall reference-loader
+					    (first object-rows)
+					    object-rows
+					    fetched-references)))))
+	     (apply fetch fetch-references)))))
 
 (defun fetch-many-to-one-mappings (class-name alias
 				   &optional many-to-one-mapping
@@ -195,16 +214,15 @@
 	  (declare (ignore foreign-key-loader))
 	  (values
 	   (acons slot-name
-		  #'(lambda (fetch-query)
-		      (declare (ignore fetch-query))
+		  #'(lambda (query loader fetch)
 		      (apply #'fetch-many-to-one
-			     class-name slot-name
+			     query loader fetch class-name slot-name
 			     (mapcar #'funcall foreign-key-columns)
 			     (get-class-mapping reference-class-name)))
 		  references)
 	   (append foreign-key-columns columns)))))))
 
-(defun fetch-one-to-many (root-class-name slot-name fetch-query
+(defun fetch-one-to-many (query loader fetch root-class-name slot-name
 			  root-primary-key foreign-key serializer
 			  class-name &key table-name primary-key
 				       properties one-to-many-mappings
@@ -213,8 +231,7 @@
 				       subclass-mappings)
   (let* ((root-primary-key
 	  (reduce #'(lambda (primary-key column)
-		      (list* (apply fetch-query column)
-			     primary-key))
+		      (list* (apply query column) primary-key))
 		  root-primary-key :initial-value nil))
 	 (alias (make-alias))
 	 (table-join
@@ -232,20 +249,24 @@
 		      properties one-to-many-mappings
 		      many-to-one-mappings superclass-mappings
 		      subclass-mappings)
-      (values fetch-references
-	      columns
-	      from-clause
-	      #'(lambda (object object-rows fetched-references)
-		  (when (typep object root-class-name)
-		    (setf (slot-value object slot-name)
-			  (apply serializer
-				 (remove-duplicates
-				  (mapcar #'(lambda (row)
-					      (funcall reference-loader
-						       row
-						       object-rows
-						       fetched-references))
-					  object-rows))))))))))
+      (apply #'compute-fetch
+	     (query-append query
+			   :select-list columns
+			   :from-clause from-clause)
+	     (loader-append loader
+			    #'(lambda (object object-rows fetched-references)
+				(when (typep object root-class-name)
+				  (setf
+				   (slot-value object slot-name)
+				   (apply serializer
+					  (remove-duplicates
+					   (mapcar #'(lambda (row)
+						       (funcall reference-loader
+								row
+								object-rows
+								fetched-references))
+						   object-rows)))))))
+	     (apply fetch fetch-references)))))
 
 (defun fetch-one-to-many-mappings (class-name primary-key
 				   &optional mapping &rest mappings)
@@ -257,8 +278,8 @@
       (declare (ignore deserializer))
       (acons slot-name
 	     #'(lambda (fetch-query)
-		 (apply #'fetch-one-to-many class-name slot-name
-			fetch-query primary-key foreign-key serializer
+		 (apply #'fetch-one-to-many fetch-query class-name
+			slot-name primary-key foreign-key serializer
 			(get-class-mapping reference-class-name)))
 	     (apply #'fetch-one-to-many-mappings
 		    class-name primary-key mappings)))))
