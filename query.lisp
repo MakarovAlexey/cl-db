@@ -67,21 +67,13 @@
 		  :having-clause having-expression
 		  :from-clause from-clause)))
 
-(defun append-fetch-expressions (query fetch-expression &rest fetch)
-  (multiple-value-bind (fetch-query reference-loaders-by-select-items)
-      (when (not (null fetch))
-	(apply #'append-fetch-expressions query fetch))
-    (multiple-value-bind (select-list
-			  from-clause
-			  loader
-			  select-list-element)
-	(funcall fetch-expression fetch-query)
-      (values (query-append query
-			    :select-list select-list
-			    :from-clause from-clause)
-	      (acons select-list-element
-		     loader
-		     reference-loaders-by-select-items)))))
+(defun append-fetch-expressions (query loader fetch-expressions
+				 &rest rest-expressions)
+  (multiple-value-bind (query loader)
+      (when (not (null rest-expressions))
+	(apply #'append-fetch-expressions
+	       query loader rest-expressions))
+    (apply #'compute-fetch query loader fetch-expressions)))
 
 (defun wrap-query (query)
   (multiple-value-bind (query-select-list
@@ -121,13 +113,19 @@
 		    nil
 		    query-order-by))))))
 
-(defun append-fetch-clause (query limit offset fetch)
-  (if (not (null fetch))
+(defun append-fetch-clause (query loaders limit offset
+			    fetch-expressions)
+  (if (not (null fetch-expressions))
       (apply #'append-fetch-expressions
 	     (if (not (null (or limit offset)))
 		 (wrap-query query)
 		 query)
-	     fetch)
+	     (reduce #'(lambda (result loader)
+			 (list* loader
+				(remove loader fetch-expressions
+					:test-not #'eq :key #'rest)
+				result))
+		     loaders :initial-value nil))
       query))
 
 (defun append-order-by-clause (query &optional order-by-expression
@@ -139,27 +137,21 @@
       query))
 
 (defun compute-query (select-list where-clause order-by-clause
-		      having-clause fetched-references limit offset)
+		      having-clause fetch-clause limit offset)
   (multiple-value-bind (query loaders)
       (apply #'compute-select-clause select-list)
     (let ((query (apply #'append-having-clause
 			(apply #'append-where-clause
 			       query
 			       where-clause)
-			having-clause)))
-      (multiple-value-bind (query reference-loaders-by-select-items)
-	  (append-fetch-clause query limit offset fetched-references)
-	(values
-	 (append-order-by-clause query order-by-clause)
-	 (mapcar #'(lambda (select-list-item item-loader)
-		     (let ((reference-loaders
-			    (mapcar #'rest
-				    (remove select-list-item
-					    reference-loaders-by-select-items
-					    :test-not #'eq
-					    :key #'first))))
-		       #'(lambda (row result-set)
-			   (funcall item-loader
-				    row result-set reference-loaders))))
-		 select-list
-		 loaders))))))
+			having-clause))
+	  (fetch-expressions
+	   (reduce #'(lambda (result fetch-expression)
+		       (multiple-value-call #'acons fetch-expression
+					    result))
+		   fetch-clause :initial-value nil)))
+      (multiple-value-bind (query loaders)
+	  (append-fetch-clause query loaders limit offset
+			       fetch-expressions)
+	(values (append-order-by-clause query order-by-clause)
+		loaders)))))
