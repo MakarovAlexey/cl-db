@@ -47,11 +47,11 @@
 		       (multiple-value-call #'append
 			 (apply join joined-references))))))
 	(multiple-value-bind (select-list fetch-references)
-	    (compute-select
-	     (if (not (null select))
-		 (multiple-value-list
-		  (apply select joined-list))
-		 selectors))
+	    (apply #'compute-select
+		   (if (not (null select))
+		       (multiple-value-list
+			(apply select joined-list))
+		       selectors))
 	  (compute-query select-list
 			 (when (not (null where))
 			   (multiple-value-list

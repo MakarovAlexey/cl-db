@@ -27,11 +27,17 @@
 		(remove-duplicates (append query-from-clause
 					   from-clause)
 				   :from-end t)
-		(list* where-clause query-where-clause)
+		(if (not (null where-clause))
+		    (list* where-clause query-where-clause)
+		    query-where-clause)
 		(append query-group-by-clause
 			(apply #'compute-group-by-clause select-list))
-		(list* having-clause query-having-clause)
-		(list* order-by-clause query-order-by)
+		(if (not (null having-clause))
+		    (list* having-clause query-having-clause)
+		    query-having-clause)
+		(if (not (null order-by-clause))
+		    (list* order-by-clause query-order-by)
+		    query-order-by)
 		(or limit query-limit)
 		(or offset query-offset)))))
 
@@ -47,25 +53,27 @@
 		     :from-clause select-from-clause)
        (list* loader loaders)))))
 
-(defun append-where-clause (query expression &rest rest-clause)
-  (multiple-value-bind (where-expression from-clause)
-      (funcall expression)
-    (query-append (if (not (null rest-clause))
-		      (apply #'append-where-clause
+(defun append-where-clause (query &optional expression
+			    &rest rest-clause)
+  (if (not (null expression))
+      (multiple-value-bind (where-expression from-clause)
+	  (funcall expression)
+	(query-append (apply #'append-where-clause
 			     query rest-clause)
-		      query)
-		  :where-clause where-expression
-		  :from-clause from-clause)))
+		      :where-clause where-expression
+		      :from-clause from-clause))
+      query))
 
-(defun append-having-clause (query expression &rest rest-clause)
-  (multiple-value-bind (having-expression from-clause)
-      (funcall expression)
-    (query-append (if (not (null rest-clause))
-		      (apply #'append-having-clause
+(defun append-having-clause (query &optional expression
+			     &rest rest-clause)
+  (if (not (null expression))
+      (multiple-value-bind (having-expression from-clause)
+	  (funcall expression)
+	(query-append (apply #'append-having-clause
 			     query rest-clause)
-		      query)
-		  :having-clause having-expression
-		  :from-clause from-clause)))
+		      :having-clause having-expression
+		      :from-clause from-clause))
+      query))
 
 (defun append-fetch-expressions (query loader fetch-expressions
 				 &rest rest-expressions)
@@ -126,7 +134,7 @@
 					:test-not #'eq :key #'rest)
 				result))
 		     loaders :initial-value nil))
-      query))
+      (values query loaders)))
 
 (defun append-order-by-clause (query &optional order-by-expression
 			       &rest order-by-clause)
