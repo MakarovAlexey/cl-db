@@ -111,16 +111,18 @@
 		  :initial-value nil)))
     #'(lambda (&optional column-expression)
 	(if (not (null column-expression))
-	    (assoc column-expression select-list-index)
-	    (values (reduce #'append select-list-index :key #'rest)
-		    (list* (list :select query-select-list
+	    (rest
+	     (assoc (funcall column-expression) select-list-index))
+	    (values (mapcar #'rest select-list-index)
+		    (list (list
+			   (list :select query-select-list
 				 :from query-from-clause
 				 :where query-where-clause
 				 :group-by query-group-by-clause
 				 :having query-having-clause
 				 :limit query-limit
 				 :offset query-offset)
-			   :as query-alias)
+			   query-alias))
 		    nil
 		    nil
 		    nil

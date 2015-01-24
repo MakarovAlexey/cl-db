@@ -26,7 +26,7 @@
       (funcall references accessor)
     #'(lambda ()
 	(values #'(lambda (query loader)
-		    (apply reference query loader fetch))
+		    (funcall reference query loader fetch))
 		class-loader))))
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))

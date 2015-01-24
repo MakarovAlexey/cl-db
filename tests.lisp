@@ -169,7 +169,7 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'project :mapping-schema (projects-managment)
 	       :join #'(lambda (project)
-			 (join-reference project #'project-members-of)))
+			 (join project #'project-members-of)))
     (lift:ensure
      (not (listp select-list)))))
 
