@@ -22,24 +22,27 @@
 			query-offset)
       (when (not (null query))
 	(funcall query))
-    #'(lambda ()
-	(values (append query-select-list select-list)
-		(remove-duplicates (append query-from-clause
-					   from-clause)
-				   :from-end t)
-		(if (not (null where-clause))
-		    (list* where-clause query-where-clause)
-		    query-where-clause)
-		(append query-group-by-clause
-			(apply #'compute-group-by-clause select-list))
-		(if (not (null having-clause))
-		    (list* having-clause query-having-clause)
-		    query-having-clause)
-		(if (not (null order-by-clause))
-		    (list* order-by-clause query-order-by)
-		    query-order-by)
-		(or limit query-limit)
-		(or offset query-offset)))))
+    #'(lambda (&optional expression)
+	(if (not (null expression))
+	    expression
+	    (values
+	     (append query-select-list select-list)
+	     (remove-duplicates (append query-from-clause
+					from-clause)
+				:from-end t)
+	     (if (not (null where-clause))
+		 (list* where-clause query-where-clause)
+		 query-where-clause)
+	     (append query-group-by-clause
+		     (apply #'compute-group-by-clause select-list))
+	     (if (not (null having-clause))
+		 (list* having-clause query-having-clause)
+		 query-having-clause)
+	     (if (not (null order-by-clause))
+		 (list* order-by-clause query-order-by)
+		 query-order-by)
+	     (or limit query-limit)
+	     (or offset query-offset))))))
 
 (defun compute-select-clause (select-item &rest select-list)
   (multiple-value-bind (query loaders)
@@ -75,13 +78,15 @@
 		      :from-clause from-clause))
       query))
 
-(defun append-fetch-expressions (query loader fetch-expressions
+(defun append-fetch-expressions (query loader
+				 &optional fetch-expressions
 				 &rest rest-expressions)
-  (multiple-value-bind (query loader)
-      (when (not (null rest-expressions))
-	(apply #'append-fetch-expressions
-	       query loader rest-expressions))
-    (apply #'compute-fetch query loader fetch-expressions)))
+  (if (not (null fetch-expressions))
+      (multiple-value-bind (query loader)
+	  (apply #'append-fetch-expressions
+		 query loader rest-expressions)
+	(apply #'compute-fetch query loader fetch-expressions))
+      (values query loader)))
 
 (defun wrap-query (query)
   (multiple-value-bind (query-select-list
@@ -130,8 +135,9 @@
 		 query)
 	     (reduce #'(lambda (result loader)
 			 (list* loader
-				(remove loader fetch-expressions
-					:test-not #'eq :key #'rest)
+				(mapcar #'first
+					(remove loader fetch-expressions
+						:test-not #'eq :key #'rest))
 				result))
 		     loaders :initial-value nil))
       (values query loaders)))
@@ -155,8 +161,8 @@
 			having-clause))
 	  (fetch-expressions
 	   (reduce #'(lambda (result fetch-expression)
-		       (multiple-value-call #'acons fetch-expression
-					    result))
+		       (multiple-value-call #'acons
+			 (funcall fetch-expression) result))
 		   fetch-clause :initial-value nil)))
       (multiple-value-bind (query loaders)
 	  (append-fetch-clause query loaders limit offset

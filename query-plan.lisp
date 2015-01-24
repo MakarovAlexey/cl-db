@@ -231,7 +231,7 @@
 				       subclass-mappings)
   (let* ((root-primary-key
 	  (reduce #'(lambda (primary-key column)
-		      (list* (apply query column) primary-key))
+		      (list* (funcall query column) primary-key))
 		  root-primary-key :initial-value nil))
 	 (alias (make-alias))
 	 (table-join
@@ -266,7 +266,8 @@
 								object-rows
 								fetched-references))
 						   object-rows)))))))
-	     (apply fetch fetch-references)))))
+	     (when (functionp fetch)
+	       (apply fetch fetch-references))))))
 
 (defun fetch-one-to-many-mappings (class-name primary-key
 				   &optional mapping &rest mappings)
@@ -277,9 +278,10 @@
 	mapping
       (declare (ignore deserializer))
       (acons slot-name
-	     #'(lambda (fetch-query)
-		 (apply #'fetch-one-to-many fetch-query class-name
-			slot-name primary-key foreign-key serializer
+	     #'(lambda (query loader fetch)
+		 (apply #'fetch-one-to-many query loader fetch
+			class-name slot-name primary-key foreign-key
+			serializer
 			(get-class-mapping reference-class-name)))
 	     (apply #'fetch-one-to-many-mappings
 		    class-name primary-key mappings)))))
