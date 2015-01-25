@@ -138,8 +138,10 @@
 	     (reduce #'(lambda (result loader)
 			 (list* loader
 				(mapcar #'first
-					(remove loader fetch-expressions
-						:test-not #'eq :key #'rest))
+					(remove loader
+						fetch-expressions
+						:test-not #'eq
+						:key #'rest))
 				result))
 		     loaders :initial-value nil))
       (values query loaders)))

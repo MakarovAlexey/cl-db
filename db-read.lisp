@@ -18,7 +18,7 @@
       (funcall references accessor)
     (list* alias selector
 	   (when (not (null join))
-	     (multiple-value-list
+	     (multiple-value-call #'append
 	      (funcall join references))))))
 
 (defun fetch (references accessor &optional fetch)

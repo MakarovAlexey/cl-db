@@ -197,7 +197,10 @@
 					    (first object-rows)
 					    object-rows
 					    fetched-references)))))
-	     (apply fetch fetch-references)))))
+	     (when (functionp fetch)
+	       (mapcar #'funcall
+		       (multiple-value-list
+			(funcall fetch fetch-references))))))))
 
 (defun fetch-many-to-one-mappings (class-name alias
 				   &optional many-to-one-mapping
@@ -267,8 +270,9 @@
 								fetched-references))
 						   object-rows)))))))
 	     (when (functionp fetch)
-	       (multiple-value-list
-		(funcall fetch fetch-references)))))))
+	       (mapcar #'funcall
+		       (multiple-value-list
+			(funcall fetch fetch-references))))))))
 
 (defun fetch-one-to-many-mappings (class-name primary-key
 				   &optional mapping &rest mappings)
@@ -425,21 +429,28 @@
 		     properties one-to-many-mappings
 		     many-to-one-mappings superclass-mappings
 		     subclass-mappings)
-      (values fetched-columns
-	      fetched-from-clause
-	      #'(lambda (row result-set reference-loaders)
-		  (let ((primary-key
-			 (funcall primary-key-loader row)))
-		    (or
-		     (get-object class-name primary-key)
-		     (let ((object
-			    (funcall class-loader row)))
-		       (dolist (loader reference-loaders object)
-			 (funcall loader object
-				  (remove primary-key result-set
-					  :key primary-key-loader
-					  :test-not #'equal)))))))
-	      fetched-references))))
+      (let ((class-loader
+	     #'(lambda (row result-set reference-loaders)
+		 (let ((primary-key
+			(funcall primary-key-loader row)))
+		   (or
+		    (get-object class-name primary-key)
+		    (let ((object
+			   (funcall class-loader row)))
+		      (dolist (loader reference-loaders object)
+			(funcall loader object
+				 (remove primary-key result-set
+					 :key primary-key-loader
+					  :test-not #'equal)))))))))
+	(values fetched-columns
+		fetched-from-clause
+		class-loader
+		#'(lambda (reader)
+		    (values (rest
+			     (assoc (get-slot-name (find-class class-name)
+						   reader)
+				    fetched-references))
+			    class-loader)))))))
 
 (defun fetch-subclass (superclass-primary-key class-name
 		       &key primary-key table-name foreign-key
@@ -591,11 +602,7 @@
 				    (values fetched-columns
 					    from-clause
 					    class-loader)))
-			    #'(lambda (reader)
-				(values (rest
-					 (assoc (get-slot-name class reader)
-						fetched-references))
-					class-loader))))
+			    fetched-references))
 		#'(lambda (reader)
 		    (funcall
 		     (rest
