@@ -100,7 +100,7 @@
   (:documentation "Logical NOT operator")
   (apply #'db-logical-expression :not expression rest-expressions))
 
-(defun db-less-than (expression &rest rest-expressions)
+(defun db-less-than (first-expression second-expression)
   (:documentation "Less than")
   (apply #'db-logical-expression :< expression rest-expressions))
 

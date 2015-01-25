@@ -169,15 +169,23 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'project :mapping-schema (projects-managment)
 	       :join #'(lambda (project)
-			 (join project #'project-members-of)))
+			 (join project #'project-members-of :members)))
     (lift:ensure
      (not (listp select-list)))))
+
+(lift:addtest fetch-reference
+  (db-read 'project :mapping-schema (projects-managment)
+	   :fetch #'(lambda (project)
+		      (fetch project #'project-members-of
+			     #'(lambda (member)
+				 (fetch member #'user-of))))))
 
 (lift:addtest ascending-order ()
   (db-read 'project
 	   :mapping-schema (projects-managment)
 	   :order-by #'(lambda (project)
 			 (ascending project #'name-of))))
+
 (lift:addtest joining ()
   (db-read 'project
 	   :mapping-schema (projects-managment)

@@ -267,7 +267,8 @@
 								fetched-references))
 						   object-rows)))))))
 	     (when (functionp fetch)
-	       (apply fetch fetch-references))))))
+	       (multiple-value-list
+		(funcall fetch fetch-references)))))))
 
 (defun fetch-one-to-many-mappings (class-name primary-key
 				   &optional mapping &rest mappings)
