@@ -106,7 +106,10 @@
   (let ((expression
 	 (apply #'db-expression :< first-expression second-expression)))
     (if (not (null rest-expressions))
-	rest-expressions))
+	(apply #'db-and (db-less-than second-expression
+				      rest-expressions))
+	expression)))
+	(db-expression :< 
 
 < 	less than
 > 	greater than
