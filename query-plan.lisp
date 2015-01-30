@@ -78,7 +78,10 @@
 			   (funcall column-loader row)))))
 	  (acons slot-name
 		 #'(lambda ()
-		     (values column (reverse join-path) loader))
+		     (values column
+			     (reverse join-path)
+			     (list column)
+			     loader))
 		 (apply #'join-properties
 			alias join-path properties)))))))
 
@@ -149,6 +152,42 @@
 	     (apply #'join-one-to-many-mappings
 		    join-path primary-key one-to-many-mappings)))))
 
+(defun query-append (query &key select-list from-clause where-clause
+			     group-by-clause having-clause
+			     order-by-clause limit offset)
+  (multiple-value-bind (query-select-list
+			query-from-clause
+			query-where-clause
+			query-group-by-clause
+			query-having-clause
+			query-order-by
+			query-limit
+			query-offset)
+      (when (not (null query))
+	(funcall query))
+    #'(lambda (&optional expression)
+	(if (not (null expression))
+	    expression
+	    (values
+	     (append query-select-list select-list)
+	     (remove-duplicates (append query-from-clause
+					from-clause)
+				:from-end t)
+	     (if (not (null where-clause))
+		 (list* where-clause query-where-clause)
+		 query-where-clause)
+	     (if (not (null group-by-clause))
+		 (list* group-by-clause query-group-by-clause)
+		 group-by-clause)
+	     (if (not (null having-clause))
+		 (list* having-clause query-having-clause)
+		 query-having-clause)
+	     (if (not (null order-by-clause))
+		 (list* order-by-clause query-order-by)
+		 query-order-by)
+	     (or limit query-limit)
+	     (or offset query-offset))))))
+
 (defun compute-fetch (query loader
 		      &optional reference-fetching
 		      &rest reference-fetchings)
@@ -187,7 +226,8 @@
       (apply #'compute-fetch
 	     (query-append query
 			   :select-list columns
-			   :from-clause from-clause)
+			   :from-clause from-clause
+			   :group-by-clause columns)
 	     (loader-append loader
 			    #'(lambda (object object-rows fetched-references)
 				(when (typep object root-class-name)
@@ -255,7 +295,8 @@
       (apply #'compute-fetch
 	     (query-append query
 			   :select-list columns
-			   :from-clause from-clause)
+			   :from-clause from-clause
+			   :group-by-clause columns)
 	     (loader-append loader
 			    #'(lambda (object object-rows fetched-references)
 				(when (typep object root-class-name)
@@ -601,6 +642,7 @@
 					     joined-properties)))
 				    (values fetched-columns
 					    from-clause
+					    fetched-columns ;; group-by-clause
 					    class-loader)))
 			    fetched-references))
 		#'(lambda (reader)
