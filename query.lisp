@@ -10,50 +10,18 @@
       (declare (ignore expression alias))
       (append group-by-columns group-by-clause))))
 
-(defun query-append (query &key select-list from-clause where-clause
-			     having-clause order-by-clause limit offset)
-  (multiple-value-bind (query-select-list
-			query-from-clause
-			query-where-clause
-			query-group-by-clause
-			query-having-clause
-			query-order-by
-			query-limit
-			query-offset)
-      (when (not (null query))
-	(funcall query))
-    #'(lambda (&optional expression)
-	(if (not (null expression))
-	    expression
-	    (values
-	     (append query-select-list select-list)
-	     (remove-duplicates (append query-from-clause
-					from-clause)
-				:from-end t)
-	     (if (not (null where-clause))
-		 (list* where-clause query-where-clause)
-		 query-where-clause)
-	     (append query-group-by-clause
-		     (apply #'compute-group-by-clause select-list))
-	     (if (not (null having-clause))
-		 (list* having-clause query-having-clause)
-		 query-having-clause)
-	     (if (not (null order-by-clause))
-		 (list* order-by-clause query-order-by)
-		 query-order-by)
-	     (or limit query-limit)
-	     (or offset query-offset))))))
-
 (defun compute-select-clause (select-item &rest select-list)
   (multiple-value-bind (query loaders)
       (when (not (null select-list))
 	(apply #'compute-select-clause select-list))
-    (multiple-value-bind (select-list-items select-from-clause loader)
+    (multiple-value-bind (select-list-items
+			  select-from-clause group-by-clause loader)
 	(funcall select-item)
       (values
        (query-append query
 		     :select-list select-list-items
-		     :from-clause select-from-clause)
+		     :from-clause select-from-clause
+		     :group-by-clause group-by-clause)
        (list* loader loaders)))))
 
 (defun append-where-clause (query &optional expression

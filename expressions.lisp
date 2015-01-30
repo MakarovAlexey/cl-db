@@ -71,42 +71,52 @@
 
 ;; (define-aggregate-function :count "count")
 
-(defun db-expression (operator expression &rest rest-expressions)
-  (multiple-value-bind (expression from-clause loader alias)
+;; Logical operators
+
+(defun db-operator (operator expression &rest rest-expressions)
+  (list* 
+  (multiple-value-bind (expression from-clause group-by-clause)
       (funcall expression)
-    (declare (ignore loader alias))
-    (multiple-value-bind (rest-expressions rest-from-clause
-			  rest-loaders rest-alias)
+    (multiple-value-bind (rest-expressions
+			  rest-from-clause rest-group-by-clause)
 	(when (not (null rest-expressions))
 	  (apply #'db-and rest-expressions))
-      (declare (ignore rest-loaders rest-alias))
-      (let ((alias (make-alias "column")))
+      (let ((alias (make-alias "expr")))
 	#'(lambda ()
 	    (values
 	     (list* operator expression rest-expressions)
 	     (append from-clause rest-from-clause)
+	     (list* group-by-clause 
 	     (make-simple-value-loader alias)
 	     (list alias)))))))
 
+(defmacro define-binary-operator (function-name operator)
+  `(defun ,fucntion-name (lhs-expression rhs-expression &rest expressions)
+     (list* ,operator lhs-expression rhs-expression &rest expressions)))
+
 (defun db-and (expression &rest rest-expressions)
   (:documentation "Logical AND operator")
-  (apply #'db-expression :and expression rest-expressions))
+  (apply #'db-operator :and expression rest-expressions))
 
 (defun db-or (expression &rest rest-expressions)
   (:documentation "Logical OR operator")
-  (apply #'db-expression :or expression rest-expressions))
+  (apply #'db-operator :or expression rest-expressions))
 
 (defun db-not (expression &rest rest-expressions)
   (:documentation "Logical NOT operator")
-  (apply #'db-expression :not expression rest-expressions))
+  (apply #'db-operator :not expression rest-expressions))
+
+;; Comparison operators
 
 (defun db-less-than (first-expression second-expression
 		     &rest rest-expressions)
   (:documentation "Less than")
   (let ((expression
 	 (apply #'db-expression :< first-expression second-expression)))
-    (if (not (null rest-expressions))
-	(apply #'db-and (db-less-than second-expression
+    (reduce #'(lambda (result expression)
+		(
+;;    (if (not (null rest-expressions))
+    (db-and expression (db-less-than second-expression
 				      rest-expressions))
 	expression)))
 	(db-expression :< 
