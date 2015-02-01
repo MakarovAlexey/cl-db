@@ -1,11 +1,14 @@
 (in-package #:cl-db)
 
-(defun make-expression (&key properties expression count select-list
-			  from-clause group-by-clause loader fetch)
+(defun make-expression (&key properties expression count
+			  count-from-clause select-list from-clause
+			  group-by-clause loader fetch)
   #'(lambda (context)
       (cond ((eq context :property) properties)
 	    ((eq context :expression) expression)
 	    ((eq context :count) count)
+	    ((eq context :count-from-clause)
+	     (or count-from-clause from-clause))
 	    ((eq context :select-list) select-list)
 	    ((eq context :from-clause) from-clause)
 	    ((eq context :group-by-clause) group-by-clause)
@@ -20,8 +23,11 @@
 (defun properties-of (class-mapping)
   (funcall class-mapping :property))
 
-(defun count-expression (expression)
+(defun count-expression-of (expression)
   (funcall expression :count))
+
+(defun count-from-clause-of (expression)
+  (funcall expression :count-from-clause))
 
 (defun select-list-of (expression)
   (funcall expression :select-list))
@@ -122,8 +128,7 @@
 	      (from-clause (reverse join-path)))
 	  (acons slot-name
 		 (make-expression :expression column
-				  :count (make-expression :expression column
-							  :from-clause from-clause)
+				  :count column
 				  :select-list (list column)
 				  :from-clause from-clause
 				  :group-by-clause (list column)
@@ -677,18 +682,18 @@
 			pk-loader properties one-to-many-mappings
 			many-to-one-mappings superclass-mappings
 			subclass-mappings)
-	(let ((from-clause
-	       (append (reverse join-path) fetched-from-clause))
-	      (class (find-class class-name)))
+	(let* ((path (reverse join-path))
+	       (from-clause
+		(append path fetched-from-clause))
+	       (class (find-class class-name)))
 	  (values (make-expression :properties
 				   #'(lambda (reader)
-					(rest
-					 (assoc (get-slot-name class reader)
-						joined-properties)))
+				       (rest
+					(assoc (get-slot-name class reader)
+					       joined-properties)))
 				   :select-list fetched-columns
-				   :count (make-expression :select-list primary-key
-							   :from-clause (list
-									 (reverse join-path)))
+				   :count primary-key
+				   :count-from-clause (list path)
 				   :from-clause from-clause
 				   :group-by-clause fetched-columns
 				   :loader class-loader

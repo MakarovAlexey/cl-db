@@ -15,7 +15,7 @@
 	(alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
-		     :select-list (cons expression alias)
+		     :select-list (list (cons expression alias))
 		     :from-clause (reduce #'append
 					  (list* rhs-expression
 						 lhs-expression
@@ -47,7 +47,7 @@
 	(alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
-		     :select-list (cons expression alias)
+		     :select-list (list (cons expression alias))
 		     :from-clause (from-clause-of expression)
 		     :group-by-clause (group-by-clause-of expression)
 		     :loader (make-value-loader alias))))
@@ -87,7 +87,7 @@
 	 (alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
-		     :select-list (list expression)
+		     :select-list (list (cons expression alias))
 		     :from-clause (append
 				   (from-clause-of expression)
 				   (from-clause-of range))
@@ -95,6 +95,43 @@
 				       (group-by-clause-of expression)
 				       (group-by-clause-of range))
 		     :loader (make-value-loader alias))))
+
+(defun db-like (expression pattern)
+  (binary-operator :like expression pattern))
+
+(defun db-count (expression)
+  (let ((expression (list* :count (count-expression-of expression)))
+	(alias (make-alias "op")))
+    (make-expression :expression expression
+		     :select-list (list (cons expression alias))
+		     :from-clause (count-from-clause-of expression)
+		     :group-by-clause (group-by-clause-of expression)
+		     :loader (make-value-loader alias))))
+
+(defun aggregate-function (function expression)
+  (let ((expression (list* function (expression-of expression)))
+	(alias (make-alias "op")))
+    (make-expression :expression expression
+		     :count expression
+		     :select-list (list (cons expression alias))
+		     :from-clause (from-clause-of expression)
+		     :group-by-clause (group-by-clause-of expression)
+		     :loader (make-value-loader alias))))
+
+(defun db-avg (expression)
+  (aggregate-function :avg expression))
+
+(defun db-every (expression)
+  (aggregate-function :every expression))
+
+(defun db-max (expression)
+  (aggregate-function :max expression))
+
+(defun db-min (expression)
+  (aggregate-function :min expression))
+
+(defun db-sum (expression)
+  (aggregate-function :sum expression))
 
 (defun compute-select (select-item &rest select-list)
   (multiple-value-bind (selectors rest-fetched-refernces)
