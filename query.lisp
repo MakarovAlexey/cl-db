@@ -14,36 +14,27 @@
   (multiple-value-bind (query loaders)
       (when (not (null select-list))
 	(apply #'compute-select-clause select-list))
-    (multiple-value-bind (select-list-items
-			  select-from-clause group-by-clause loader)
-	(funcall select-item)
-      (values
-       (query-append query
-		     :select-list select-list-items
-		     :from-clause select-from-clause
-		     :group-by-clause group-by-clause)
-       (list* loader loaders)))))
+    (values
+     (query-append query
+		   :select-list (select-list-of select-item)
+		   :from-clause (from-clause-of select-item)
+		   :group-by-clause (group-by-clause-of select-item))
+     (list* (funcall select-item :loader) loaders))))
 
 (defun append-where-clause (query &optional expression
 			    &rest rest-clause)
   (if (not (null expression))
-      (multiple-value-bind (where-expression from-clause)
-	  (funcall expression)
-	(query-append (apply #'append-where-clause
-			     query rest-clause)
-		      :where-clause where-expression
-		      :from-clause from-clause))
+      (query-append (apply #'append-where-clause query rest-clause)
+		    :where-clause (expression-of expression)
+		    :from-clause (from-clause-of expression))
       query))
 
 (defun append-having-clause (query &optional expression
 			     &rest rest-clause)
   (if (not (null expression))
-      (multiple-value-bind (having-expression from-clause)
-	  (funcall expression)
-	(query-append (apply #'append-having-clause
-			     query rest-clause)
-		      :having-clause having-expression
-		      :from-clause from-clause))
+      (query-append (apply #'append-where-clause query rest-clause)
+		    :having-clause (expression-of expression)
+		    :from-clause (from-clause-of expression))
       query))
 
 (defun append-fetch-expressions (query loader

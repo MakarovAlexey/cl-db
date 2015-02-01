@@ -117,7 +117,7 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'project
 	       :select-list #'(lambda (project)
-				(list (property #'name-of project)))
+				(property project #'name-of))
 	       :mapping-schema (projects-managment))
     (lift:ensure
      (first select-list))))
@@ -126,7 +126,7 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'project
 	       :select-list #'(lambda (project)
-				(list (property #'name-of project)))
+				(property project #'name-of))
 	       :mapping-schema (projects-managment))
     (lift:ensure
      (listp select-list))))
@@ -135,7 +135,7 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'project
 	       :select-list #'(lambda (project)
-				(property #'name-of project))
+				(property project #'name-of))
 	       :mapping-schema (projects-managment))
     (lift:ensure
      (not (listp select-list)))))
@@ -150,7 +150,7 @@
   (multiple-value-bind (select-list references fetch)
       (db-read 'user :mapping-schema (projects-managment)
 	       :where #'(lambda (user)
-			  (expression-eq user #'login-of "user")))))
+			  (db-eq (propery user #'login-of) "user")))))
 
 (lift:addtest check-schema
   (destructuring-bind (class-name &key properties &allow-other-keys)
@@ -190,13 +190,19 @@
   (db-read 'project
 	   :mapping-schema (projects-managment)
 	   :join #'(lambda (project)
-		     (lift:ensure (listp project))
 		     (join project #'project-members-of :members))
 	   :select #'(lambda (project &key members)
-		       (lift:ensure (not (null members)))
 		       (values project members))))
 
-(lift:addtest fetch-references ()
+(lift:addtest get-property ()
+  (db-read 'project
+	   :mapping-schema (projects-managment)
+	   :join #'(lambda (project)
+		     (join project #'project-members-of :members))
+	   :select #'(lambda (project &key members)
+		       (values (property project #'name-of) members))))
+
+(lift:addtest fetch-references
   (let* ((*table-index* 0)
 	 (*mapping-schema* (projects-managment))
 	 (join-plan (make-join-plan *mapping-schema* 'project)))
