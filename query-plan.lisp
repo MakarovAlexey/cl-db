@@ -64,9 +64,7 @@
 
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name))
-	(column-expression
-	 #'(lambda ()
-	     (values column-name table-alias))))
+	(column-expression (list :column column-name table-alias)))
     (values #'(lambda ()
 		(values column-expression
 			alias ;; select item alias
