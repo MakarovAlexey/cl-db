@@ -67,8 +67,7 @@
 	(column-expression (list :column column-name table-alias)))
     (values #'(lambda ()
 		(values column-expression
-			alias ;; select item alias
-			(list column-expression))) ;; group by expression
+			alias)) ;; select item alias))
 	    (make-value-loader alias))))
 
 (defun plan-key (table-alias column &rest columns)
@@ -554,7 +553,7 @@
 	 (table-join
 	  (list* :left-join table-name alias
 		 (mapcar #'(lambda (pk-column fk-column)
-			     (list pk-column
+			     (list (funcall pk-column)
 				   (funcall fk-column)))
 			 superclass-primary-key
 			 foreign-key))))
