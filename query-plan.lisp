@@ -65,9 +65,7 @@
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name))
 	(column-expression (list :column column-name table-alias)))
-    (values #'(lambda ()
-		(values column-expression
-			alias)) ;; select item alias))
+    (values (cons column-expression alias) ;; select item alias))
 	    (make-value-loader alias))))
 
 (defun plan-key (table-alias column &rest columns)
@@ -124,11 +122,11 @@
 			   (funcall column-loader row))))
 	      (from-clause (reverse join-path)))
 	  (acons slot-name
-		 (make-expression :expression column
-				  :count column
+		 (make-expression :expression (first column)
+				  :count (first column)
 				  :select-list (list column)
 				  :from-clause from-clause
-				  :group-by-clause (list column)
+				  :group-by-clause (list (first column))
 				  :loader loader)
 		 (apply #'join-properties
 			join-path alias properties)))))))
@@ -142,9 +140,8 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'(lambda (fk-column pk-column)
-			    (list
-			     (funcall fk-column)
-			     (funcall pk-column)))
+			    (list (first fk-column)
+				  (first pk-column)))
 			(apply #'plan-key root-alias foreign-key)
 			(apply #'plan-key alias primary-key)))))
     (plan-class alias class-name table-join join-path primary-key
@@ -176,7 +173,8 @@
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'(lambda (pk-column fk-column)
-			    (list pk-column (funcall fk-column)))
+			    (list (first pk-column)
+				  (first fk-column)))
 			root-primary-key
 			(apply #'plan-key alias foreign-key)))))
     (plan-class alias class-name table-join join-path primary-key
@@ -217,15 +215,15 @@
 	(if (not (null expression))
 	    expression
 	    (values
-	     (append query-select-list select-list)
-	     (remove-duplicates (append query-from-clause
-					from-clause)
+	     (append select-list query-select-list)
+	     (remove-duplicates (append from-clause
+					query-from-clause)
 				:from-end t)
 	     (if (not (null where-clause))
 		 (list* where-clause query-where-clause)
 		 query-where-clause)
 	     (if (not (null group-by-clause))
-		 (list* group-by-clause query-group-by-clause)
+		 (append group-by-clause query-group-by-clause)
 		 group-by-clause)
 	     (if (not (null having-clause))
 		 (list* having-clause query-having-clause)
@@ -262,7 +260,8 @@
       (let ((table-join
 	     (list :left-join table-name alias
 		   (mapcar #'(lambda (fk-column pk-column)
-			       (list fk-column (funcall pk-column)))
+			       (list (first fk-column)
+				     (first pk-column)))
 			   foreign-key
 			   primary-key))))
 	(multiple-value-bind (columns
@@ -325,13 +324,13 @@
   (let* ((root-primary-key
 	  (reduce #'(lambda (primary-key column)
 		      (list* (funcall query column) primary-key))
-		  root-primary-key :initial-value nil))
+		  root-primary-key :key #'first :initial-value nil))
 	 (alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias
 		(mapcar #'(lambda (pk-column fk-column)
-			    (list pk-column
-				  (funcall fk-column)))
+			    (list (first pk-column)
+				  (first fk-column)))
 			root-primary-key
 			(apply #'plan-key alias foreign-key)))))
     (multiple-value-bind (primary-key pk-loader)
@@ -437,9 +436,8 @@
       (fetch-slots class-name alias
 		   (list* :inner-join table-name alias
 			  (mapcar #'(lambda (pk-column fk-column)
-				      (list
-				       (funcall pk-column)
-				       (funcall fk-column)))
+				      (list (first pk-column)
+					    (first fk-column)))
 				  primary-key-columns
 				  foreign-key))
 		   primary-key-columns primary-key-loader properties
@@ -553,8 +551,8 @@
 	 (table-join
 	  (list* :left-join table-name alias
 		 (mapcar #'(lambda (pk-column fk-column)
-			     (list (funcall pk-column)
-				   (funcall fk-column)))
+			     (list (first pk-column)
+				   (first fk-column)))
 			 superclass-primary-key
 			 foreign-key))))
     (multiple-value-bind (primary-key-columns primary-key-loader)
@@ -617,9 +615,8 @@
 	 (table-join
 	  (list* :inner-join table-name alias
 		 (mapcar #'(lambda (pk-column fk-column)
-			     (list
-			      (funcall pk-column)
-			      (funcall fk-column)))
+			     (list (first pk-column)
+				   (first fk-column)))
 			 primary-key
 			 foreign-key))))
     (join-class alias (list* table-join join-path) primary-key
@@ -664,42 +661,41 @@
 		   properties one-to-many-mappings
 		   many-to-one-mappings superclass-mappings
 		   subclass-mappings)
-  (multiple-value-bind (primary-key pk-loader)
-      (apply #'plan-key alias primary-key)
-    (multiple-value-bind (joined-properties joined-references)
-	(join-class alias (list* table-join join-path)
-		    (mapcar #'funcall primary-key) properties
-		    one-to-many-mappings many-to-one-mappings
-		    superclass-mappings)
-      (multiple-value-bind (fetched-columns
-			    fetched-from-clause
-			    class-loader
-			    fetched-references)
-	  (fetch-object class-name alias table-join primary-key
-			pk-loader properties one-to-many-mappings
-			many-to-one-mappings superclass-mappings
-			subclass-mappings)
-	(let* ((path (reverse join-path))
-	       (from-clause
-		(append path fetched-from-clause))
-	       (class (find-class class-name)))
-	  (values (make-expression :properties
-				   #'(lambda (reader)
-				       (rest
-					(assoc (get-slot-name class reader)
-					       joined-properties)))
-				   :select-list fetched-columns
-				   :count primary-key
-				   :count-from-clause (list path)
-				   :from-clause from-clause
-				   :group-by-clause fetched-columns
-				   :loader class-loader
-				   :fetch fetched-references)
-		  #'(lambda (reader)
-		      (funcall
-		       (rest
-			(assoc (get-slot-name class reader)
-			       joined-references))))))))))
+  (let ((path (reverse (list* table-join join-path))))
+    (multiple-value-bind (primary-key pk-loader)
+	(apply #'plan-key alias primary-key)
+      (multiple-value-bind (joined-properties joined-references)
+	  (join-class alias path primary-key properties
+		      one-to-many-mappings many-to-one-mappings
+		      superclass-mappings)
+	(multiple-value-bind (fetched-columns
+			      fetched-from-clause
+			      class-loader
+			      fetched-references)
+	    (fetch-object class-name alias table-join primary-key
+			  pk-loader properties one-to-many-mappings
+			  many-to-one-mappings superclass-mappings
+			  subclass-mappings)
+	  (let ((from-clause
+		 (append path fetched-from-clause))
+		(class (find-class class-name)))
+	    (values (make-expression :properties
+				     #'(lambda (reader)
+					 (rest
+					  (assoc (get-slot-name class reader)
+						 joined-properties)))
+				     :select-list fetched-columns
+				     :count (mapcar #'first primary-key)
+				     :count-from-clause path
+				     :from-clause from-clause
+				     :group-by-clause (mapcar #'first fetched-columns)
+				     :loader class-loader
+				     :fetch fetched-references)
+		    #'(lambda (reader)
+			(funcall
+			 (rest
+			  (assoc (get-slot-name class reader)
+				 joined-references)))))))))))
 
 (defun plan-root-class-mapping (class-name &key table-name primary-key
 					     properties

@@ -18,7 +18,7 @@
      (query-append query
 		   :select-list (select-list-of select-item)
 		   :from-clause (from-clause-of select-item)
-		   :group-by-clause (group-by-clause-of select-item))
+		   :group-by-clause (list (group-by-clause-of select-item)))
      (list* (funcall select-item :loader) loaders))))
 
 (defun append-where-clause (query &optional expression
@@ -37,17 +37,16 @@
 		    :from-clause (from-clause-of expression))
       query))
 
-(defun append-fetch-expressions (query loader
-				 &optional fetch-expressions
+(defun append-fetch-expressions (query loader fetch-expressions
 				 &rest rest-expressions)
-  (if (not (null fetch-expressions))
-      (multiple-value-bind (query loader)
+  (multiple-value-bind (query loader)
+      (if (not (null rest-expressions))
 	  (apply #'append-fetch-expressions
-		 query loader rest-expressions)
-	(apply #'compute-fetch query loader fetch-expressions))
-      (values query loader)))
+		 query rest-expressions)
+	  (values query loader))
+    (apply #'compute-fetch query loader fetch-expressions)))
 
-(defun wrap-query (query)
+(defun wrap-query (query limit offset)
   (multiple-value-bind (query-select-list
 			query-from-clause
 			query-where-clause
@@ -57,42 +56,42 @@
 			query-limit
 			query-offset)
       (funcall query)
-  (let* ((query-alias "main")
-	 (select-list-index
-	  (reduce #'(lambda (result select-list-item)
-		      (multiple-value-bind (expression alias)
-			  (funcall select-list-item)
-			(acons expression
-			       #'(lambda ()
-				   (values alias query-alias))
-			       result)))
-		  query-select-list
-		  :initial-value nil)))
-    #'(lambda (&optional column-expression)
-	(if (not (null column-expression))
-	    (rest
-	     (assoc (funcall column-expression) select-list-index))
-	    (values (mapcar #'rest select-list-index)
-		    (list (list
-			   (list :select query-select-list
-				 :from query-from-clause
-				 :where query-where-clause
-				 :group-by query-group-by-clause
-				 :having query-having-clause
-				 :limit query-limit
-				 :offset query-offset)
-			   query-alias))
-		    nil
-		    nil
-		    nil
-		    query-order-by))))))
+    (declare (ignore query-limit query-offset))
+    (let* ((query-alias "main")
+	   (select-list-index
+	    (reduce #'(lambda (result select-list-item)
+			(let ((alias (rest select-list-item)))
+			  (acons (first select-list-item)
+				 (cons (list :column alias query-alias)
+				       alias)
+				 result)))
+		    query-select-list
+		    :initial-value nil)))
+      #'(lambda (&optional column-expression)
+	  (if (not (null column-expression))
+	      (rest
+	       (assoc column-expression select-list-index))
+	      (values (mapcar #'rest select-list-index)
+		      (list (list
+			     (list :select query-select-list
+				   :from query-from-clause
+				   :where query-where-clause
+				   :group-by query-group-by-clause
+				   :having query-having-clause
+				   :limit limit
+				   :offset offset)
+			     query-alias))
+		      nil
+		      nil
+		      nil
+		      query-order-by))))))
 
 (defun append-fetch-clause (query loaders limit offset
 			    fetch-expressions)
   (if (not (null fetch-expressions))
       (apply #'append-fetch-expressions
 	     (if (not (null (or limit offset)))
-		 (wrap-query query)
+		 (wrap-query query limit offset)
 		 query)
 	     (reduce #'(lambda (result loader)
 			 (list* loader
@@ -110,7 +109,7 @@
   (if (not (null order-by-expression))
       (query-append (apply #'append-order-by-clause
 			   query order-by-clause)
-		    :order-by-clause (funcall order-by-clause))
+		    :order-by-clause (funcall order-by-expression query))
       query))
 
 (defun compute-query (select-list where-clause order-by-clause
@@ -130,5 +129,6 @@
       (multiple-value-bind (query loaders)
 	  (append-fetch-clause query loaders limit offset
 			       fetch-expressions)
-	(values (append-order-by-clause query order-by-clause)
+	(values (apply #'append-order-by-clause
+		       query order-by-clause)
 		loaders)))))

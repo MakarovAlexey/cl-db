@@ -237,5 +237,80 @@
 			       loader)))))
 		  loaders))))))
 
+(lift:addtest fetch-references
+  (let* ((*table-index* 0)
+	 (*mapping-schema* (projects-managment))
+	 (join-plan (make-join-plan *mapping-schema* 'project)))
+    (multiple-value-bind (select-list fetch-references)
+	(apply #'compute-select join-plan)
+      (multiple-value-bind (query loaders)
+	  (apply #'compute-select-clause select-list)
+	(let* ((fetch-expressions
+		(reduce #'(lambda (result fetch-expression)
+			    (multiple-value-call #'acons
+			      (funcall fetch-expression) result))
+			(multiple-value-list
+			 (apply #'(lambda (project)
+				    (fetch project #'project-members-of))
+				fetch-references))
+			:initial-value nil))
+	       (fetch-expressions-by-loaders
+		(reduce #'(lambda (result loader)
+			    (list* loader
+				   (mapcar #'first
+					   (remove loader
+						   fetch-expressions
+						   :test-not #'eq
+						   :key #'rest))
+				   result))
+			loaders :initial-value nil)))
+	  (mapcar #'(lambda (loader)
+		      (lift:ensure
+		       (not
+			(null
+			 (getf fetch-expressions-by-loaders
+			       loader)))))
+		  loaders))))))
+
+(lift:addtest append-fetch-expressions-empty-references
+  (let* ((*table-index* 0)
+	 (*mapping-schema* (projects-managment))
+	 (join-plan (make-join-plan *mapping-schema* 'project 'user)))
+    (multiple-value-bind (select-list fetch-references)
+	(apply #'compute-select
+	       (multiple-value-list
+		(apply #'(lambda (project user)
+			   (values project
+				   (db-count user)
+				   (property user #'name-of)
+				   (property user #'name-of)))
+		       join-plan)))
+      (multiple-value-bind (query loaders)
+	  (apply #'compute-select-clause select-list)
+	(let* ((fetch-expressions
+		(reduce #'(lambda (result fetch-expression)
+			    (multiple-value-call #'acons
+			      (funcall fetch-expression) result))
+			(multiple-value-list
+			 (apply #'(lambda (project &rest args)
+				    (declare (ignore args))
+				    (fetch project #'project-members-of))
+				fetch-references))
+			:initial-value nil))
+	       (fetch-expressions-by-loaders
+		(reduce #'(lambda (result loader)
+			    (list* loader
+				   (mapcar #'first
+					   (remove loader
+						   fetch-expressions
+						   :test-not #'eq
+						   :key #'rest))
+				   result))
+			loaders :initial-value nil)))
+	  (lift:ensure
+	   (not (eq (apply #'append-fetch-expressions query
+			   fetch-expressions-by-loaders)
+		    query))))))))
+
 (defun test ()
   (describe (lift:run-tests)))

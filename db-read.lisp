@@ -2,16 +2,11 @@
 
 (defun binary-operator (operator lhs-expression
 			rhs-expression &rest rest-expressions)
-  (let ((expression (list*
-		     (expression-of lhs-expression)
-		     operator
-		     (expression-of rhs-expression)
-		     (reduce #'(lambda (expression result)
-				 (list* operator expression result))
-			     rest-expressions
-			     :key #'expression-of
-			     :initial-value nil
-			     :from-end t)))
+  (let ((expression (list* operator
+			  (mapcar #'expression-of
+				  (list* lhs-expression
+					 rhs-expression
+					 rest-expressions))))
 	(alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
@@ -42,14 +37,14 @@
 	 rhs-expression
 	 rest-expressions))
 
-(defun db-not (expression)
-  (let ((expression (list* :not (expression-of expression)))
+(defun db-not (argument)
+  (let ((expression (list* :not (expression-of argument)))
 	(alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
 		     :select-list (list (cons expression alias))
-		     :from-clause (from-clause-of expression)
-		     :group-by-clause (group-by-clause-of expression)
+		     :from-clause (from-clause-of argument)
+		     :group-by-clause (group-by-clause-of argument)
 		     :loader (make-value-loader alias))))
 
 ;; Comparison Operators
@@ -81,18 +76,18 @@
 (defun db-is-false (lhs-expression)
   (binary-operator :is lhs-expression :false))
 
-(defun db-between (expression lhs-expression rhs-expression)
+(defun db-between (argument lhs-expression rhs-expression)
   (let* ((range (db-and lhs-expression rhs-expression))
-	 (expression (list* (expression-of expression) :between range))
+	 (expression (list* (expression-of argument) :between range))
 	 (alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
 		     :select-list (list (cons expression alias))
 		     :from-clause (append
-				   (from-clause-of expression)
+				   (from-clause-of argument)
 				   (from-clause-of range))
 		     :group-by-clause (append
-				       (group-by-clause-of expression)
+				       (group-by-clause-of argument)
 				       (group-by-clause-of range))
 		     :loader (make-value-loader alias))))
 
@@ -100,22 +95,19 @@
   (binary-operator :like expression pattern))
 
 (defun db-count (expression)
-  (let ((expression (list* :count (count-expression-of expression)))
+  (let ((count (list :count (count-expression-of expression)))
 	(alias (make-alias "op")))
-    (make-expression :expression expression
-		     :select-list (list (cons expression alias))
+    (make-expression :expression count
+		     :select-list (list (cons count alias))
 		     :from-clause (count-from-clause-of expression)
-		     :group-by-clause (group-by-clause-of expression)
 		     :loader (make-value-loader alias))))
 
 (defun aggregate-function (function expression)
-  (let ((expression (list* function (expression-of expression)))
+  (let ((aggregate (list function (expression-of expression)))
 	(alias (make-alias "op")))
-    (make-expression :expression expression
-		     :count expression
-		     :select-list (list (cons expression alias))
+    (make-expression :expression aggregate
+		     :select-list (list (cons aggregate alias))
 		     :from-clause (from-clause-of expression)
-		     :group-by-clause (group-by-clause-of expression)
 		     :loader (make-value-loader alias))))
 
 (defun db-avg (expression)
@@ -132,6 +124,14 @@
 
 (defun db-sum (expression)
   (aggregate-function :sum expression))
+
+;; ORDER BY
+
+(defun ascending (expression)
+  #'(lambda (query)
+      (list* :asc (mapcar #'(lambda (expression)
+			      (funcall query expression))
+			  (select-list-of expression)))))
 
 (defun compute-select (select-item &rest select-list)
   (multiple-value-bind (selectors rest-fetched-refernces)
