@@ -130,7 +130,7 @@
 (defun ascending (expression)
   #'(lambda (query)
       (list* :asc (mapcar #'(lambda (expression)
-			      (funcall query expression))
+			      (funcall query (alias expression)))
 			  (select-list-of expression)))))
 
 (defun compute-select (select-item &rest select-list)

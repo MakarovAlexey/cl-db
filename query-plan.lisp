@@ -211,28 +211,29 @@
 			query-offset)
       (when (not (null query))
 	(funcall query))
-    #'(lambda (&optional expression)
-	(if (not (null expression))
-	    expression
-	    (values
-	     (append select-list query-select-list)
-	     (remove-duplicates (append from-clause
-					query-from-clause)
-				:from-end t)
-	     (if (not (null where-clause))
-		 (list* where-clause query-where-clause)
-		 query-where-clause)
-	     (if (not (null group-by-clause))
-		 (append group-by-clause query-group-by-clause)
-		 group-by-clause)
-	     (if (not (null having-clause))
-		 (list* having-clause query-having-clause)
-		 query-having-clause)
-	     (if (not (null order-by-clause))
-		 (list* order-by-clause query-order-by)
-		 query-order-by)
-	     (or limit query-limit)
-	     (or offset query-offset))))))
+    (let ((select-list
+	   (append select-list query-select-list)))
+      #'(lambda (&optional expression)
+	  (if (not (null expression))
+	      (rassoc expression select-list)
+	      (values select-list
+		      (remove-duplicates (append from-clause
+						 query-from-clause)
+					 :from-end t)
+		      (if (not (null where-clause))
+			  (list* where-clause query-where-clause)
+			  query-where-clause)
+		      (if (not (null group-by-clause))
+			  (append group-by-clause query-group-by-clause)
+			  group-by-clause)
+		      (if (not (null having-clause))
+			  (list* having-clause query-having-clause)
+			  query-having-clause)
+		      (if (not (null order-by-clause))
+			  (list* order-by-clause query-order-by)
+			  query-order-by)
+		      (or limit query-limit)
+		      (or offset query-offset)))))))
 
 (defun compute-fetch (query loader
 		      &optional reference-fetching
@@ -314,6 +315,9 @@
 		  references)
 	   (append foreign-key-columns columns)))))))
 
+(defun alias (expression)
+  (rest expression))
+
 (defun fetch-one-to-many (query loader fetch root-class-name slot-name
 			  root-primary-key foreign-key serializer
 			  class-name &key table-name primary-key
@@ -322,9 +326,9 @@
 				       superclass-mappings
 				       subclass-mappings)
   (let* ((root-primary-key
-	  (reduce #'(lambda (primary-key column)
-		      (list* (funcall query column) primary-key))
-		  root-primary-key :key #'first :initial-value nil))
+	  (reduce #'(lambda (primary-key alias)
+		      (list* (funcall query alias) primary-key))
+		  root-primary-key :key #'alias :initial-value nil))
 	 (alias (make-alias))
 	 (table-join
 	  (list :left-join table-name alias

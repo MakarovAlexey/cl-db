@@ -58,20 +58,18 @@
       (funcall query)
     (declare (ignore query-limit query-offset))
     (let* ((query-alias "main")
-	   (select-list-index
+	   (select-list
 	    (reduce #'(lambda (result select-list-item)
 			(let ((alias (rest select-list-item)))
-			  (acons (first select-list-item)
-				 (cons (list :column alias query-alias)
-				       alias)
+			  (acons (list :column alias query-alias)
+				 alias
 				 result)))
 		    query-select-list
 		    :initial-value nil)))
       #'(lambda (&optional column-expression)
 	  (if (not (null column-expression))
-	      (rest
-	       (assoc column-expression select-list-index))
-	      (values (mapcar #'rest select-list-index)
+	      (rassoc column-expression select-list)
+	      (values select-list
 		      (list (list
 			     (list :select query-select-list
 				   :from query-from-clause
