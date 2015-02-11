@@ -119,7 +119,7 @@
 			&optional property &rest properties)
   (when (not (null property))
     (multiple-value-bind (properties columns loaders)
-	(apply #'join-properties alias properties)
+	(apply #'join-properties join-path alias properties)
       (destructuring-bind (slot-name column-name column-type)
 	  property
 	(declare (ignore column-type))
@@ -225,8 +225,8 @@
 	  (if (not (null expression))
 	      (rassoc expression select-list)
 	      (values select-list
-		      (remove-duplicates (append from-clause
-						 query-from-clause)
+		      (remove-duplicates (append query-from-clause
+						 from-clause)
 					 :from-end t)
 		      (if (not (null where-clause))
 			  (list* where-clause query-where-clause)
@@ -288,13 +288,13 @@
 			       :group-by-clause columns)
 		 (loader-append loader
 				#'(lambda (object object-rows fetched-references)
-				(when (typep object root-class-name)
-				  (setf
-				   (slot-value object slot-name)
-				   (funcall reference-loader
-					    (first object-rows)
-					    object-rows
-					    fetched-references)))))
+				    (when (typep object root-class-name)
+				      (setf
+				       (slot-value object slot-name)
+				       (funcall reference-loader
+						(first object-rows)
+						object-rows
+						fetched-references)))))
 		 (when (functionp fetch)
 		   (mapcar #'funcall
 			   (multiple-value-list
@@ -394,7 +394,7 @@
 			(get-class-mapping reference-class-name)))
 	     (apply #'fetch-one-to-many-mappings
 		    class-name primary-key mappings)))))
- 
+
 (defun register-object (class primary-key object
 			&optional (objects *objects*))
   (setf (gethash primary-key
@@ -437,8 +437,8 @@
 
 (defun fetch-superclass (subclass-alias
 			 &key class-name table-name primary-key
-			 foreign-key properties one-to-many-mappings
-			 many-to-one-mappings superclass-mappings)
+			   foreign-key properties one-to-many-mappings
+			   many-to-one-mappings superclass-mappings)
   (let* ((alias
 	  (make-alias))
 	 (foreign-key
@@ -617,7 +617,7 @@
 			&key class-name table-name primary-key
 			  foreign-key properties one-to-many-mappings
 			  many-to-one-mappings superclass-mappings)
-   (let ((alias
+  (let ((alias
 	 (make-alias))
 	(foreign-key
 	 (apply #'plan-key subclass-alias foreign-key)))
@@ -682,7 +682,7 @@
 			superclasses-loaders)
       (apply #'join-superclasses alias join-path superclass-mappings)
     (multiple-value-bind (properties property-columns property-loaders)
-	(apply #'join-properties alias properties)
+	(apply #'join-properties join-path alias properties)
       (multiple-value-bind (many-to-one-fetched-references
 			    foreign-key-columns)
 	  (apply #'fetch-many-to-one-mappings

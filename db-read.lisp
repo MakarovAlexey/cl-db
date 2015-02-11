@@ -95,7 +95,7 @@
   (binary-operator :like expression pattern))
 
 (defun db-count (expression)
-  (let ((count (list :count (count-expression-of expression)))
+  (let ((count (list* :count (count-expression-of expression)))
 	(alias (make-alias "op")))
     (make-expression :expression count
 		     :select-list (list (cons count alias))

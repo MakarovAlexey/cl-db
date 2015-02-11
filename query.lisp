@@ -69,14 +69,15 @@
 	  (if (not (null column-expression))
 	      (rassoc column-expression select-list)
 	      (values select-list
-		      (list (list
-			     (list :select query-select-list
-				   :from query-from-clause
-				   :where query-where-clause
-				   :group-by query-group-by-clause
-				   :having query-having-clause
-				   :limit query-limit
-				   :offset query-offset)
+		      (list
+		       (list (make-query-expression query-select-list
+						    query-from-clause
+						    query-where-clause
+						    query-group-by-clause
+						    query-having-clause
+						    nil
+						    query-limit
+						    query-offset)
 			     query-alias))
 		      nil
 		      nil
@@ -109,6 +110,31 @@
 		    :order-by-clause (funcall order-by-expression query))
       query))
 
+(defun make-query-expression (select-list from-clause where-clause
+			      group-by-clause having-clause
+			      order-by-clause limit offset)
+  (remove nil
+	  (list
+	   (list* :select (reduce #'(lambda (result select-list-item)
+				      (list* (list :label
+						   (first select-list-item)
+						   (rest select-list-item))
+					     result))
+				  select-list :initial-value nil))
+	   (list* :from from-clause)
+	   (when (not (null  where-clause))
+	     (list* :where where-clause))
+	   (when (some #'null group-by-clause)
+	     (list* :group-by group-by-clause))
+	   (when (not (null having-clause))
+	     (list* :having having-clause))
+	   (when (not (null order-by-clause))
+	     (list* :order-by order-by-clause))
+	   (when (not (null limit))
+	     (list :limit limit))
+	   (when (not (null offset))
+	     (list :offset offset)))))
+
 (defun compute-query (select-list where-clause order-by-clause
 		      having-clause fetch-clause limit offset)
   (multiple-value-bind (query loaders)
@@ -127,6 +153,8 @@
       (multiple-value-bind (query loaders)
 	  (append-fetch-clause query loaders limit offset
 			       fetch-expressions)
-	(values (apply #'append-order-by-clause
-		       query order-by-clause)
+	(values (multiple-value-call #'make-query-expression
+		  (funcall
+		   (apply #'append-order-by-clause
+			  query order-by-clause)))
 		loaders)))))
