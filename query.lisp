@@ -46,7 +46,7 @@
 	  (values query loader))
     (apply #'compute-fetch query loader fetch-expressions)))
 
-(defun wrap-query (query limit offset)
+(defun wrap-query (query)
   (multiple-value-bind (query-select-list
 			query-from-clause
 			query-where-clause
@@ -56,7 +56,6 @@
 			query-limit
 			query-offset)
       (funcall query)
-    (declare (ignore query-limit query-offset))
     (let* ((query-alias "main")
 	   (select-list
 	    (reduce #'(lambda (result select-list-item)
@@ -76,8 +75,8 @@
 				   :where query-where-clause
 				   :group-by query-group-by-clause
 				   :having query-having-clause
-				   :limit limit
-				   :offset offset)
+				   :limit query-limit
+				   :offset query-offset)
 			     query-alias))
 		      nil
 		      nil
@@ -89,7 +88,7 @@
   (if (not (null fetch-expressions))
       (apply #'append-fetch-expressions
 	     (if (not (null (or limit offset)))
-		 (wrap-query query limit offset)
+		 (wrap-query query)
 		 query)
 	     (reduce #'(lambda (result loader)
 			 (list* loader
@@ -114,11 +113,12 @@
 		      having-clause fetch-clause limit offset)
   (multiple-value-bind (query loaders)
       (apply #'compute-select-clause select-list)
-    (let ((query (apply #'append-having-clause
-			(apply #'append-where-clause
-			       query
-			       where-clause)
-			having-clause))
+    (let ((query
+	   (query-append (apply #'append-having-clause
+				(apply #'append-where-clause
+				       query where-clause)
+				having-clause)
+			 :limit limit :offset offset))
 	  (fetch-expressions
 	   (reduce #'(lambda (result fetch-expression)
 		       (multiple-value-call #'acons
