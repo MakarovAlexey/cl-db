@@ -753,7 +753,10 @@
 				subclasses-columns))
 	       (path (reverse (list* table-join join-path)))
 	       (from-clause (append fetched-from-clause
-				    subclasses-from-clause)))
+				    subclasses-from-clause))
+	       (fetch-references
+		(append fetched-references
+			subclasses-fetch-references)))
 	  (values (make-expression :properties
 				   #'(lambda (reader)
 				       (rest
@@ -765,13 +768,14 @@
 				   :from-clause from-clause
 				   :group-by-clause columns
 				   :loader class-loader
-				   :fetch #'(lambda (reader)
-					      (values (rest
-						       (assoc (get-slot-name (find-class class-name)
-									     reader)
-							      (append fetched-references
-								      subclasses-fetch-references)))
-						      class-loader)))
+				   :fetch
+				   #'(lambda (reader)
+				       (values (rest
+						(assoc
+						 (get-slot-name (find-class class-name)
+								reader)
+						 fetch-references))
+					       class-loader)))
 		  #'(lambda (reader)
 		      (funcall
 		       (rest
