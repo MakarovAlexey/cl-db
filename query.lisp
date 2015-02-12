@@ -19,7 +19,7 @@
 		   :select-list (select-list-of select-item)
 		   :from-clause (from-clause-of select-item)
 		   :group-by-clause (list (group-by-clause-of select-item)))
-     (list* (funcall select-item :loader) loaders))))
+     (list* (loader select-item) loaders))))
 
 (defun append-where-clause (query &optional expression
 			    &rest rest-clause)
@@ -115,25 +115,36 @@
 			      order-by-clause limit offset)
   (remove nil
 	  (list
-	   (list* :select (reduce #'(lambda (result select-list-item)
-				      (list* (list :label
-						   (first select-list-item)
-						   (rest select-list-item))
-					     result))
-				  select-list :initial-value nil))
-	   (list* :from from-clause)
-	   (when (not (null  where-clause))
-	     (list* :where where-clause))
+	   (list* #'write-select-list
+		  (reduce #'(lambda (result select-list-item)
+			      (list* (list #'write-label
+					   (first select-list-item)
+					   (rest select-list-item))
+				     result))
+			  select-list :initial-value nil))
+	   (list* #'write-from-clause
+		  (list* (first from-clause)
+			 (reduce #'(lambda (table-reference result)
+				     (list* (if (eq (first table-reference)
+						    #'write-table-reference)
+						(list* #'write-cross-join
+						       (rest table-reference))
+						table-reference)
+					    result))
+				 (rest from-clause) :initial-value nil
+				 :from-end t)))
+	   (when (not (null where-clause))
+	     (list* #'write-where-clause where-clause))
 	   (when (some #'null group-by-clause)
-	     (list* :group-by group-by-clause))
+	     (list* #'write-group-by-clause group-by-clause))
 	   (when (not (null having-clause))
-	     (list* :having having-clause))
+	     (list* #'write-having-clause having-clause))
 	   (when (not (null order-by-clause))
-	     (list* :order-by order-by-clause))
+	     (list* #'write-order-by-clause order-by-clause))
 	   (when (not (null limit))
-	     (list :limit limit))
+	     (list #'write-limit limit))
 	   (when (not (null offset))
-	     (list :offset offset)))))
+	     (list #'write-offset offset)))))
 
 (defun compute-query (select-list where-clause order-by-clause
 		      having-clause fetch-clause limit offset)

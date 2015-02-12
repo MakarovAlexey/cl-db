@@ -16,6 +16,7 @@
 	       (:file "session")
 ;;	       (:file "bindings")
 ;;	       (:file "expressions")
+	       (:file "writers")
 	       (:file "query-plan")
 	       (:file "query")
 	       (:file "db-read")))
