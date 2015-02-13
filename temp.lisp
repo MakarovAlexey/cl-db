@@ -194,8 +194,6 @@
 ;;  (when (not (loaded-p object (clos-session-of transaction)))
 ;;    (push (new-objects-of transaction) object)))
 
-
-
 ;;(defgeneric db-query (connection query))
 
 ;;(defun load (mapping row))
@@ -205,7 +203,81 @@
 
 ;;(defun db-get (class-name &rest primary-key)
 
-;;
-
 ;;(with-session (*session*)
 ;;  (db-read :all 'project))
+
+(defgeneric write-expression (expression-type &rest args)
+  )
+
+(defun write-select-list (&reat args)
+  #'(lambda (stream)
+      (format stream "~{~\write-expression~\~^~%}" args)))
+
+(defun write-query (stream &key 
+
+(defun write-expression (stream expression-type &rest args)
+  (apply (case expression-type
+	   (:select #'write-select-list)
+	   (:label  #'write-label)
+	   (:column #'write-column)
+	   (:from #'write-from-clause)
+	   (:inner-join #'write-inner-join)
+	   (:left-join #'write-left-join)
+	   (:cross-join #'write-cross-join)
+	   (:where #'write-where-clause)
+	   (:and #'write-and-clause)
+	   (:or #'write-or-clause)
+	   (:not #'write-not-clause)
+	   (:between #'write-between-clause)
+	   (:count #'write-count-clause)
+	   (:avg #'write-avg-clause)
+	   (:sum #'write-sum-clause)
+	   (:< #'write-less-than-clause)
+	   (:> #'write-more-than-clause)
+	   (:<= #'write-less-than-or-eq-clause)
+	   (:>= #'write-more-than-or-eq-clause)
+	   (:= #'write-equal-clause)
+	   (:<> #'write-not-equal)
+	   (:is #'write-is-clause)
+	   (:null #'write-null-value)
+	   (:true #'write-true-value)
+	   (:false #'write-false-value)
+	   :between :like :every :max :min)
+	 args))
+
+(defun postgresql-9.4 (query-expression)
+  (with-open-stream (stream (make-string-output-stream))
+    (dolist (expression query-expression)
+      (apply #'write-expression stream query-expression))))
+
+(in-package :yacc)
+    
+(defparameter *expression*
+  '((select select)
+    (funcall "count")
+    (column-name "project_id")
+    (table-name "project_members_1")
+    (column-name "user_id")
+    (table-name "project_members_1")
+    (end "count")
+    (label "op_11")
+    (from-clause "project_members")
+    (label "project_members_1")))
+
+(define-parser *progresql*
+  (:start-symbol expression)
+  (:terminals (int id + - * / |(| |)|))
+  (:precedence ((:left * /) (:left + -)))
+  
+  (expression
+   (expression + expression #'i2p)
+   (expression - expression #'i2p)
+   (expression * expression #'i2p)
+   (expression / expression #'i2p)
+   term)
+  
+  (term
+   id
+   int
+   (- term)
+   (|(| expression |)| #'k-2-3)))
