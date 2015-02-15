@@ -2,10 +2,13 @@
 
 (defun write-expression (stream object &optional a b)
   (declare (ignore a b))
-  (if (listp object)
-      (destructuring-bind (expression-writer &rest args) object
-	(apply expression-writer stream args))
-      (write object :stream stream)))
+  (cond ((listp object)
+	 (destructuring-bind (expression-writer &rest args) object
+	   (apply expression-writer stream args)))
+	((stringp object)
+	 (format stream "'~a'" object))
+	(t
+	 (write object :stream stream))))
 
 (defun write-select-list (stream &rest args)
   (format stream "SELECT ~{~/cl-db:write-expression/~^, ~}~%" args))

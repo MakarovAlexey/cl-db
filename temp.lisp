@@ -251,33 +251,48 @@
       (apply #'write-expression stream query-expression))))
 
 (in-package :yacc)
-    
+
+(defun list-lexer (list)
+  #'(lambda ()
+      (values-list (pop list))))
+
+;; select-item := columns | column | function | operator, from-clause
+;; from-clause := table-reference | left-join | inner-join
+;; where-clause :=     
 (defparameter *expression*
-  '((select select)
-    (funcall "count")
-    (column-name "project_id")
-    (table-name "project_members_1")
-    (column-name "user_id")
-    (table-name "project_members_1")
-    (end "count")
+  '((function "count")
+    (column "project_id")
+    (table "project_members_1")
+    (column "user_id")
+    (table "project_members_1")
     (label "op_11")
-    (from-clause "project_members")
+    (from "project_members")
     (label "project_members_1")))
 
-(define-parser *progresql*
-  (:start-symbol expression)
-  (:terminals (int id + - * / |(| |)|))
-  (:precedence ((:left * /) (:left + -)))
-  
-  (expression
-   (expression + expression #'i2p)
-   (expression - expression #'i2p)
-   (expression * expression #'i2p)
-   (expression / expression #'i2p)
-   term)
-  
-  (term
-   id
-   int
-   (- term)
-   (|(| expression |)| #'k-2-3)))
+(define-parser *sql*
+  (:start-symbol sql-query)
+  (:terminals (query label select function column table from))
+
+  (sql-query
+   (select-list from-clause))
+
+  (select-list
+   (select-item select-list)
+   nil)
+
+  (select-item
+   (column-reference label)
+   (function-call label))
+
+  (column-reference
+   (column table))
+
+  (function-call
+   (function arguments))
+
+  (arguments
+   (column-reference arguments)
+   nil)
+
+  (from-clause
+   (from label)))
