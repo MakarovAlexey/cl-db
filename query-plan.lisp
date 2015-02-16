@@ -87,13 +87,20 @@
 	    (when (not (null key-loader))
 	      (funcall key-loader row))))))))
 
+(defun find-slot-name (class reader-name)
+  (or
+   (find-if #'(lambda (slot-definition)
+		(find reader-name
+		      (slot-definition-readers slot-definition)))
+	    (class-direct-slots class))
+   (find-slot-name (find-if #'(lambda (class)
+				(find-slot-name class reader-name))
+			    (class-direct-superclasses class))
+		   reader-name)))
+
 (defun get-slot-name (class reader)
   (let ((slot-definition
-	 (find-if #'(lambda (slot-definition)
-		      (find
-		       (generic-function-name reader)
-		       (slot-definition-readers slot-definition)))
-		  (class-direct-slots class))))
+	 (find-slot-name class (generic-function-name reader))))
     (when (null slot-definition)
       (error "Slot with reader ~a not found for class ~a"
 	     reader (class-name class)))
@@ -321,7 +328,7 @@
 		  #'(lambda (query loader fetch)
 		      (apply #'fetch-many-to-one
 			     query loader fetch class-name slot-name
-			     (mapcar #'funcall foreign-key-columns)
+			     foreign-key-columns
 			     (get-class-mapping reference-class-name)))
 		  references)
 	   (append foreign-key-columns columns)))))))

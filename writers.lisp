@@ -1,29 +1,29 @@
 (in-package #:cl-db)
 
+(defvar *parameters*)
+
 (defun write-expression (stream object &optional a b)
   (declare (ignore a b))
-  (cond ((listp object)
-	 (destructuring-bind (expression-writer &rest args) object
-	   (apply expression-writer stream args)))
-	((stringp object)
-	 (format stream "'~a'" object))
-	(t
-	 (write object :stream stream))))
+  (if (listp object)
+      (destructuring-bind (expression-writer &rest args) object
+	(apply expression-writer stream args))
+      (progn (push object *parameters*)
+	     (format stream "$~a" (length *parameters*)))))
 
 (defun write-select-list (stream &rest args)
-  (format stream "SELECT ~{~/cl-db:write-expression/~^, ~}~%" args))
+  (format stream "SELECT ~{~/cl-db:write-expression/~^,~%~7T~}~%" args))
 
 (defun write-from-clause (stream &rest args)
   (format stream "  FROM ~{~/cl-db:write-expression/~}" args))
 
 (defun write-where-clause (stream &rest args)
-  (format stream " WHERE ~{~/cl-db:write-expression/~^ AND ~}" args))
+  (format stream " WHERE ~{~/cl-db:write-expression/~^~%~3TAND ~}" args))
 
 (defun write-group-by-clause (stream &rest args)
   (format stream " GROUP BY ~{~/cl-db:write-expression/~^, ~}" args))
 
 (defun write-having-clause (stream &rest args)
-  (format stream "HAVING ~{~/cl-db:write-expression/~^ AND ~}" args))
+  (format stream "HAVING ~{~/cl-db:write-expression/~^~%~3TAND ~}" args))
 
 (defun write-order-by-clause (stream &rest args)
   (format stream " ORDER BY ~{~/cl-db:write-expression/~^, ~}" args))
@@ -132,14 +132,15 @@
 (defun write-sum (stream expression)
   (format stream "sum(~/cl-db:write-expression/)" expression))
 
-(defun write-ascending (&rest expressions)
+(defun write-ascending (stream &rest expressions)
   (format stream "~{~/cl-db:write-expression/ ASC~^, ~}" expressions))
 
-(defun write-descending (&rest expressions)
+(defun write-descending (stream &rest expressions)
   (format stream "~{~/cl-db:write-expression/ DESC~^, ~}" expressions))
 
 (defun write-sql-string (stream &rest query)
-  (dolist (sql-clause query stream)
-    (destructuring-bind (function &rest args)
-	sql-clause
-      (apply function stream args))))
+  (let ((*parameters* nil))
+    (dolist (sql-clause query (reverse *parameters*))
+      (destructuring-bind (function &rest args)
+	  sql-clause
+	(apply function stream args)))))
