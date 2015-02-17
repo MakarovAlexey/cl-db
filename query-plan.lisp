@@ -217,6 +217,28 @@
 	     (apply #'join-one-to-many-mappings
 		    join-path primary-key one-to-many-mappings)))))
 
+(defun join-append (joins join-fn table-name alias on-clause &rest appended-joins)
+  (let ((join (find alias joins :key #'third)))
+    (if (not (null join))
+	(apply #'join-append appended-joins join)
+	(list* (list* join-fn table-name alias on-clause appended-joins)
+	       joins))))
+
+(defun root-append (joins table-reference-fn table-name alias &rest appended-joins)
+  (list* table-reference-fn table-name alias
+	 (reduce #'(lambda (result join)
+		     (apply #'join-append result join))
+		 appended-joins :initial-value joins)))
+
+(defun from-clause-append (from-clause table-reference-fn table-name alias &rest joins)
+  (let ((root (find alias from-clause :key #'third)))
+    (if (not (null root))
+	(list*
+	 (apply #'root-append joins root)
+	 (remove alias from-clause :key #'third))
+	(list* (list* table-reference-fn table-name alias joins)
+	       from-clause))))
+
 (defun query-append (query &key select-list from-clause where-clause
 			     group-by-clause having-clause
 			     order-by-clause limit offset)
@@ -236,8 +258,11 @@
 	  (if (not (null expression))
 	      (rassoc expression select-list)
 	      (values select-list
-		      (remove-duplicates
-		       (append from-clause query-from-clause))
+		      (if (not (null from-clause))
+			  (apply #'from-clause-append
+				 query-from-clause from-clause)
+			;;  (list* from-clause query-from-clause)
+			  query-from-clause)
 		      (if (not (null where-clause))
 			  (list* where-clause query-where-clause)
 			  query-where-clause)
@@ -675,8 +700,8 @@
 		 superclasses-fetched-references)
 	 (append superclass-columns
 		 superclasses-columns)
-	 (append superclass-from-clause
-		 superclasses-from-clause)
+	 (list* superclass-from-clause
+		superclasses-from-clause)
 	 (append superclass-loaders
 		 superclasses-loaders))))))
 
@@ -713,7 +738,7 @@
 		 property-columns
 		 foreign-key-columns
 		 superclasses-columns)
-	 (list* table-join superclasses-from-clause)
+	 (append table-join superclasses-from-clause)
 	 (list* #'(lambda (object row)
 		    (register-object class-name
 				     (funcall primary-key-loader row)
@@ -762,8 +787,12 @@
 	       (columns (append fetched-columns
 				subclasses-columns))
 	       (path (reverse (list* table-join join-path)))
-	       (from-clause (append fetched-from-clause
-				    subclasses-from-clause))
+	       (from-clause
+		(reduce #'(lambda (from-clause table-join)
+			    (append table-join (list from-clause)))
+			join-path :from-end nil
+			:initial-value (append fetched-from-clause
+					       subclasses-from-clause)))
 	       (fetch-references
 		(append fetched-references
 			subclasses-fetch-references)))

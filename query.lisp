@@ -123,17 +123,7 @@
 					   (rest select-list-item))
 				     result))
 			  select-list :initial-value nil))
-	   (list* #'write-from-clause
-		  (list* (first from-clause)
-			 (reduce #'(lambda (table-reference result)
-				     (list* (if (eq (first table-reference)
-						    #'write-table-reference)
-						(list* #'write-cross-join
-						       (rest table-reference))
-						table-reference)
-					    result))
-				 (rest from-clause) :initial-value nil
-				 :from-end t)))
+	   (list* #'write-from-clause from-clause)
 	   (when (not (null where-clause))
 	     (list* #'write-where-clause where-clause))
 	   (when (some #'null group-by-clause)

@@ -162,12 +162,12 @@
   (funcall (properties-of mapping) reader))
 		    
 (defun join (selector accessor alias &optional join)
-  (multiple-value-bind (joined-selector references)
-      (funcall (join-references-of selector) accessor)
+  (let ((joined-selector
+	 (funcall (join-references-of selector) accessor)))
     (list* alias joined-selector
 	   (when (not (null join))
 	     (multiple-value-call #'append
-	       (funcall join references))))))
+	       (funcall join joined-selector))))))
 
 (defun fetch (references accessor &optional fetch)
   (multiple-value-bind (reference class-loader)
