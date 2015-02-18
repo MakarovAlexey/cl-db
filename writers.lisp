@@ -14,7 +14,7 @@
   (format stream "SELECT ~{~/cl-db:write-expression/~^,~%~7T~}~%" args))
 
 (defun write-from-clause (stream &rest args)
-  (format stream "  FROM ~{~/cl-db:write-expression/~}" args))
+  (format stream "  FROM ~{~/cl-db:write-expression/~^~1TCROSS JOIN ~}" args))
 
 (defun write-where-clause (stream &rest args)
   (format stream " WHERE ~{~/cl-db:write-expression/~^~%~3TAND ~}" args))
@@ -43,19 +43,16 @@
 (defun write-table-name (stream table-name)
   (format stream "~a" table-name))
 
-(defun write-inner-join (stream table alias on)
-  (format stream "~1TINNER JOIN ~a AS ~a~%~4TON ~{~{~/cl-db:write-expression/ = ~/cl-db:write-expression/~%~}~^~3TAND ~}"
-	  table alias on))
+(defun write-inner-join (stream table alias on &rest joins)
+  (format stream "~1TINNER JOIN ~a AS ~a~%~4TON ~{~{~/cl-db:write-expression/ = ~/cl-db:write-expression/~%~}~^~3TAND ~}~{~/cl-db:write-expression/~}"
+	  table alias on joins))
 
-(defun write-left-join (stream table alias on)
-  (format stream "~2TLEFT JOIN ~a AS ~a~%~4TON ~{~{~/cl-db:write-expression/ = ~/cl-db:write-expression/~%~}~^~3TAND ~}"
-	  table alias on))
+(defun write-left-join (stream table alias on &rest joins)
+  (format stream "~2TLEFT JOIN ~a AS ~a~%~4TON ~{~{~/cl-db:write-expression/ = ~/cl-db:write-expression/~%~}~^~3TAND ~}~{~/cl-db:write-expression/~}"
+	  table alias on joins))
 
-(defun write-table-reference (stream table alias)
-  (format stream "~a AS ~a~%" table alias))
-
-(defun write-cross-join (stream table alias)
-  (format stream "~1TCROSS JOIN ~a AS ~a~%" table alias))
+(defun write-table-reference (stream table alias &rest joins)
+  (format stream "~a AS ~a~%~{~/cl-db:write-expression/~}" table alias joins))
 
 (defun write-and (stream &rest expressions)
   (format stream "~{(~/cl-db:write-expression/)~^ AND ~}" expressions))
