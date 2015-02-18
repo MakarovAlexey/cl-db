@@ -847,7 +847,7 @@
 				properties one-to-many-mappings
 				many-to-one-mappings
 				superclass-mappings subclass-mappings)
-  (let ((alias (make-alias table-name)))
+  (let ((alias (make-alias "root")))
     (plan-class alias class-name
 		(list #'write-table-reference table-name alias)
 		nil primary-key properties one-to-many-mappings
