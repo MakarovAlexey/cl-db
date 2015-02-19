@@ -86,9 +86,10 @@
   (unary-operator #'write-is-false expression))
 
 (defun db-between (argument lhs-expression rhs-expression)
-  (let* ((range (db-and lhs-expression rhs-expression))
-	 (expression (list* (expression-of argument) :between range))
-	 (alias (make-alias "op")))
+  (let ((expression
+	 (list* #'write-between
+		argument lhs-expression rhs-expression))
+	(alias (make-alias "op")))
     (make-expression :expression expression
 		     :count expression
 		     :select-list (list (cons expression alias))
@@ -101,10 +102,13 @@
 		     :loader (make-value-loader alias))))
 
 (defun db-like (expression pattern)
-  (binary-operator :like expression pattern))
+  (binary-operator #'write-like expression
+		   (make-expression :expression
+				    (list #'write-like-pattern
+					  pattern))))
 
 (defun db-count (expression)
-  (let ((count (list* :count (count-expression-of expression)))
+  (let ((count (list #'write-count (count-expression-of expression)))
 	(alias (make-alias "op")))
     (make-expression :expression count
 		     :select-list (list (cons count alias))
@@ -112,7 +116,7 @@
 		     :loader (make-value-loader alias))))
 
 (defun aggregate-function (function expression)
-  (let ((aggregate (list* function (expression-of expression)))
+  (let ((aggregate (list function (expression-of expression)))
 	(alias (make-alias "op")))
     (make-expression :expression aggregate
 		     :select-list (list (cons aggregate alias))
@@ -120,19 +124,19 @@
 		     :loader (make-value-loader alias))))
 
 (defun db-avg (expression)
-  (aggregate-function :avg expression))
+  (aggregate-function #'write-avg expression))
 
 (defun db-every (expression)
-  (aggregate-function :every expression))
+  (aggregate-function #'write-every expression))
 
 (defun db-max (expression)
-  (aggregate-function :max expression))
+  (aggregate-function #'write-max expression))
 
 (defun db-min (expression)
-  (aggregate-function :min expression))
+  (aggregate-function #'write-min expression))
 
 (defun db-sum (expression)
-  (aggregate-function :sum expression))
+  (aggregate-function #'write-sum expression))
 
 ;; ORDER BY
 

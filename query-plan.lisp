@@ -251,8 +251,9 @@
 	       from-clause))))
 
 (defun query-append (query &key select-list from-clause where-clause
-			     group-by-clause having-clause
-			     order-by-clause limit offset)
+			     (group-by-clause nil group-by-present-p)
+			     having-clause order-by-clause
+			     limit offset)
   (multiple-value-bind (query-select-list
 			query-from-clause
 			query-where-clause
@@ -276,9 +277,9 @@
 		      (if (not (null where-clause))
 			  (list* where-clause query-where-clause)
 			  query-where-clause)
-		      (if (not (null group-by-clause))
-			  (append group-by-clause query-group-by-clause)
-			  group-by-clause)
+		      (if (not (null group-by-present-p))
+			  (list* group-by-clause query-group-by-clause)
+			  query-group-by-clause)
 		      (if (not (null having-clause))
 			  (list* having-clause query-having-clause)
 			  query-having-clause)
@@ -827,7 +828,7 @@
 				   :count (mapcar #'first primary-key)
 				   :count-from-clause path
 				   :from-clause from-clause
-				   :group-by-clause columns
+				   :group-by-clause (mapcar #'first columns)
 				   :loader class-loader
 				   :fetch
 				   #'(lambda (reader)

@@ -429,3 +429,7 @@
    - references (columns, from-clause, group-by-clause, properties, references)
    - expressions (columns (expression), from-clause, group-by-clause)
      #'(lambda (&key expression from-clause group-by-clause properties references))
+
+* ORDER BY
+  Сортировка выборки.
+  

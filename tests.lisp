@@ -312,5 +312,24 @@
 			   fetch-expressions-by-loaders)
 		    query))))))))
 
+(lift:addtest expression-group-by-clause
+  (let* ((*table-index* 0)
+	 (*mapping-schema* (projects-managment))
+	 (join-plan (make-join-plan *mapping-schema* 'project 'user)))
+    (destructuring-bind (project-expression user-count-expression)
+	(apply #'compute-select
+	       (multiple-value-list
+		(apply #'(lambda (project user)
+			   (values project
+				   (db-count user)))
+		       join-plan)))
+      (lift:ensure
+       (not
+	(null (group-by-clause-of project-expression))))
+      (lift:ensure
+       (null
+	(group-by-clause-of user-count-expression)))
+      
+
 (defun test ()
   (describe (lift:run-tests)))

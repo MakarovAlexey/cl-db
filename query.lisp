@@ -1,15 +1,5 @@
 (in-package #:cl-db)
 
-(defun compute-group-by-clause (select-list-item
-				&rest select-list-items)
-  (multiple-value-bind (group-by-clause)
-      (when (not (null select-list-items))
-	(apply #'compute-group-by-clause select-list-items))
-    (multiple-value-bind (expression alias group-by-columns)
-	(funcall select-list-item)
-      (declare (ignore expression alias))
-      (append group-by-columns group-by-clause))))
-
 (defun compute-select-clause (select-item &rest select-list)
   (multiple-value-bind (query loaders)
       (when (not (null select-list))
@@ -18,7 +8,7 @@
      (query-append query
 		   :select-list (select-list-of select-item)
 		   :from-clause (from-clause-of select-item)
-		   :group-by-clause (list (group-by-clause-of select-item)))
+		   :group-by-clause (group-by-clause-of select-item))
      (list* (loader select-item) loaders))))
 
 (defun append-where-clause (query &optional expression
@@ -127,7 +117,8 @@
 	   (when (not (null where-clause))
 	     (list* #'write-where-clause where-clause))
 	   (when (some #'null group-by-clause)
-	     (list* #'write-group-by-clause group-by-clause))
+	     (list* #'write-group-by-clause
+		    (reduce #'append group-by-clause)))
 	   (when (not (null having-clause))
 	     (list* #'write-having-clause having-clause))
 	   (when (not (null order-by-clause))

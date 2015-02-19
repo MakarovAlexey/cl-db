@@ -20,7 +20,7 @@
   (format stream " WHERE ~{~/cl-db:write-expression/~^~%~3TAND ~}" args))
 
 (defun write-group-by-clause (stream &rest args)
-  (format stream " GROUP BY ~{~/cl-db:write-expression/~^, ~}" args))
+  (format stream " GROUP BY ~{~/cl-db:write-expression/~^,~%~10T~}" args))
 
 (defun write-having-clause (stream &rest args)
   (format stream "HAVING ~{~/cl-db:write-expression/~^~%~3TAND ~}" args))
@@ -108,8 +108,11 @@
 	  expression lhs-expression rhs-expression))
 
 (defun write-like (stream expression pattern)
-  (format stream "~/cl-db:write-expression/ LIKE ~a"
+  (format stream "~/cl-db:write-expression/ LIKE ~/cl-db:write-expression/"
 	  expression pattern))
+
+(defun write-like-pattern (stream pattern)
+  (format stream "'~a'" pattern))
 
 (defun write-count (stream &rest expressions)
   (format stream "count(~{~/cl-db:write-expression/~^, ~})" expressions))
