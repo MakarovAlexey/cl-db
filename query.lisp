@@ -50,7 +50,8 @@
 	   (select-list
 	    (reduce #'(lambda (result select-list-item)
 			(let ((alias (rest select-list-item)))
-			  (acons (list :column alias query-alias)
+			  (acons (list #'write-column
+				       alias query-alias)
 				 alias
 				 result)))
 		    query-select-list
@@ -60,7 +61,8 @@
 	      (rassoc column-expression select-list)
 	      (values select-list
 		      (list
-		       (list (make-query-expression query-select-list
+		       (list #'write-subquery
+			     (make-query-expression query-select-list
 						    query-from-clause
 						    query-where-clause
 						    query-group-by-clause

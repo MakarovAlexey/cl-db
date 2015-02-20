@@ -328,7 +328,7 @@
 	(null (group-by-clause-of project-expression))))
       (lift:ensure
        (null
-	(group-by-clause-of user-count-expression)))
+	(group-by-clause-of user-count-expression))))))
       
 
 (defun test ()

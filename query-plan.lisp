@@ -235,18 +235,21 @@
 	(list* (list* join-fn table-name alias on-clause appended-joins)
 	       joins))))
 
-(defun root-append (joins table-reference-fn table-name alias &rest appended-joins)
+(defun root-append (appended-joins table-reference-fn table-name alias &rest joins)
   (list* table-reference-fn table-name alias
 	 (reduce #'(lambda (result join)
 		     (apply #'join-append result join))
 		 appended-joins :initial-value joins)))
 
 (defun from-clause-append (from-clause table-reference-fn table-name alias &rest joins)
-  (let ((root (find alias from-clause :key #'third)))
+  (let ((root
+	 (or
+	  (find alias from-clause :key #'third)
+	  (find #'write-subquery from-clause :key #'first))))
     (if (not (null root))
 	(list*
 	 (apply #'root-append joins root)
-	 (remove alias from-clause :key #'third))
+	 (remove (third root) from-clause :key #'third))
 	(list* (list* table-reference-fn table-name alias joins)
 	       from-clause))))
 

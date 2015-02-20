@@ -138,6 +138,10 @@
 (defun write-descending (stream &rest expressions)
   (format stream "~{~/cl-db:write-expression/ DESC~^, ~}" expressions))
 
+(defun write-subquery (stream query alias &rest expressions)
+  (format stream "(~{~/cl-db:write-expression/~}) AS ~a~%~{~/cl-db:write-expression/~}"
+	  query alias expressions))
+
 (defun write-sql-string (stream &rest query)
   (let ((*parameters* nil))
     (dolist (sql-clause query (reverse *parameters*))
