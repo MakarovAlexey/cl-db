@@ -1,5 +1,7 @@
 (in-package #:cl-db)
 
+(defvar *prepared-statements-count*)
+
 (defun binary-operator (operator lhs-expression
 			rhs-expression &rest rest-expressions)
   (let ((expression (list* operator
@@ -183,10 +185,8 @@
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 
-(defun db-read (roots &key join select where order-by having
-			offset limit singlep transform fetch
-			(mapping-schema *mapping-schema*))
-  (declare (ignore transform singlep))
+(defun compile-query (mapping-schema roots join select where order-by
+		      having offset limit fetch)
   (let* ((*table-index* 0)
 	 (*mapping-schema* mapping-schema)
 	 (selectors
@@ -204,18 +204,29 @@
 		   (multiple-value-list
 		    (apply select joined-list))
 		   selectors))
-      (compute-query select-list
-		     (when (not (null where))
-		       (multiple-value-list
-			(apply where joined-list)))
-		     (when (not (null order-by))
-		       (multiple-value-list
-			(apply order-by select-list)))
-		     (when (not (null having))
-		       (multiple-value-list
-			(apply having joined-list)))
-		     (when (not (null fetch))
-		       (multiple-value-list
-			(apply fetch fetch-references)))
-		     limit
-		     offset))))
+	  (compute-query select-list
+			 (when (not (null where))
+			   (multiple-value-list
+			    (apply where joined-list)))
+			 (when (not (null order-by))
+			   (multiple-value-list
+			    (apply order-by select-list)))
+			 (when (not (null having))
+			   (multiple-value-list
+			    (apply having joined-list)))
+			 (when (not (null fetch))
+			   (multiple-value-list
+			    (apply fetch fetch-references)))
+			 limit
+			 offset))))
+
+(defun db-read (roots &key join select where order-by having
+			offset limit singlep transform fetch
+			(mapping-schema (mapping-schema-of *session*)))
+  (declare (ignore transform singlep))
+  (multiple-value-bind (sql-string parameters loaders)
+      (compile-query mapping-schema roots join select where order-by
+		     having offset limit fetch)
+    (multiple-value-call #'execute-prepared
+      (prepare sql-string (connection-of *session*))
+      (values-list parameters))))

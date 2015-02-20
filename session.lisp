@@ -1,20 +1,12 @@
 (in-package #:cl-db)
 
-(defvar *default-database-interface-name*)
-
-(defvar *default-connection-args*)
-
-(defvar *default-mapping-schema-name*)
-
-(defvar *mapping-schema*)
-
 (defvar *session*)
 
 (defclass clos-session ()
-  ((database-interface :initarg :database-interface
-		       :reader database-interface-of)
-   (database-connection :initarg :database-connection
-			:reader database-connection-of)
+  ((connection :initarg :connection
+	       :reader connection-of)
+   (mappping-schema :initarg :mapping-schema
+		    :reader mapping-schema-of)
    (loaded-objects :initform (make-hash-table)
 		   :reader loaded-objects-of)
    (new-objects :initform (list)
@@ -22,39 +14,33 @@
    (removed-objects :initform (list)
 		    :accessor removed-objects-of)))
 
-(defun open-session (database-interface &rest connection-args)
+(defun open-session (mapping-schema-fn &rest connection-args)
   (make-instance 'clos-session
-		 :database-interface database-interface
-		 :database-connection (apply #'open-connection
-					     database-interface
-					     connection-args)))
+		 :mapping-schema (funcall mapping-schema-fn)
+		 :connection (apply #'open-database connection-args)))
 
 (defun close-session (session)
-  (close-connection (database-interface-of session)
-		    (database-connection-of session)))
+  (close-database (connection-of session)))
 
-(defun call-with-session (function database-interface-name
-			  mapping-schema-name &rest connection-args)
-  (let* ((*mapping-schema*
-	  (ensure-mapping-schema mapping-schema-name))
-	 (*session*
-	  (apply #'open-session
-		 (get-database-interface database-interface-name)
-		 connection-args)))
-    (funcall function)
+(defun call-with-session (mapping-schema-fn connection-args thunk)
+  (let ((*session*
+	 (apply #'open-session mapping-schema-fn connection-args)))
+    (funcall thunk)
     (close-session *session*)))
 
-(defmacro with-session ((&rest options) &body body)
+(defmacro with-session ((mapping-schema &rest connection-args)
+			&body body)
   `(apply #'call-with-session
-	  #'(lambda () ,@body)
-	  (quote ,(or (first
-		       (compile-option :database-interface options))
-		      *default-database-interface-name*))
-	  (quote ,(or (first
-		       (compile-option :mapping-schema options))
-		      *default-mapping-schema-name*))
-	  (list ,@(or (compile-option :connection-args options)
-		      *default-connection-args*))))
+	  (function ,mapping-schema)
+	  (quote ,connection-args)
+	  #'(lambda () ,@body)))
+
+(defun prepare (sql-string &optional (connection (connection-of *session*)))
+  (prepare-query connection sql-string sql-string)
+  (values sql-string connection))
+
+(defun execute-prepared (name connection &rest parameters)
+  (exec-prepared connection name parameters))
 
 ;; implement cascade operations
 (defun persist-object (object &optional (session *session*))

@@ -141,15 +141,17 @@
 				having-clause)
 			 :limit limit :offset offset))
 	  (fetch-expressions
-	   (reduce #'(lambda (result fetch-expression)
+	   (reduce #'(lambda (result fetch-expr3ession)
 		       (multiple-value-call #'acons
 			 (funcall fetch-expression) result))
 		   fetch-clause :initial-value nil)))
       (multiple-value-bind (query loaders)
 	  (append-fetch-clause query loaders limit offset
 			       fetch-expressions)
-	(values (multiple-value-call #'make-query-expression
-		  (funcall
-		   (apply #'append-order-by-clause
-			  query order-by-clause)))
-		loaders)))))
+	(multiple-value-bind (sql-string parameters)
+	    (make-sql-string
+	     (multiple-value-call #'make-query-expression
+	       (funcall
+		(apply #'append-order-by-clause
+		       query order-by-clause))))
+	  (values sql-string parameters loaders))))))

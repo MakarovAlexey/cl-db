@@ -2092,3 +2092,9 @@ Single instance
 	 :order-by #'(lambda (commit)
 		       (ascending commit #'date-of))))
 ;;; ?????
+
+(define-session postgresql ()
+  (:open-connection #'open-database)
+  (:close-connection #'close-database)
+  (:prepare #'prepare)
+  (:exec-prepared #'exec-prepared))

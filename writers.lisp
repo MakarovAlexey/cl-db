@@ -142,9 +142,12 @@
   (format stream "(~{~/cl-db:write-expression/~}) AS ~a~%~{~/cl-db:write-expression/~}"
 	  query alias expressions))
 
-(defun write-sql-string (stream &rest query)
-  (let ((*parameters* nil))
-    (dolist (sql-clause query (reverse *parameters*))
-      (destructuring-bind (function &rest args)
-	  sql-clause
-	(apply function stream args)))))
+(defun make-sql-string (query)
+  (with-open-stream (stream (make-string-output-stream))
+    (let ((*parameters* nil))
+      (dolist (sql-clause query (values
+				 (get-output-stream-string stream)
+				 (reverse *parameters*)))
+	(destructuring-bind (function &rest args)
+	    sql-clause
+	  (apply function stream args))))))
