@@ -7,8 +7,8 @@
   :license "Specify license here"
   :serial t
   :depends-on (#:alexandria
-	       #:ironclad
-	       #:closer-mop)
+	       #:closer-mop
+	       #:cl-postgres)
   :components ((:file "package")
 ;;	       (:file "database-interface")
 	       (:file "cl-db")
@@ -27,6 +27,5 @@
   :author "Your Name <your.name@example.com>"
   :license "Specify license here"
   :depends-on (#:cl-db
-	       #:cl-postgres
 	       #:lift)
   :components ((:file "tests")))

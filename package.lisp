@@ -7,7 +7,8 @@
 		:close-database
 		:connection-meta
 		:prepare-query
-		:exec-prepared)
+		:exec-prepared
+		:exec-query)
   (:export :define-database-interface
 	   :define-mapping-schema
 	   :define-class-mapping

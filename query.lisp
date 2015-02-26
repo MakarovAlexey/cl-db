@@ -141,7 +141,7 @@
 				having-clause)
 			 :limit limit :offset offset))
 	  (fetch-expressions
-	   (reduce #'(lambda (result fetch-expr3ession)
+	   (reduce #'(lambda (result fetch-expression)
 		       (multiple-value-call #'acons
 			 (funcall fetch-expression) result))
 		   fetch-clause :initial-value nil)))

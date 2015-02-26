@@ -97,10 +97,12 @@
 		     :select-list (list (cons expression alias))
 		     :from-clause (append
 				   (from-clause-of argument)
-				   (from-clause-of range))
+				   (from-clause-of lhs-expression)
+				   (from-clause-of rhs-expression))
 		     :group-by-clause (append
 				       (group-by-clause-of argument)
-				       (group-by-clause-of range))
+				       (group-by-clause-of lhs-expression)
+				       (group-by-clause-of rhs-expression))
 		     :loader (make-value-loader alias))))
 
 (defun db-like (expression pattern)

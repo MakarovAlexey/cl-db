@@ -1,5 +1,7 @@
 (in-package #:cl-db)
 
+(defvar *mapping-schema*)
+
 (defun make-expression (&key properties expression count
 			  count-from-clause select-list from-clause
 			  group-by-clause loader fetch join)
@@ -443,13 +445,6 @@
 	     (apply #'fetch-one-to-many-mappings
 		    join-path class-name primary-key mappings)))))
 
-(defun register-object (class primary-key object
-			&optional (objects *objects*))
-  (setf (gethash primary-key
-		 (ensure-gethash class objects
-				 (make-hash-table :test #'equal)))
-	object))
-
 (defun fetch-slots (class-name alias table-join join-path
 		    primary-key-columns primary-key-loader properties
 		    one-to-many-mappings many-to-one-mappings
@@ -477,9 +472,9 @@
 		 superclasses-columns)
 	 (append table-join superclasses-from-clause)
 	 (list* #'(lambda (object row)
-		    (register-object class-name
-				     (funcall primary-key-loader row)
-				     object)
+		    (register-object object
+				     class-name
+				     (funcall primary-key-loader row))
 		    (dolist (loader property-loaders object)
 		      (funcall loader object row)))
 		superclasses-loaders))))))
@@ -767,9 +762,9 @@
 		 superclasses-columns)
 	 (append table-join superclasses-from-clause)
 	 (list* #'(lambda (object row)
-		    (register-object class-name
-				     (funcall primary-key-loader row)
-				     object)
+		    (register-object object
+				     class-name
+				     (funcall primary-key-loader row))
 		    (dolist (loader property-loaders object)
 		      (funcall loader object row)))
 		superclasses-loaders))))))
