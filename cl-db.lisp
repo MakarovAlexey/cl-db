@@ -4,6 +4,14 @@
 
 (defvar *class-mappings*)
 
+(defvar *mapping-schema*)
+
+(defun get-class-mapping (class-name
+			  &optional (mapping-schema *mapping-schema*))
+  (or
+   (assoc class-name mapping-schema)
+   (error "class mapping for class ~a not found" class-name)))
+
 (defun parse-slot-mappings (&rest slot-mappings)
   (loop for slot-mapping in slot-mappings collect
        (destructuring-bind

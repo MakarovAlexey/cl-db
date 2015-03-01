@@ -1,7 +1,5 @@
 (in-package #:cl-db)
 
-(defvar *mapping-schema*)
-
 (defun make-expression (&key properties expression count
 			  count-from-clause select-list from-clause
 			  group-by-clause loader fetch join)
@@ -61,12 +59,6 @@
 
 (defun make-alias (&optional (name "table"))
   (format nil "~a_~a" name (incf *table-index*)))
-
-(defun get-class-mapping (class-name
-			  &optional (mapping-schema *mapping-schema*))
-  (or
-   (assoc class-name mapping-schema)
-   (error "class mapping for class ~a not found" class-name)))
 
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name))

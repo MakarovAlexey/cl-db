@@ -14,7 +14,7 @@
 	       (:file "cl-db")
 ;;	       (:file "mapping-schema")
 	       (:file "session")
-;;	       (:file "bindings")
+	       (:file "persistence")
 ;;	       (:file "expressions")
 	       (:file "writers")
 	       (:file "query-plan")

@@ -229,6 +229,5 @@
   (multiple-value-bind (sql-string parameters loaders)
       (compile-query mapping-schema roots join select where order-by
 		     having offset limit fetch)
-    (multiple-value-call #'execute-prepared
-      (prepare sql-string (connection-of *session*))
-      (values-list parameters))))
+    (apply (prepare sql-string (connection-of *session*))
+	   parameters)))
