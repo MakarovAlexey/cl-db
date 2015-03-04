@@ -9,13 +9,8 @@
 		:prepare-query
 		:exec-prepared
 		:exec-query)
-  (:export :define-database-interface
-	   :define-mapping-schema
-	   :define-class-mapping
-	   :with-session
-	   :*default-database-interface-name*
-	   :*default-mapping-schema-name*
-	   :*default-connection-args*
-	   :db-persist
+  (:export :db-persist
+	   :db-read
 	   :db-remove
-	   :db-query))
+	   :with-session
+	   :with-transaction))

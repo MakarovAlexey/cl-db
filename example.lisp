@@ -2098,3 +2098,8 @@ Single instance
   (:close-connection #'close-database)
   (:prepare #'prepare)
   (:exec-prepared #'exec-prepared))
+
+(defclass property ()
+  ((slot-name)
+   (column-name)
+   (column-type)))

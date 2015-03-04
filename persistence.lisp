@@ -19,26 +19,69 @@
 (defun remove-object (object &optional (session *session*))
   (pushnew object (removed-objects-of session)))
 
-(defun make-snapshot (primary-key object class-mapping)
+(defclass object-map ()
+  ((object :initarg :object
+	   :reader object-of)
+   (mapping :initarg :mapping
+	    :reader mapping-of)
+   (primary-key :initarg :primary-key
+		:reader primary-key-of)
+   (properties :initarg :properties
+	       :reader properties-of)
+   (many-to-one :initarg :many-to-one
+		:reader many-to-one-of)
+   (one-to-many :initarg :one-to-many
+		:reader one-to-many)
+   (inverted-one-to-many :initform (list)
+			 :accessor inverted-one-to-many-of
+			 :documentation
+			 "Many-to-one side of other one-to-many relations")))
 
-(defun make-snapshots (objects mapping-schema)
-  (let ((table (make-hash-table :size (length objects))))
+(defun map-properties (object properties)
+  (reduce #'(lambda (result property)
+	      (destructuring-bind (slot-name column-name column-type)
+		  property
+		(declare (ignore column-name column-type))
+		(acons slot-name (slot-value object slot-name) result)))
+	  properties))
+
+(defun map-many-to-one-associations (object many-to-one-mappings)
+  )
+
+(defun map-object (object primary-key-value &rest mapping
+		   &key properties one-to-many-mappings
+		     many-to-one-mappings &allow-other-keys)
+  (make-instance 'object-map
+		 :object object
+		 :mapping mapping
+		 :primary-key primary-key-value
+		 :properties
+		 (map-properties object properties)
+		 :many-to-one
+		 (map-many-to-one-associations object many-to-one-mappings)
+		 :one-to-many
+		 (map-one-to-many-associations object one-to-many-mappings)))
+
+(defun map-objects (objects-table mapping-schema)
+  (let ((maps (make-hash-table :size (hash-table-size objects-table))))
     (maphash #'(lambda (pk-and-class-name object)
-		 (setf (gethash object table)
-		       (make-snapshot (rest pk-and-class-name)
-				      object
-				      (get-class-mapping
-				       (class-name
-					(class-of object))))))
-	     objects)
-    table))
+		 (setf (gethash object maps)
+		       (apply #'map-object
+			      object
+			      (rest pk-and-class-name)
+			      (list* :class-name
+				     (get-class-mapping (class-name
+							 (class-of object))
+							mapping-schema)))))
+	     objects-table)
+    maps))
 
 (defun begin-transaction (session)
   (execute "BEGIN" (connection-of session))
   (make-instance 'clos-transaction
-		 :snapshots (make-snapshot
-			      (loaded-objects-of session)
-			      (mapping-schema-of session))))
+		 :snapshots (map-objects
+			     (loaded-objects-of session)
+			     (mapping-schema-of session))))
 
 (defun rollback (transaction)
   (execute "ROLLBACK" (connection-of
