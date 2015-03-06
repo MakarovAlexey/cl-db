@@ -8,7 +8,19 @@
    (mappping-schema :initarg :mapping-schema
 		    :reader mapping-schema-of)
    (loaded-objects :initform (make-hash-table :test #'equal)
-		   :reader loaded-objects-of)))
+		   :reader loaded-objects-of)
+   (object-maps :initarg :snapshots
+		:reader object-maps-of)
+   (new-objects :initform (list)
+		:accessor new-objects-of)
+   (removed-objects :initform (list)
+		    :accessor removed-objects-of)))
+
+(defun db-persist (object &optional (session *session*))
+  (pushnew object (new-objects-of session)))
+
+(defun db-remove (object &optional (session *session*))
+  (pushnew object (removed-objects-of session)))
 
 (defun get-object (class-name primary-key
 		   &optional (objects
@@ -29,6 +41,7 @@
 		 :connection (apply #'open-database connection-args)))
 
 (defun close-session (session)
+  (flush-session session)
   (close-database (connection-of session)))
 
 (defun call-with-session (mapping-schema-fn connection-args thunk)

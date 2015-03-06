@@ -1,4 +1,6 @@
 * Mapping definition
+* Connection managment
+* Session managment
 * Query
   1) полиморфные запросы - вычисление таблиц и связей до подклассов
      если такоевые указаны.
@@ -412,7 +414,7 @@
     Computes the sample standard deviation of all expression values in
     a group
 ** Scalar functions
-* Schedule
+** Schedule
 ** Object quering and loading
 *** SQL select list and select list from clause parts
 *** SQL where clause and from clause parts
@@ -420,9 +422,9 @@
 *** Quering and loading single object
 ** Object persistence (inserting and updateing queries)
 ** Selecting values (slot values, functions, aggegation)
-* Query examples
+** Query examples
 ** Рекурсиваня выборка с ограничением "до об"
-* SQL-операторы и функции
+** SQL-операторы и функции
 ** Переделать функцит для select-list
    - class-mapping (columns, from-clause, group-by-clause, properties, references)
    - properties (columns, from-clause, group-by-clause)
@@ -430,6 +432,28 @@
    - expressions (columns (expression), from-clause, group-by-clause)
      #'(lambda (&key expression from-clause group-by-clause properties references))
 
-* ORDER BY
+** ORDER BY
   Сортировка выборки.
   
+* Интерпретация значений NULL
+  Возможно следует исходить из спецификации типа слота, когда тип в
+  общем виде `(or null t)' будет означать, что значение должно быть
+  интерпретировано как nil. Если тип указан только как `t', то NULL
+  должен быть интерпретирован как отсутствие значение (unbound slot).
+
+  Такой подход сработает для свойств и отношений `много-к-одному', но
+  для отношений `один-ко-многим' это относится не может, так как оно
+  всегда представляет коллекцию объектов, пусть даже пустую.
+
+  При этом, для many-to-one несвязанный слот не всегда будет отражать,
+  что его значение просто не загружено из БД. Эту информацию нужно
+  будет хранить отдельно.
+
+  Также возникнут трудности с возможностью делать слот несвязанным
+  (`slot-makunbound'). 
+
+  Пока поступим проще.
+** property
+   NULL базы данных всегда интерпретируется как nil.
+** many-to-one
+* Persisitence
