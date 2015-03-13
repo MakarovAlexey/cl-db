@@ -9,12 +9,21 @@
 		    :reader mapping-schema-of)
    (loaded-objects :initform (make-hash-table :test #'equal)
 		   :reader loaded-objects-of)
-   (object-maps :initarg :snapshots
-		:reader object-maps-of)
+   (instance-states :initarg :instance-states
+		    :reader instance-states-of)
    (new-objects :initform (list)
 		:accessor new-objects-of)
    (removed-objects :initform (list)
 		    :accessor removed-objects-of)))
+
+(defun begin-transaction (session)
+  (execute "BEGIN" (connection-of session)))
+
+(defun rollback (session)
+  (execute "ROLLBACK" (connection-of session)))
+
+(defun commit (transaction)
+  (execute "COMMIT" (connection-of session)))
 
 (defun db-persist (object &optional (session *session*))
   (pushnew object (new-objects-of session)))

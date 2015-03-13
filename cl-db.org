@@ -457,3 +457,7 @@
    NULL базы данных всегда интерпретируется как nil.
 ** many-to-one
 * Persisitence
+** New
+   
+** Loaded
+** Removed

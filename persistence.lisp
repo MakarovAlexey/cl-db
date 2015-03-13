@@ -1,7 +1,7 @@
 (in-package #:cl-db)
 
 ;; implement cascade operations
-(defclass object-map ()
+(defclass instance-state ()
   ((object :initarg :object
 	   :reader object-of)
    (mapping :initarg :mapping
@@ -19,6 +19,12 @@
 			 :documentation
 			 "Many-to-one side of other one-to-many relations")))
 
+(defclass new (instance-state)) ;; хранит состояние полностью
+
+(defclass dirty (instance-state)) ;; хранит изменения в состоянии
+
+(defclass removed (instance-state)) ;;
+
 (defun slot-name-of (slot-mapping)
   (first slot-mapping))
 
@@ -27,19 +33,6 @@
 	      (list* (slot-value object (slot-name-of slot-mapping))
 		     slot-mapping))
 	  slot-mappings))
-
-(defun map-object (object primary-key-value &rest mapping
-		   &key properties one-to-many-mappings
-		     many-to-one-mappings &allow-other-keys)
-  (let ((slot-values
-	 (append
-	  (map-values object properties)
-	  (map-values object many-to-one-mappings)
-	  (map-values object one-to-many-mappings))))
-    #'(lambda (function &rest inverse-one-to-many)
-	;; funcall function table-name, primary-key (as plist),
-	;; modified column values (as plist)
-	)))
 
 (defun map-object (object primary-key-value &rest mapping
 		   &key properties one-to-many-mappings
@@ -101,14 +94,19 @@
 	     object-maps)
     object-maps))
 
-(defun begin-transaction (session)
-  (execute "BEGIN" (connection-of session)))
-
-(defun rollback (session)
-  (execute "ROLLBACK" (connection-of session)))
-
-(defun commit (transaction)
-  (execute "COMMIT" (connection-of session)))
+(defun insert-object (object class-name
+		      &key properties one-to-many-mappings
+		      many-to-one-mappings superclass-mappings)
+  (
 
 (defun flush-session (session)
-  ())
+  (let ((dirty-state
+	 (make-hash-table :size (hash-table-size
+				 (count-objects session)))))
+  (reduce #'(lambda (result object)
+	      (apply #'insert-object object
+		     (get-class-mapping
+		      (class-name
+		       (class-of object)) 
+		      (mapping-schema-of sesion))))
+	  (new-objects-of session)))
