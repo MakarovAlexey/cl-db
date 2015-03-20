@@ -2103,3 +2103,37 @@ Single instance
   ((slot-name)
    (column-name)
    (column-type)))
+
+(define-class-mapping cat (("cats" "id"))
+  (kittens (:sequnce
+	    (:many-to-many
+	     (:class kitten)
+	     (:table "kittens")
+	     (:foreign-key "parent_id"))
+	    (:serialize #'list)
+	    (:deserialize #'list))))
+
+;; same as 
+(define-class-mapping cat (("cats" "id"))
+  (kittens
+   (:list
+    (:one-to-many
+     (:class kitten)
+     (:foreign-key "parent_id")))))
+
+;; 
+
+(define-class-mapping cat (("cats" "id"))
+  (parent (:many-to-one
+	   (:class cat)
+	   (:foreign-key "parent_id")
+	   (:not-null t)))
+  (kittens (:hash-table
+	    (:key
+	     (:many-to-one
+	      (:class cat)
+	      (:foreign-key "id")))
+	    (:value
+	     (:one-to-many
+	      (:class kitten)
+	      (:foreign-key "parent_id"))))))

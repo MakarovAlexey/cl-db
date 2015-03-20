@@ -103,7 +103,7 @@
 (defun make-property-loader (slot-name column-loader)
   #'(lambda (object row)
       (setf
-       (slot-value object slot-name)
+       (property-commited-value object slot-name)
        (funcall column-loader row))))
 
 (defun plan-properties (alias &optional property &rest properties)
@@ -333,7 +333,7 @@
 				#'(lambda (object object-rows fetched-references)
 				    (when (typep object root-class-name)
 				      (setf
-				       (slot-value object slot-name)
+				       (many-to-one-commited-value object slot-name)
 				       (funcall reference-loader
 						(first object-rows)
 						object-rows
@@ -406,7 +406,7 @@
 			      #'(lambda (object object-rows fetched-references)
 				  (when (typep object root-class-name)
 				    (setf
-				     (slot-value object slot-name)
+				     (one-to-many-commited-value object slot-name)
 				     (apply serializer
 					    (remove-duplicates
 					     (mapcar #'(lambda (row)
