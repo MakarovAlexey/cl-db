@@ -49,6 +49,12 @@
 (defun slot-name-of (slot-mapping)
   (first slot-mapping))
 
+(defun value-of (value-mapping)
+  (first value-mapping))
+
+(defun mapping-of (value-mapping)
+  (rest value-mapping))
+
 (defun referenced-class-of (slot-mapping)
   (getf (rest slot-mapping) :referenced-class-name))
 
@@ -154,22 +160,29 @@
 		  (set-difference many-to-one-values
 				  (many-to-one-values-of commited-state)
 				  :test #'equal)
-		  :one-to-many-values
+		  :one-to-many-appended-values
+		  (mapcar #'(lambda (one-to-many-value)
+			      (value-of one-to-many-value)
 		  (set-difference one-to-many-values
 				  (one-to-many-values-of commited-state)
-				  :test #'equal))))
+				  :test #'equal)
+		  :one-to-many-removed-values
+		  (set-difference one-to-many-values
+				  (one-to-many-values-of commited-state)
+				  :test #'equal)
 
-(defun invert-one-to-many (dirty-state object referenced-objects
-			   one-to-many-mapping &rest one-to-many-values)
-  (multiple-value-bind (state dirty-state)
-      (ensure-state dirty-state referenced-object)
-    (setf (inverted-one-to-many-of state)
-	  (reduce #'(lambda (result referenced-object)
+(defun invert-one-to-many (dirty-state object
+			   referenced-objects one-to-many-mapping)
+  (reduce #'(lambda (dirty-state referenced-object)
+	      (let ((removed (set-difference (slot-name-of one-to-many-mapping)
+	      (multiple-value-bind (state dirty-state)
+		  (ensure-state dirty-state referenced-object)
+		(setf (inverted-one-to-many-of state)
+		      (reduce #'(lambda (result referenced-object)
 		      (acons referenced-object
-			     one-to-many-mapping result))
-		  referenced-objects
-		  :initial-value (inverted-one-to-many-of state)))
-    dirty-state))
+			     one-to-many-mapping result))))))))))
+	  referenced-objects
+	  :initial-value (inverted-one-to-many-of state)))
 
 (defun compute-state (dirty-state object
 		      &optional (session *session*))
@@ -185,9 +198,12 @@
 	       (compute-dirty (object-of commited-state)
 			      commited-state))))
       (values state
-	      (invert-one-to-many
-	       (list* state dirty-state)
-	       (one-to-many-values-of state))))))
+	      (reduce #'(lambda (dirty-state one-to-many-value)
+			  (apply #'invert-one-to-many
+				 dirty-state object one-to-many-value))
+		      (one-to-many-values-of state)
+		      :initial-value (list* state dirty-state)
+		      :from-end t)))))
 
 (defun ensure-state (dirty-state object)
   (or
