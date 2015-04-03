@@ -174,13 +174,12 @@
 (defun invert-one-to-many (dirty-state object
 			   referenced-objects one-to-many-mapping)
   (reduce #'(lambda (dirty-state referenced-object)
-	      (let ((removed (set-difference (slot-name-of one-to-many-mapping)
 	      (multiple-value-bind (state dirty-state)
 		  (ensure-state dirty-state referenced-object)
 		(setf (inverted-one-to-many-of state)
 		      (reduce #'(lambda (result referenced-object)
-		      (acons referenced-object
-			     one-to-many-mapping result))))))))))
+				  (acons referenced-object
+					 one-to-many-mapping result))))))
 	  referenced-objects
 	  :initial-value (inverted-one-to-many-of state)))
 
@@ -197,24 +196,21 @@
 			       (mapping-schema-of session)))
 	       (compute-dirty (object-of commited-state)
 			      commited-state))))
-      (values state
-	      (reduce #'(lambda (dirty-state one-to-many-value)
+      (values (reduce #'(lambda (dirty-state one-to-many-value)
 			  (apply #'invert-one-to-many
 				 dirty-state object one-to-many-value))
 		      (one-to-many-values-of state)
-		      :initial-value (list* state dirty-state)
-		      :from-end t)))))
+		      :initial-value (list* state dirty-state))
+	      state))))
 
 (defun ensure-state (dirty-state object)
-  (or
-   (values (find object dirty-state :key #'object-of)
-	   dirty-state)
-   (compute-state dirty-state object)))
+  (let ((state (find object dirty-state :key #'object-of)))
+    (if (not (null state))
+	(compute-state dirty-state object)
+	(values dirty-state state))))
 
-(defun insert-objects (session dirty-states
-		       &optional (session *session*))
-  (reduce #'(lambda (result object)
-	      (ensure-state dirty-state object)
+(defun insert-objects (&optional (session *session*))
+  (reduce #'ensure-state
 	  (new-objects-of session)
 	  :initial-value nil))
 
