@@ -66,6 +66,27 @@
 	:key #'(lambda (class-mapping)
 		 (getf class-mapping :class-name))))
 
+(defun compute-inverted-one-to-many (referenced-class-name
+				     &optional class-mapping
+				     &rest class-mappings)
+  (when (not (null class-mapping))
+    (destructuring-bind (&key class-name one-to-many-mappings
+			      &allow-other-keys)
+	class-mapping
+      (reduce #'list*
+	      (remove-if-not #'(lambda (one-to-many-mapping)
+			        (eq referenced-class-name 
+				    (getf (rest one-to-many-mapping)
+					  :reference-class-name)))
+			     one-to-many-mappings)
+	      :initial-value (apply #'compute-inverted-one-to-many
+				    referenced-class-name
+				    class-mappings)
+	      :from-end t
+	      :key #'(lambda (one-to-many-mapping)
+		       (list* :class-name class-name
+			      :slot-name one-to-many-mapping))))))
+
 (defun compute-superclass-mapping (&key class-name superclass-mappings
 				     table-name primary-key
 				     foreign-key properties
@@ -76,6 +97,8 @@
 	:properties properties
 	:many-to-one-mappings many-to-one-mappings
 	:one-to-many-mappings one-to-many-mappings
+	:inverted-one-to-many
+	(apply #'compute-inverted-one-to-many class-name *class-mappings*)
 	:primary-key primary-key
 	:foreign-key foreign-key
 	:superclass-mappings (apply #'compute-superclass-mappings
@@ -124,6 +147,8 @@
 	 :properties properties
 	 :many-to-one-mappings many-to-one-mappings
 	 :one-to-many-mappings one-to-many-mappings
+	 :inverted-one-to-many
+	 (apply #'compute-inverted-one-to-many class-name *class-mappings*)
 	 :superclass-mappings (apply #'compute-superclass-mappings
 				     (remove root-class
 					     superclass-mappings
