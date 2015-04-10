@@ -68,7 +68,7 @@
 		 roles)))
     #'alexandria:hash-table-values)
    (project-participations
-    (:one-to-many project-managment "user_id")
+    (:one-to-many project-participation "user_id")
     #'(lambda (&rest roles)
 	(alexandria:alist-hash-table
 	 (mapcar #'(lambda (role)

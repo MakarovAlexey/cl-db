@@ -2123,7 +2123,8 @@ Single instance
 
 ;; 
 
-(define-class-mapping cat (("cats" "id"))
+(define-class-mapping cat-mapping
+    (cat (("cats" "id")))
   (parent (:many-to-one
 	   (:class cat)
 	   (:foreign-key "parent_id")

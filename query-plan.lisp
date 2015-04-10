@@ -301,6 +301,10 @@
 	     (list* reference-loader
 		    reference-loaders))))
 
+(defun compute-inverted-one-to-many-keys (&optional inverted-one-to-many
+					  &rest inverted-one-to-many-mappings)
+  ((
+
 (defun fetch-many-to-one (query loader fetch join-path root-class-name
 			  slot-name foreign-key class-name
 			  &key table-name primary-key properties
@@ -691,6 +695,7 @@
     (multiple-value-bind (superclasses-properties
 			  superclasses-joined-references
 			  superclasses-fetched-references
+			  superclasses-inverted-one-to-many-loaders
 			  superclasses-columns
 			  superclasses-from-clause
 			  superclasses-loaders)
@@ -699,6 +704,7 @@
       (multiple-value-bind (superclass-properties
 			    superclass-joined-references
 			    superclass-fetched-references
+			    superclass-inverted-one-to-many-loaders
 			    superclass-columns
 			    superclass-from-clause
 			    superclass-loaders)
@@ -711,6 +717,8 @@
 		 superclasses-joined-references)
 	 (append superclass-fetched-references
 		 superclasses-fetched-references)
+	 (append superclass-inverted-one-to-many-loaders
+		 superclasses-inverted-one-to-many-loaders)
 	 (append superclass-columns
 		 superclasses-columns)
 	 (list* superclass-from-clause
@@ -721,10 +729,11 @@
 (defun join-class (alias table-join join-path class-name
 		   primary-key-columns primary-key-loader properties
 		   one-to-many-mappings many-to-one-mappings
-		   superclass-mappings)
+		   inverted-one-to-many superclass-mappings)
   (multiple-value-bind (superclasses-properties
 			superclasses-joined-references
 			superclasses-fetched-references
+			superclasses-inverted-one-to-many-loaders
 			superclasses-columns
 			superclasses-from-clause
 			superclasses-loaders)
@@ -735,48 +744,57 @@
 			    foreign-key-columns)
 	  (apply #'fetch-many-to-one-mappings
 		 join-path class-name alias many-to-one-mappings)
-	(values
-	 (append properties
-		 superclasses-properties)
-	 (append (apply #'join-many-to-one-mappings
-			join-path alias many-to-one-mappings)
-		 (apply #'join-one-to-many-mappings join-path
-			primary-key-columns one-to-many-mappings)
-		 superclasses-joined-references)
-	 (append many-to-one-fetched-references
-		 (apply #'fetch-one-to-many-mappings
-			join-path class-name primary-key-columns
-			one-to-many-mappings)
-		 superclasses-fetched-references)
-	 (append primary-key-columns
-		 property-columns
-		 foreign-key-columns
-		 superclasses-columns)
-	 (append table-join superclasses-from-clause)
-	 (list* #'(lambda (object row)
-		    (register-object object
-				     class-name
-				     (funcall primary-key-loader row))
-		    (dolist (loader property-loaders object)
-		      (funcall loader object row)))
-		superclasses-loaders))))))
+	(multiple-value-bind (inverted-one-to-many-columns
+			      inverted-one-to-many-loaders)
+	    (apply #'compute-inverted-one-to-many-keys
+		   inverted-one-to-many)
+	  (values
+	   (append properties
+		   superclasses-properties)
+	   (append (apply #'join-many-to-one-mappings
+			  join-path alias many-to-one-mappings)
+		   (apply #'join-one-to-many-mappings join-path
+			  primary-key-columns one-to-many-mappings)
+		   superclasses-joined-references)
+	   (append many-to-one-fetched-references
+		   (apply #'fetch-one-to-many-mappings
+			  join-path class-name primary-key-columns
+			  one-to-many-mappings)
+		   superclasses-fetched-references)
+	   (append inverted-one-to-many-loaders
+		   superclasses-inverted-one-to-many-loaders)
+	   (append primary-key-columns
+		   property-columns
+		   foreign-key-columns
+		   inverted-one-to-many-columns
+		   superclasses-columns)
+	   (append table-join superclasses-from-clause)
+	   (list* #'(lambda (object row)
+		      (register-object object
+				       class-name
+				       (funcall primary-key-loader row))
+		      (dolist (loader property-loaders object)
+			(funcall loader object row)))
+		  superclasses-loaders)))))))
 
 (defun plan-class (alias class-name table-join join-path primary-key
 		   properties one-to-many-mappings
-		   many-to-one-mappings superclass-mappings
-		   subclass-mappings)
+		   many-to-one-mappings inverted-one-to-many
+		   superclass-mappings subclass-mappings)
   (multiple-value-bind (primary-key primary-key-loader)
       (apply #'plan-key alias primary-key)
     (multiple-value-bind (joined-properties
 			  joined-references
 			  fetched-references
+			  inverted-one-to-many-loaders
 			  fetched-columns
 			  fetched-from-clause
 			  superclasses-loaders)
 	(join-class alias table-join (list* table-join join-path)
 		    class-name primary-key primary-key-loader
 		    properties one-to-many-mappings
-		    many-to-one-mappings superclass-mappings)
+		    many-to-one-mappings inverted-one-to-many
+		    superclass-mappings)
       (multiple-value-bind (subclasses-fetch-references
 			    subclasses-columns
 			    subclasses-from-clause
@@ -836,14 +854,14 @@
 
 (defun plan-root-class-mapping (class-name &key table-name primary-key
 				properties one-to-many-mappings
-				many-to-one-mappings
+				many-to-one-mappings inverted-one-to-many
 				superclass-mappings subclass-mappings)
   (let ((alias (make-alias "root")))
     (plan-class alias class-name
 		(list #'write-table-reference table-name alias)
 		nil primary-key properties one-to-many-mappings
-		many-to-one-mappings superclass-mappings
-		subclass-mappings)))
+		many-to-one-mappings inverted-one-to-many
+		superclass-mappings subclass-mappings)))
 
 (defun make-join-plan (mapping-schema class-name &rest class-names)
   (list* (apply #'plan-root-class-mapping
