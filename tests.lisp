@@ -103,54 +103,31 @@
 
 (lift:addtest list-projects
   (lift:ensure
-   (db-read 'project)))
-
-(lift:addtest slot-definition-found
-  (lift:ensure
-   (get-slot-definition (find-class 'project) #'id-of)))
-
-(lift:addtest slot-definition-not-found
-  (lift:ensure-error
-    (get-slot-definition (find-class 'project) #'project-of)))
-
-(lift:addtest property-found
-  (multiple-value-bind (select-list references fetch)
-      (db-read 'project
-	       :select-list #'(lambda (project)
-				(property project #'name-of))
-	       :mapping-schema (projects-managment))
-    (lift:ensure
-     (first select-list))))
+   (compile-query 'project :mapping-schema (projects-managment))))
 
 (lift:addtest select-properties-list
   (multiple-value-bind (select-list references fetch)
-      (db-read 'project
-	       :select-list #'(lambda (project)
-				(property project #'name-of))
+      (compile-query 'project
+	       :select #'(lambda (project)
+			   (property project #'name-of))
 	       :mapping-schema (projects-managment))
     (lift:ensure
      (listp select-list))))
 
 (lift:addtest select-single-property
   (multiple-value-bind (select-list references fetch)
-      (db-read 'project
-	       :select-list #'(lambda (project)
+      (compile-query 'project
+		    :select #'(lambda (project)
 				(property project #'name-of))
-	       :mapping-schema (projects-managment))
+		    :mapping-schema (projects-managment))
     (lift:ensure
      (not (listp select-list)))))
 
 (lift:addtest list-objects
   (multiple-value-bind (select-list references fetch)
-      (db-read 'project :mapping-schema (projects-managment))
-    (lift:ensure
-     (not (listp select-list)))))
-
-(lift:addtest list-objects
-  (multiple-value-bind (select-list references fetch)
-      (db-read 'user :mapping-schema (projects-managment)
-	       :where #'(lambda (user)
-			  (db-eq (propery user #'login-of) "user")))))
+      (compile-query 'user :mapping-schema (projects-managment)
+		     :where #'(lambda (user)
+				(db-eq (property user #'login-of) "user")))))
 
 (lift:addtest check-schema
   (destructuring-bind (class-name &key properties &allow-other-keys)
@@ -167,35 +144,52 @@
 
 (lift:addtest join-reference
   (multiple-value-bind (select-list references fetch)
-      (db-read 'project :mapping-schema (projects-managment)
-	       :join #'(lambda (project)
-			 (join project #'project-members-of :members)))
+      (compile-query 'project
+		     :mapping-schema (projects-managment)
+		     :join #'(lambda (project)
+			       (join project #'project-members-of
+				     :members)))
     (lift:ensure
      (not (listp select-list)))))
 
 (lift:addtest fetch-reference
-  (db-read 'project :mapping-schema (projects-managment)
-	   :fetch #'(lambda (project)
-		      (fetch project #'project-members-of
-			     #'(lambda (member)
-				 (fetch member #'user-of))))))
+  (compile-query 'project :mapping-schema (projects-managment)
+		 :fetch #'(lambda (project)
+			    (fetch project #'project-members-of
+				   #'(lambda (member)
+				       (fetch member #'user-of))))))
 
 (lift:addtest ascending-order ()
-  (db-read 'project
-	   :mapping-schema (projects-managment)
-	   :order-by #'(lambda (project)
-			 (ascending project #'name-of))))
+  (compile-query 'project
+		 :mapping-schema (projects-managment)
+		 :order-by #'(lambda (project)
+			       (ascending
+				(property project #'name-of)))))
+
+(lift:addtest ascending-order-1 ()
+  (let* ((*table-index* 0)
+	 (selectors
+	  (make-join-plan (projects-managment) 'project)))
+	 (make-sql-string
+	  (multiple-value-call #'make-query-expression
+	   (funcall
+	    (append-order-by-clause
+		   (apply #'compute-select-clause
+			  (apply #'compute-select selectors))
+		    (ascending
+		     (property (first selectors) #'name-of)))))))
+  (assert t))
 
 (lift:addtest joining ()
-  (db-read 'project
-	   :mapping-schema (projects-managment)
-	   :join #'(lambda (project)
-		     (join project #'project-members-of :members))
-	   :select #'(lambda (project &key members)
-		       (values project members))))
+  (compile-query 'project
+		 :mapping-schema (projects-managment)
+		 :join #'(lambda (project)
+			   (join project #'project-members-of :members))
+		 :select #'(lambda (project &key members)
+			     (values project members))))
 
 (lift:addtest get-property ()
-  (db-read 'project
+  (compile-query 'project
 	   :mapping-schema (projects-managment)
 	   :join #'(lambda (project)
 		     (join project #'project-members-of :members))
@@ -237,7 +231,7 @@
 			       loader)))))
 		  loaders))))))
 
-(lift:addtest fetch-references
+(lift:addtest fetch-references-1
   (let* ((*table-index* 0)
 	 (*mapping-schema* (projects-managment))
 	 (join-plan (make-join-plan *mapping-schema* 'project)))

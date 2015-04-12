@@ -112,7 +112,7 @@
 					  pattern))))
 
 (defun db-count (expression)
-  (let ((count (list #'write-count (count-expression-of expression)))
+  (let ((count (list* #'write-count (count-expression-of expression)))
 	(alias (make-alias "op")))
     (make-expression :expression count
 		     :select-list (list (cons count alias))
@@ -148,7 +148,7 @@
   #'(lambda (query)
       (list* #'write-ascending
 	     (mapcar #'(lambda (expression)
-			 (funcall query (alias expression)))
+			 (first (funcall query (alias expression))))
 		     (select-list-of expression)))))
 
 (defun descending (expression)
@@ -187,8 +187,8 @@
 
 ;; (defun fetch-using-subclass (class-name references &rest fetch))
 
-(defun compile-query (mapping-schema roots join select where order-by
-		      having offset limit fetch)
+(defun compile-query (roots &key mapping-schema join select where
+			      order-by having offset limit fetch)
   (let* ((*table-index* 0)
 	 (*mapping-schema* mapping-schema)
 	 (selectors
@@ -227,7 +227,15 @@
 			(mapping-schema (mapping-schema-of *session*)))
   (declare (ignore transform singlep))
   (multiple-value-bind (sql-string parameters loaders)
-      (compile-query mapping-schema roots join select where order-by
-		     having offset limit fetch)
+      (compile-query roots
+		     :mapping-schema mapping-schema
+		     :join join
+		     :select select
+		     :where where
+		     :order-by order-by
+		     :having having
+		     :offset offset
+		     :limit limit
+		     :fetch fetch)
     (apply (prepare sql-string (connection-of *session*))
 	   parameters)))
