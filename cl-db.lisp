@@ -32,6 +32,9 @@
 		  :serializer serializer
 		  :deserializer deserializer))))))
 
+(defun foreign-key-of (reference-mapping)
+  (getf reference-mapping :foreign-key))
+
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
 	(class-name ((table-name &rest primary-key)
@@ -51,9 +54,9 @@
 				 slot-mappings))
 	    :many-to-one-mappings (mapcar #'rest
 					  (remove-if-not
-					 #'(lambda (mapping)
-					     (eq (first mapping) :many-to-one))
-					 slot-mappings))
+					   #'(lambda (mapping)
+					       (eq (first mapping) :many-to-one))
+					   slot-mappings))
 	    :one-to-many-mappings (mapcar #'rest
 					  (remove-if-not
 					   #'(lambda (mapping)

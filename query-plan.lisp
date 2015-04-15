@@ -323,7 +323,7 @@
 		  key-loaders)))))))
 
 (defun fetch-many-to-one (query loader fetch join-path root-class-name
-			  slot-name foreign-key class-name
+			  many-to-one-mapping foreign-key-columns class-name
 			  &key table-name primary-key properties
 			    one-to-many-mappings many-to-one-mappings
 			    inverted-one-to-many superclass-mappings
@@ -336,7 +336,7 @@
 		   (mapcar #'(lambda (fk-column pk-column)
 			       (list (first fk-column)
 				     (first pk-column)))
-			   foreign-key
+			   foreign-key-columns
 			   primary-key))))
 	(multiple-value-bind (columns
 			      from-clause
@@ -359,7 +359,7 @@
 						 root-class-name)
 				      (setf
 				       (many-to-one-value commited-state
-							  slot-name)
+							  many-to-one-mapping)
 				       (funcall reference-loader
 						(first object-rows)
 						object-rows
@@ -373,7 +373,7 @@
 				   &optional many-to-one-mapping
 				   &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
-    (multiple-value-bind (references columns)
+    (multiple-value-bind (references columns key-loaders)
 	(apply #'fetch-many-to-one-mappings
 	       join-path class-name alias many-to-one-mappings)
       (destructuring-bind (slot-name
@@ -381,16 +381,21 @@
 	  many-to-one-mapping
 	(multiple-value-bind (foreign-key-columns foreign-key-loader)
 	    (apply #'plan-key alias foreign-key)
-	  (declare (ignore foreign-key-loader))
 	  (values
 	   (acons slot-name
 		  #'(lambda (query loader fetch)
 		      (apply #'fetch-many-to-one
-			     query loader fetch join-path class-name slot-name
-			     foreign-key-columns
+			     query loader fetch join-path class-name
+			     many-to-one-mapping foreign-key-columns
 			     (get-class-mapping reference-class-name)))
 		  references)
-	   (append foreign-key-columns columns)))))))
+	   (append foreign-key-columns columns)
+	   (list* #'(lambda (commited-state &rest args)
+		      (setf (many-to-one-key commited-state
+					     many-to-one-mapping)
+			    (apply foreign-key-loader
+				   commited-state args)))
+		  key-loaders)))))))
 
 (defun alias (expression)
   (rest expression))
@@ -479,7 +484,7 @@
     (multiple-value-bind (property-columns property-loaders)
 	(apply #'plan-properties alias properties)
       (multiple-value-bind (many-to-one-fetched-references
-			    foreign-key-columns)
+			    foreign-key-columns foreign-key-loaders)
 	  (apply #'fetch-many-to-one-mappings
 		 join-path class-name alias many-to-one-mappings)
 	(multiple-value-bind (inverted-one-to-many-columns
@@ -503,6 +508,8 @@
 				       class-name
 				       (funcall primary-key-loader row))
 		      (dolist (loader inverted-one-to-many-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader foreign-key-loaders)
 			(funcall loader commited-state row))
 		      (dolist (loader property-loaders commited-state)
 			(funcall loader commited-state row)))
@@ -777,7 +784,8 @@
     (multiple-value-bind (properties property-columns property-loaders)
 	(apply #'join-properties join-path alias properties)
       (multiple-value-bind (many-to-one-fetched-references
-			    foreign-key-columns)
+			    foreign-key-columns
+			    foreign-key-loaders)
 	  (apply #'fetch-many-to-one-mappings
 		 join-path class-name alias many-to-one-mappings)
 	(multiple-value-bind (inverted-one-to-many-columns
@@ -807,8 +815,9 @@
 		      (register-object commited-state
 				       class-name
 				       (funcall primary-key-loader row))
-		      (dolist (loader inverted-one-to-many-loaders
-			       commited-state)
+		      (dolist (loader inverted-one-to-many-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader foreign-key-loaders)
 			(funcall loader commited-state row))
 		      (dolist (loader property-loaders commited-state)
 			(funcall loader commited-state row)))

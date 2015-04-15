@@ -22,15 +22,19 @@
    (class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
    (properties :initarg :properties
-	       :reader property-values-of)
+	       :accessor property-values-of)
    (many-to-one :initarg :many-to-one
-		:reader many-to-one-values-of)
+		:accessor many-to-one-values-of
+		:documentation "Loaded many to one values")
+   (many-to-one-keys :initform (list)
+		     :accessor many-to-one-keys-of
+		     :documentation "Many to one keys")
    (one-to-many :initarg :one-to-many
-		:reader one-to-many-values-of)
-   (inverted-one-to-many :initform (list)
-			 :accessor inverted-one-to-many-of
-			 :documentation
-			 "Many-to-one side of other one-to-many relations")))
+		:accessor one-to-many-values-of)
+   (inverted-one-to-many-keys :initform (list)
+			      :accessor inverted-one-to-many-keys-of
+			      :documentation
+			      "Many-to-one side of other one-to-many relations")))
 
 (defclass new-instance (instance-state)
   ())
@@ -38,6 +42,42 @@
 (defclass commited-state (instance-state)
   ((primary-key :initarg :primary-key
 		:reader primary-key-of)))
+
+(defun (setf many-to-one-value) (value commited-state many-to-one-mapping)
+  (setf
+   (many-to-one-values-of commited-state)
+   (acons many-to-one-mapping value
+	  (many-to-one-values-of commited-state)))
+  (setf (slot-value
+	 (object-of commited-state)
+	 (slot-name-of many-to-one-mapping))
+	value))
+
+(defun (setf one-to-many-value) (value commited-state one-to-many-mapping)
+  (setf
+   (one-to-many-values-of commited-state)
+   (acons one-to-many-mapping value
+	  (one-to-many-values-of commited-state)))
+  (setf (slot-value
+	 (object-of commited-state)
+	 (slot-name-of one-to-many-mapping))
+	value))
+
+(defun (setf property-value) (value commited-state property-mapping)
+  (setf
+   (property-values-of commited-state)
+   (acons property-mapping value
+	  (property-values-of commited-state)))
+  (setf (slot-value
+	 (object-of commited-state)
+	 (slot-name-of property-mapping))
+	value))
+
+(defun (setf many-to-one-key) (value commited-state many-to-one-mapping)
+  (setf
+   (many-to-one-keys-of commited-state)
+   (acons many-to-one-mapping value
+	  (many-to-one-keys-of commited-state))))
 
 (defclass dirty-instance (commited-state)
   ((removed-from :initarg :removed-from
