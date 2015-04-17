@@ -26,22 +26,33 @@
    (many-to-one :initarg :many-to-one
 		:accessor many-to-one-values-of
 		:documentation "Loaded many to one values")
+   (one-to-many-appended :initarg :one-to-many-appended
+			 :reader appended-to)))
+
+(defclass state-diff (instance-state)
+  ((commited-state :initarg :commited-state
+		   :reader commited-state-of)
+   (one-to-many-removed :initarg :one-to-many-removed
+			:reader removed-from)
+   (inverted-one-to-many-removed :initform (list)
+				 :reader inverted-removed-from)
+   (inverted-one-to-many-appended :initform (list)
+				  :reader inverted-appended-to)))
+
+(defclass new-instance (instance-state)
+  ((inverted-one-to-many-appended :initform (list)
+				  :reader inverted-appended-to)))
+
+(defclass commited-state (instance-state)
+  ((primary-key :initarg :primary-key
+		:reader primary-key-of)
    (many-to-one-keys :initform (list)
 		     :accessor many-to-one-keys-of
 		     :documentation "Many to one keys")
-   (one-to-many :initarg :one-to-many
-		:accessor one-to-many-values-of)
    (inverted-one-to-many-keys :initform (list)
 			      :accessor inverted-one-to-many-keys-of
 			      :documentation
 			      "Many-to-one side of other one-to-many relations")))
-
-(defclass new-instance (instance-state)
-  ())
-
-(defclass commited-state (instance-state)
-  ((primary-key :initarg :primary-key
-		:reader primary-key-of)))
 
 (defun (setf many-to-one-value) (value commited-state many-to-one-mapping)
   (setf
@@ -78,13 +89,6 @@
    (many-to-one-keys-of commited-state)
    (acons many-to-one-mapping value
 	  (many-to-one-keys-of commited-state))))
-
-(defclass dirty-instance (commited-state)
-  ((removed-from :initarg :removed-from
-		 :reader removed-from-of)))
-
-(defclass removed-instance (dirty-instance)
-  ())
 
 (defun slot-name-of (slot-mapping)
   (first slot-mapping))
@@ -186,32 +190,45 @@
 		   :mapping class-mapping
 		   :property-values property-values
 		   :many-to-one-values many-to-one-values
-		   :one-to-many-values one-to-many-values)))
+		   :one-to-many-appended-values one-to-many-values)))
 
 ;; check set value to unbound slot-value
-(defun compute-dirty (object class-mapping commited-state)
+(defun compute-diff (object class-mapping commited-state)
   (multiple-value-bind (property-values
 			many-to-one-values one-to-many-values)
       (apply #'object-values object class-mapping)
-    (make-instace 'dirty
-		  :commited-state commited-state
-		  :mapping class-mapping
-		  :properties
-		  (set-difference property-values
-				  (property-values-of commited-state)
-				  :test #'equal)
-		  :many-to-one-values
-		  (set-difference many-to-one-values
-				  (many-to-one-values-of commited-state)
-				  :test #'equal)
-		  :one-to-many-appended-values
-		  (set-difference one-to-many-values
-				  (one-to-many-values commited-state)
-				  :test #'equal)
-		  :one-to-many-removed-values
-		  (set-difference (one-to-many-values commited-state)
-				  one-to-many-values
-				  :test #'equal))))
+    (make-instance 'state-diff
+		   :commited-state commited-state
+		   :mapping class-mapping
+		   :property-values
+		   (set-difference property-values
+				   (property-values-of commited-state)
+				   :test #'equal)
+		   :many-to-one-values
+		   (set-difference many-to-one-values
+				   (many-to-one-values-of commited-state)
+				   :test #'equal)
+		   :one-to-many-appended-values
+		   (set-difference one-to-many-values
+				   (one-to-many-values commited-state)
+				   :test #'equal)
+		   :one-to-many-removed-values
+		   (set-difference (one-to-many-values commited-state)
+				   one-to-many-values
+				   :test #'equal))))
+
+(defgeneric invert-one-to-many (dirty-state state))
+
+(defmethod invert-one-to-many (dirty-state (state new-instance))
+  (reduce #'(lambda (dirty-state one-to-many-reference)
+	      (multiple-value-bind (state dirty-state)
+		  (ensure-state dirty-state one-to-many-reference)
+		(setf (inverted-one-to-many-appended state)
+		      (acons (one-to-many-mapping-of one-to-many-reference)
+			     object
+			     (inverted-one-to-many-appended-of state)))
+		dirty-state))
+	  (one-to-many-value-of state)))
 
 (defun invert-one-to-many (dirty-state object
 			   referenced-object &rest one-to-many-mapping)
@@ -235,9 +252,9 @@
 	   (state
 	    (if (not persistedp)
 		(insert-object object class-mapping)
-		(compute-dirty (object-of commited-state)
-			       class-mapping
-			       commited-state))))
+		(compute-diff (object-of commited-state)
+			      class-mapping
+			      commited-state))))
       (values (reduce #'(lambda (dirty-state one-to-many-value)
 			  (apply #'invert-one-to-many
 				 dirty-state object one-to-many-value))

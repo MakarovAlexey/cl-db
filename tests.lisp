@@ -106,28 +106,21 @@
    (compile-query 'project :mapping-schema (projects-managment))))
 
 (lift:addtest select-properties-list
-  (multiple-value-bind (select-list references fetch)
-      (compile-query 'project
-	       :select #'(lambda (project)
-			   (property project #'name-of))
-	       :mapping-schema (projects-managment))
-    (lift:ensure
-     (listp select-list))))
+  (compile-query 'project
+		 :select #'(lambda (project)
+			     (property project #'name-of))
+		 :mapping-schema (projects-managment)))
 
 (lift:addtest select-single-property
-  (multiple-value-bind (select-list references fetch)
-      (compile-query 'project
-		    :select #'(lambda (project)
-				(property project #'name-of))
-		    :mapping-schema (projects-managment))
-    (lift:ensure
-     (not (listp select-list)))))
+  (compile-query 'project
+		 :select #'(lambda (project)
+			     (property project #'name-of))
+		 :mapping-schema (projects-managment)))
 
 (lift:addtest list-objects
-  (multiple-value-bind (select-list references fetch)
-      (compile-query 'user :mapping-schema (projects-managment)
-		     :where #'(lambda (user)
-				(db-eq (property user #'login-of) "user")))))
+  (compile-query 'user :mapping-schema (projects-managment)
+		 :where #'(lambda (user)
+			    (db-eq (property user #'login-of) "user"))))
 
 (lift:addtest check-schema
   (destructuring-bind (class-name &key properties &allow-other-keys)
@@ -159,14 +152,14 @@
 				   #'(lambda (member)
 				       (fetch member #'user-of))))))
 
-(lift:addtest ascending-order ()
+(lift:addtest ascending-order
   (compile-query 'project
 		 :mapping-schema (projects-managment)
 		 :order-by #'(lambda (project)
 			       (ascending
 				(property project #'name-of)))))
-
-(lift:addtest ascending-order-1 ()
+  
+(lift:addtest ascending-order-1
   (let* ((*table-index* 0)
 	 (selectors
 	  (make-join-plan (projects-managment) 'project)))
@@ -177,10 +170,9 @@
 		   (apply #'compute-select-clause
 			  (apply #'compute-select selectors))
 		    (ascending
-		     (property (first selectors) #'name-of)))))))
-  (assert t))
+		     (property (first selectors) #'name-of))))))))
 
-(lift:addtest joining ()
+(lift:addtest joining
   (compile-query 'project
 		 :mapping-schema (projects-managment)
 		 :join #'(lambda (project)
@@ -188,7 +180,7 @@
 		 :select #'(lambda (project &key members)
 			     (values project members))))
 
-(lift:addtest get-property ()
+(lift:addtest get-property
   (compile-query 'project
 	   :mapping-schema (projects-managment)
 	   :join #'(lambda (project)

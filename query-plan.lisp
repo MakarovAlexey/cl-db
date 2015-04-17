@@ -101,9 +101,9 @@
     (slot-definition-name slot-definition)))
 
 (defun make-property-loader (slot-name column-loader)
-  #'(lambda (object row)
+  #'(lambda (commited-state row)
       (setf
-       (property-commited-value object slot-name)
+       (property-value commited-state slot-name)
        (funcall column-loader row))))
 
 (defun plan-properties (alias &optional property &rest properties)
@@ -575,7 +575,7 @@
 					      (funcall loader row))
 					  subclass-loaders)
 				    (allocate-instance class)))))
-    (dolist (superclass-loader superclass-loaders object)
+    (dolist (superclass-loader superclass-loaders commited-state)
       (funcall superclass-loader commited-state primary-key row))))
 
 (defun fetch-class (class-name alias table-join join-path
