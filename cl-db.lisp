@@ -32,8 +32,26 @@
 		  :serializer serializer
 		  :deserializer deserializer))))))
 
+(defun column-of (property)
+  (second property))
+
 (defun foreign-key-of (reference-mapping)
   (getf reference-mapping :foreign-key))
+
+(defun slot-name-of (slot-mapping)
+  (first slot-mapping))
+
+(defun value-of (value-mapping)
+  (first value-mapping))
+
+(defun mapping-of (value-mapping)
+  (rest value-mapping))
+
+(defun referenced-class-of (slot-mapping)
+  (getf (rest slot-mapping) :referenced-class-name))
+
+(defun mapping-name-of (mapping)
+  (getf mapping :class-name))
 
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
@@ -95,17 +113,34 @@
 				     foreign-key properties
 				     many-to-one-mappings
 				     one-to-many-mappings)
-  (list :class-name class-name
-	:table-name table-name
-	:properties properties
-	:many-to-one-mappings many-to-one-mappings
-	:one-to-many-mappings one-to-many-mappings
-	:inverted-one-to-many
-	(apply #'compute-inverted-one-to-many class-name *class-mappings*)
-	:primary-key primary-key
-	:foreign-key foreign-key
-	:superclass-mappings (apply #'compute-superclass-mappings
-				    superclass-mappings)))
+  (let ((superclass-mappings
+	 (apply #'compute-superclass-mappings
+		superclass-mappings))
+	(inverted-one-to-many
+	 (apply #'compute-inverted-one-to-many
+		class-name *class-mappings*)))
+    (list :class-name class-name
+	  :table-name table-name
+;;	  :columns (remove-duplicates
+;;		    (append primary-key
+;;			    foreign-key
+;;			    (reduce #'append superclass-mappings
+;;				    :key #'foreign-key-of
+;;				    :initial-value nil)
+;;			    (reduce #'list* properties
+;;				    :key #'column-of :from-end t
+;;				    :initial-value nil)
+;;			    (reduce #'append inverted-one-to-many
+;;				    :key #'foreign-key-of
+;;				    :initial-value nil))
+;;		    :test #'string=)
+	  :properties properties
+	  :many-to-one-mappings many-to-one-mappings
+	  :one-to-many-mappings one-to-many-mappings
+	  :inverted-one-to-many inverted-one-to-many
+	  :primary-key primary-key
+	  :foreign-key foreign-key
+	  :superclass-mappings superclass-mappings)))
 
 (defun compute-superclass-mappings (&rest superclass-mappings)
   (mapcar #'(lambda (superclass-mapping)
@@ -144,21 +179,37 @@
 				many-to-one-mappings
 				one-to-many-mappings root-class
 				foreign-key)
-  (list* class-name
-	 :table-name table-name
-	 :primary-key primary-key
-	 :properties properties
-	 :many-to-one-mappings many-to-one-mappings
-	 :one-to-many-mappings one-to-many-mappings
-	 :inverted-one-to-many
-	 (apply #'compute-inverted-one-to-many class-name *class-mappings*)
-	 :superclass-mappings (apply #'compute-superclass-mappings
-				     (remove root-class
-					     superclass-mappings
-					     :key #'first))
-	 :subclass-mappings (compute-subclass-mappings class-name)
-	 (when (not (null foreign-key))
-	   (list :foreign-key foreign-key))))
+  (let* ((inverted-one-to-many
+	  (apply #'compute-inverted-one-to-many
+		 class-name *class-mappings*))
+	 (superclass-mappings
+	  (apply #'compute-superclass-mappings
+		 (remove root-class superclass-mappings
+			 :key #'first))))
+    (list* class-name
+	   :table-name table-name
+;;	   :columns (remove-duplicates
+;;		     (append primary-key
+;;			     foreign-key
+;;			     (reduce #'append superclass-mappings
+;;				     :key #'foreign-key-of
+;;				     :initial-value nil)
+;;			     (reduce #'list* properties
+;;				     :key #'column-of :from-end t
+;;				     :initial-value nil)
+;;			     (reduce #'append inverted-one-to-many
+;;				     :key #'foreign-key-of
+;;				     :initial-value nil))
+;;		     :test #'string=)
+	   :primary-key primary-key
+	   :properties properties
+	   :many-to-one-mappings many-to-one-mappings
+	   :one-to-many-mappings one-to-many-mappings
+	   :inverted-one-to-many inverted-one-to-many
+	   :superclass-mappings superclass-mappings
+	   :subclass-mappings (compute-subclass-mappings class-name)
+	   (when (not (null foreign-key))
+	     (list :foreign-key foreign-key)))))
 
 (defmacro define-schema (name params &rest class-mappings)
   (declare (ignore params))

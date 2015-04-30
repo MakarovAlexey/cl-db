@@ -8,9 +8,13 @@
    (mappping-schema :initarg :mapping-schema
 		    :reader mapping-schema-of)
    (loaded-objects :initform (make-hash-table :test #'equal)
-		   :reader loaded-objects-of)
-   (instance-states :initarg :instance-states
-		    :reader instance-states-of)
+		   :reader loaded-objects-of
+		   :documentation
+		   "Objects by mapping name and primary key (list* class-name primary-key)")
+   (commited-states :initform (make-hash-table :test #'equal)
+		    :reader instance-states-of
+		    :documentation
+		    "Instance commited states by mapping name and object (list class-name object)")
    (new-objects :initform (list)
 		:accessor new-objects-of)
    (removed-objects :initform (list)
@@ -29,17 +33,31 @@
    (one-to-many-values :initform (list)
 		       :accessor one-to-many-values-of)))
 
+(defclass dependency ()
+  ((flush-state :initarg :flush-state
+		:reader flush-state-of)))
+
+(defclass superclass-dependency (dependency)
+  ((superclass-mapping :initarg :superclass-mapping
+		       :reader superclass-mapping-of)))
+
+(defclass many-to-one-dependency (dependency)
+  ((many-to-one-mapping :initarg :many-to-one-mapping
+			:reader many-to-one-mapping-of)))
+
+(defclass inverted-one-to-many-dependency (dependency)
+  ((one-to-many-mapping :initarg :one-to-many-mapping
+			:reader one-to-many-mapping-of)))
+
 (defclass flush-state (instance-state)
   ((one-to-many-appended :initarg :one-to-many-appended
 			 :reader appended-to)
    (inverted-one-to-many-appended :initform (list)
-				  :accessor inverted-appendings)))
+				  :accessor appended-to)))
 
 (defclass state-diff (flush-state)
   ((commited-state :initarg :commited-state
 		   :reader commited-state-of)
-   (one-to-many-removed :initarg :one-to-many-removed
-			:reader removed-from)
    (inverted-one-to-many-removed :initform (list)
 				 :accessor inverted-removings)))
 
@@ -49,61 +67,9 @@
 (defclass commited-state (instance-state)
   ((primary-key :initarg :primary-key
 		:reader primary-key-of)
-   (many-to-one-keys :initform (list)
-		     :accessor many-to-one-keys-of
-		     :documentation "Many to one keys")
-   (inverted-one-to-many-keys :initform (list)
-			      :accessor inverted-one-to-many-keys-of
-			      :documentation
-			      "Many-to-one side of other one-to-many relations")))
-
-(defun (setf many-to-one-value) (value commited-state many-to-one-mapping)
-  (setf
-   (many-to-one-values-of commited-state)
-   (acons many-to-one-mapping value
-	  (many-to-one-values-of commited-state)))
-  (setf (slot-value
-	 (object-of commited-state)
-	 (slot-name-of many-to-one-mapping))
-	value))
-
-(defun (setf one-to-many-value) (value commited-state one-to-many-mapping)
-  (setf
-   (one-to-many-values-of commited-state)
-   (acons one-to-many-mapping value
-	  (one-to-many-values-of commited-state)))
-  (setf (slot-value
-	 (object-of commited-state)
-	 (slot-name-of one-to-many-mapping))
-	value))
-
-(defun (setf property-value) (value commited-state property-mapping)
-  (setf
-   (property-values-of commited-state)
-   (acons property-mapping value
-	  (property-values-of commited-state)))
-  (setf (slot-value
-	 (object-of commited-state)
-	 (slot-name-of property-mapping))
-	value))
-
-(defun (setf many-to-one-key) (value commited-state many-to-one-mapping)
-  (setf
-   (many-to-one-keys-of commited-state)
-   (acons many-to-one-mapping value
-	  (many-to-one-keys-of commited-state))))
-
-(defun slot-name-of (slot-mapping)
-  (first slot-mapping))
-
-(defun value-of (value-mapping)
-  (first value-mapping))
-
-(defun mapping-of (value-mapping)
-  (rest value-mapping))
-
-(defun referenced-class-of (slot-mapping)
-  (getf (rest slot-mapping) :referenced-class-name))
+   (column-values :initarg :column-values
+		  :reader column-values-of
+		  :documetation "alist of values by column names")))
 
 (defun get-object-of (key)
   (second key))
@@ -146,58 +112,95 @@
 		:initial-value (apply #'one-to-many-values
 				      object one-to-many-mappings))))))
 
-(defun superclasses-object-values (object &optional superclass-mapping
-				   &rest superclasses-mappings)
-  (when (not (null superclass-mapping))
-    (multiple-value-bind (superclasses-property-values
-			  superclasses-many-to-one-values
-			  superclasses-one-to-many-values)
-	(apply #'superclasses-object-values
-	       object superclasses-mappings)
-      (multiple-value-bind (property-values
-			    many-to-one-values one-to-many-values)
-	  (apply #'object-values object superclass-mapping)
-	(values
-	 (append property-values
-		 superclasses-property-values)
-	 (append many-to-one-values
-		 superclasses-many-to-one-values)
-	 (append one-to-many-values
-		 superclasses-one-to-many-values))))))
+(defun ensure-many-to-one-states (flush-states many-to-one-values)
+  (reduce #'ensure-state many-to-one-values
+	  :initial-value flush-states
+	  :key #'value-of))
 
-(defun object-values (object &key properties one-to-many-mappings
-			       many-to-one-mappings
-			       superclass-mappings &allow-other-keys)
-  (multiple-value-bind (property-values
-			many-to-one-values
-			one-to-many-values)
-      (apply #'superclasses-object-values
-	     object superclass-mappings)
-    (values
-     (append (apply #'property-values
-		    object properties)
-	     property-values)
-     (append (apply #'many-to-one-values
-		    object many-to-one-mappings)
-	     many-to-one-values)
-     (append (apply #'one-to-many-values
-		    object one-to-many-mappings)
-	     one-to-many-values))))
+(defun ensure-one-to-many-states (flush-states object class-mapping one-to-many-values)
+  (reduce #'(lambda (flush-states one-to-many-value)
+	      (let ((one-to-many-mapping
+		     (mapping-of one-to-many-value)))
+		(multiple-value-bind (flush-states flush-state)
+		    (ensure-state flush-state
+				  (value-of one-to-many-value)
+				  (referenced-class-of one-to-many-mapping))
+		  (setf (appended-to flush-state)
+			(acons one-to-many-mapping object
+			       (appended-to flush-state)))
+		  flush-states)))
+	  one-to-many-values
+	  :initial-value flush-states))
 
-(defun insert-object (object class-mapping)
-  (multiple-value-bind (property-values
-			many-to-one-values one-to-many-values)
-      (apply #'object-values object class-mapping)
-    (make-instance 'new-instance
-		   :object object
-		   :mapping class-mapping
-		   :property-values property-values
-		   :many-to-one-values many-to-one-values
-		   :one-to-many-appended-values
-		   (reduce #'append one-to-many-values
-			   :key #'value-of :initial-value nil))))
+(reduce #'(lambda (flush-states mapping)
+		  (insert-object flush-states object mapping))
+	      (superclass-mappings-of class-mapping)
+	      :initial-value )
 
-;; check set value to unbound slot-value
+(defun insert-object (flush-states object class-mapping)
+  (let* ((property-values
+	  (apply #'property-values object properties))
+	 (flush-state
+	  (make-instance 'new-instance
+			 :object object
+			 :mapping class-mapping
+			 :property-values property-values
+			 :superclass-dependencies superclass-dependencies
+			 :many-to-one-dependencies many-to-one-dependencies))
+	 (flush-states
+	  (list* flush-state
+		 (apply #'ensure-one-to-many-state
+			flush-states flush-state one-to-many-mappings))))
+    (multiple-value-bind (flush-states many-to-one-dependencies)
+	(apply #'compute-many-to-one-dependencies
+	       object many-to-one-mappings)
+      (multiple-value-bind (flush-states superclass-dependencies)
+	  (insert-superclass-dependencies flush-states
+					  object class-mapping)
+	(setf (superclass-dependencies-of flush-state)
+	      superclass-dependencies
+	      (many-to-one-dependencies-of flush-state)
+	      many-to-one-dependencies)
+	(values flush-states
+		flush-state)))))
+
+(defgeneric invert-one-to-many (dirty-state state))
+
+(defun invert-appended (dirty-state state)
+  (reduce #'(lambda (dirty-state one-to-many-reference)
+	      (multiple-value-bind (state dirty-state)
+		  (ensure-state dirty-state
+				(value-of one-to-many-reference))
+		(setf (inverted-appendings state)
+		      (acons
+		       (mapping-of one-to-many-reference)
+		       (object-of state)
+		       (inverted-appendings state)))
+		dirty-state))
+	  (appended-to state)
+	  :initial-value dirty-state))
+
+(defmethod invert-one-to-many (dirty-state (state flush-state))
+  (invert-appended dirty-state state))
+
+(defun invert-removed (dirty-state state)
+  (reduce #'(lambda (dirty-state one-to-many-reference)
+	      (multiple-value-bind (state dirty-state)
+		  (ensure-state dirty-state
+				(value-of one-to-many-reference))
+		(setf (inverted-removings state)
+		      (acons
+		       (mapping-of one-to-many-reference)
+		       (object-of state)
+		       (inverted-removings state)))
+		dirty-state))
+	  (removed-from state)
+	  :initial-value dirty-state))
+
+(defmethod invert-one-to-many (dirty-state (state state-diff))
+  (invert-removed (invert-appended dirty-state state) state))
+
+;;; check set value to unbound slot-value
 (defun compute-diff (object class-mapping commited-state)
   (multiple-value-bind (property-values
 			many-to-one-values one-to-many-values)
@@ -237,77 +240,44 @@
 				       (one-to-many-values commited-state)))
 				     (value-of one-to-many-value)))))))
 
-(defgeneric invert-one-to-many (dirty-state state))
-
-(defun invert-appended (dirty-state state)
-  (reduce #'(lambda (dirty-state one-to-many-reference)
-	      (multiple-value-bind (state dirty-state)
-		  (ensure-state dirty-state
-				(value-of one-to-many-reference))
-		(setf (inverted-appendings state)
-		      (acons
-		       (mapping-of one-to-many-reference)
-		       (object-of state)
-		       (inverted-appendings state)))
-		dirty-state))
-	  (appended-to state)
-	  :initial-value dirty-state))
-
-(defmethod invert-one-to-many (dirty-state (state flush-state))
-  (invert-appended dirty-state state))
-
-(defun invert-removed (dirty-state state)
-  (reduce #'(lambda (dirty-state one-to-many-reference)
-	      (multiple-value-bind (state dirty-state)
-		  (ensure-state dirty-state
-				(value-of one-to-many-reference))
-		(setf (inverted-removings state)
-		      (acons
-		       (mapping-of one-to-many-reference)
-		       (object-of state)
-		       (inverted-removings state)))
-		dirty-state))
-	  (removed-from state)
-	  :initial-value dirty-state))
-
-(defmethod invert-one-to-many (dirty-state (state state-diff))
-  (invert-removed (invert-appended dirty-state state) state))
-
-(defun compute-state (dirty-state object
+(defun compute-state (flush-states object mapping-name
 		      &optional (session *session*))
   (multiple-value-bind (commited-state persistedp)
       (gethash object (instance-states-of session))
-    (let* ((class-mapping
-	    (get-class-mapping
-	     (class-name
-	      (class-of object)) 
-	     (mapping-schema-of session)))
-	   (state
-	    (if (not persistedp)
-		(insert-object object class-mapping)
-		(compute-diff (object-of commited-state)
-			      class-mapping
-			      commited-state))))
-      ;; добавить обработку many-to-one
-      (values (invert-one-to-many dirty-state state)
-	      state))))
+    (if (not persistedp)
+	(insert-object flush-states object
+		       (get-class-mapping mapping-name
+					  (mapping-schema-of session)))
+	(compute-diff flush-states commited-state))))
 
-(defun ensure-state (dirty-state object)
-  (let ((state (find object dirty-state :key #'object-of)))
+(defun get-flush-state (flush-states object mapping-name)
+  (find-if #'(lambda (flush-state)
+	       (and
+		(eq (object-of flush-state) object)
+		(eq (mapping-name-of
+		     (mapping-of flush-state)) mapping-name)))
+	   flush-states))
+
+(defun ensure-state (flush-states object mapping-name)
+  (let ((state (get-flush-state flush-states object mapping-name)))
     (if (not (null state))
 	(compute-state dirty-state object)
-	(values dirty-state state))))
+	flush-states)))
 
-(defun insert-objects (&optional (session *session*))
-  (reduce #'ensure-state
+(defun insert-objects (dirty-state session)
+  (reduce #'(lambda (flush-states object-and-mapping-name)
+	      (apply #'ensure-state flush-states
+		     object-and-mapping-name))
 	  (new-objects-of session)
-	  :initial-value nil))
+	  :initial-value dirty-state))
 
-(defun update-objects (dirty-state session)
-  (reduce #'ensure-state
+(defun update-objects (&optional (session *session*))
+  (reduce #'(lambda (flush-states object-and-mapping-name)
+	      (apply #'ensure-state
+		     flush-states object-and-mapping-name))
 	  (alexandria:hash-table-keys
 	   (instance-states-of session))
-	  :initial-value dirty-state))
+	  :initial-value nil))
 
 (defun begin-transaction (&optional (session *session*))
   (execute "BEGIN" (connection-of session)))
@@ -319,7 +289,7 @@
   (execute "COMMIT" (connection-of session)))
 
 (defun flush-session (session)
-  (remove-objects (update-objects (insert-objects session)
+  (remove-objects (insert-objects (update-objects session)
 				  session)
 		  session))
 
@@ -352,7 +322,9 @@
   (exec-prepared connection name parameters))
 
 (defun db-persist (object &optional (session *session*))
-  (pushnew object (new-objects-of session)))
+  (pushnew
+   (list object (class-name-of object))
+   (new-objects-of session)))
 
 (defun db-remove (object &optional (session *session*))
   (pushnew object (removed-objects-of session)))

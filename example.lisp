@@ -2357,3 +2357,19 @@ Single instance
 ;; rotate mapping and allocation
 
 
+(define-mapping (map-name
+		 ("table-name" "primary" "key")
+		 (joined-mapping "foreign" "key"))
+    (allocate-instance 'class-name)
+  (value-1
+   (:property "column-name")
+   (:not-null t)
+   (:reader #'value-1-of)
+   (:writer #'(lambda 
+  (value-2
+   (:many-to-one another-map "foreign" "key")
+   (:not-null t))
+  (value-3
+   (:one-to-many map-2 "foreign" "key")
+   (:cascade :delete-orphan)))
+  (
