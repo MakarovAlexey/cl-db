@@ -53,6 +53,9 @@
 (defun mapping-name-of (mapping)
   (getf mapping :class-name))
 
+(defun property-mappings-of (class-mapping)
+  (getf class-mapping :properties))
+
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
 	(class-name ((table-name &rest primary-key)
