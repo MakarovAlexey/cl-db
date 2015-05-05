@@ -113,7 +113,7 @@
 		  :initial-value flush-states)
 	  flush-states))))
   
-(defun compute-one-to-many-dependencies (flush-states object
+(defun compute-many-to-one-dependencies (flush-states object
 					 &optional many-to-one-mapping
 					 &rest many-to-one-mappings)
   (when (not (null many-to-one-mapping))
@@ -130,21 +130,7 @@
 			   many-to-one-mapping
 			   many-to-one-dependencies))))))))
 
-(defun insert-superclass-dependencies (flush-states object
-				       &optional superclass-mapping
-				       &rest superclass-mappings)
-  (when (not (null superclass-mapping))
-    (multiple-value-bind (flush-states superclass-dependencies)
-	(apply #'insert-superclass-dependencies
-	       flush-states object superclass-mappings)
-      (multiple-value-bind (flush-states flush-state)
-	  (insert-object flush-states object superclass-mapping)
-	;; insert-object переделать
-	(values flush-states
-		(acons superclass-mapping flush-state
-		       superclass-dependencies))))))
-
-(defun insert-object (flush-states object class-mapping)
+(defun insert-state (flush-states object class-mapping)
   (let* ((property-values
 	  (apply #'property-values object class-mapping))
 	 (flush-state
@@ -159,16 +145,43 @@
       (setf (superclass-dependencies-of flush-state)
 	    superclass-dependencies)
       (multiple-value-bind (flush-states many-to-one-dependencies)
-	  (apply #'compute-many-to-one-dependencies
+	  (apply #'compute-many-to-one-dependencies flush-states
 		 object (many-to-one-mappings-of class-mapping))
 	(setf (many-to-one-dependencies-of flush-state)
 	      many-to-one-dependencies)
-	(values (insert-subclass-dependencies
-		 (apply #'compute-one-to-many-dependencies
-			flush-states flush-state
-			(one-to-many-mappings-of class-mapping))
-		 flush-state class-mapping)
+	(values (apply #'compute-one-to-many-dependencies
+		       flush-states flush-state
+		       (one-to-many-mappings-of class-mapping))
 		flush-state)))))
+
+(defun insert-superclass-dependencies (flush-states object
+				       &optional superclass-mapping
+				       &rest superclass-mappings)
+  (when (not (null superclass-mapping))
+    (multiple-value-bind (flush-states superclass-dependencies)
+	(apply #'insert-superclass-dependencies
+	       flush-states object superclass-mappings)
+      (multiple-value-bind (flush-states flush-state)
+	  (insert-state flush-states object superclass-mapping)
+	(values flush-states
+		(acons superclass-mapping flush-state
+		       superclass-dependencies))))))
+
+(defun insert-subclass-states (flush-states object class-mapping)
+  (let ((subclass-mapping
+	 (find-if #'(lambda (class-name)
+		      (typep object class-name))
+		  (subclass-mappings-of class-mapping)
+		  :key class-name-of)))
+    (if (not (null subclass-mapping))
+	(insert-object flush-states object subclass-mapping)
+	flush-states)))
+
+(defun insert-object (flush-states object class-mapping)
+  (multiple-value-bind (flush-states flush-state)
+      (insert-state flush-states object class-mapping)
+    (values (insert-subclass-states flush-state class-mapping)
+	    flush-state)))
 
 (defgeneric invert-one-to-many (dirty-state state))
 
