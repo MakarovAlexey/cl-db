@@ -2373,3 +2373,94 @@ Single instance
    (:one-to-many map-2 "foreign" "key")
    (:cascade :delete-orphan)))
   (
+))))
+
+(define-class-mapping user-map
+    (("users" "id"))
+  (id (:property "id" "uuid"))
+  (name (:property "name" "varchar"))
+  (login (:property "login" "varchar"))
+  (password (:property "password" "varchar"))
+  (project-managments
+   (:one-to-many project-managment "user_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
+		    (cons (project-of role) role))
+		roles)))
+   #'alexandria:hash-table-values)
+  (project-participations
+   (:one-to-many project-participation "user_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
+		    (cons (project-of role) role))
+		roles)))
+   #'alexandria:hash-table-values))
+
+(define-class-mapping project-participation-map
+    (("project_memebers" "project_id" "user_id"))
+  (project (:many-to-one project "project_id"))
+  (user (:many-to-one user "user_id")))
+
+(define-class-mapping project-managment-map
+    (("project_managers" "project_id" "user_id")
+     (project-participation "project_id" "user_id")))
+
+(define-class-mapping project-map
+    (("projects" "id"))
+  (id (:property "id" "uuid"))
+  (name (:property "name" "varchar"))
+  (begin-date (:property "begin_date" "date"))
+  (project-members
+   (:one-to-many project-participation "project_id")
+   #'(lambda (&rest roles)
+       (alexandria:alist-hash-table
+	(mapcar #'(lambda (role)
+		    (cons (user-of role) role))
+		roles)))
+   #'alexandria:hash-table-values))
+
+(define-mapping-schema projects-managment ()
+  (user user-map)
+  (project-participation project-participation-map)
+  (project-managment project-managment-map)
+  (project project-map)))
+
+(defmacro define-class-mapping (name ((table-name &rest primary-key)
+				      &rest inheritance-mappings)
+				&body slot-mappings)
+  `(setf
+    (get (quote ,name) 'class-mapping)
+    (make-instance 'class-mapping
+		   :table-name ,table-name
+		   :primary-key (quote ,primary-key)
+		   :properties (compute-properties
+				(quote ,slot-mappings))
+		   :one-to-many (compute-one-to-many
+				 (quote ,slot-mappings))
+		   :many-to-one (compute-many-to-one
+				 (quote ,slot-mappings))
+		   :superclass-mappings (compute-superclass-mappings
+					 (quote ,inheritance-mappings)))))
+
+(defmacro define-mapping-schema (name ()
+				 (class-name
+				  &optional (mapping-name class-name))
+				 &rest rest-mappings)
+  `(setf
+    (get (quote ,name) 'mapping-schema)
+    (reduce #'(lambda (result class-and-mapping)
+		(destructuring-bind
+		      (class-name &optional (mapping-name class-name))
+		    class-and-mapping
+		  (acons class-name mapping-name result)))
+	    (quote ,rest-mappings)
+	    :initial-value (acons (quote ,class-name)
+				  (quote ,mapping-name)
+				  nil))))
+
+;; reference each mapping-schema for each used class-mapping
+;; class-mapping redefinition for each mapping-schema
+;; mapping-schema redefinition for each class-mappings
+;; generate database schema for each mapping-schema
