@@ -56,6 +56,21 @@
 (defun property-mappings-of (class-mapping)
   (getf class-mapping :properties))
 
+(defun class-name-of (class-mapping)
+  (getf class-mapping :class-name))
+
+(defun subclass-mappings-of (class-mapping)
+  (getf class-mapping :subclass-mappings))
+
+(defun many-to-one-mappings-of (class-mapping)
+  (getf class-mapping :many-to-one-mappings))
+
+(defun superclass-mappings-of (class-mapping)
+  (getf class-mapping :superclass-mappings))
+
+(defun one-to-many-mappings-of (class-mapping)
+  (getf class-mapping :one-to-many-mappings))
+
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
 	(class-name ((table-name &rest primary-key)
