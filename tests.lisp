@@ -315,7 +315,57 @@
       (lift:ensure
        (null
 	(group-by-clause-of user-count-expression))))))
-      
 
+(lift:addtest insert-project-object
+  (multiple-value-bind (flush-states new-instance)
+      (insert-object nil (make-instance 'project :id 1 :name "ГКБ"
+					:begin-date "2013-09-01")
+		     (get-class-mapping 'project (projects-managment)))
+        (lift:ensure (not (null flush-states)))
+    (lift:ensure (find new-instance flush-states))))
+
+(lift:addtest insert-project-state
+  (multiple-value-bind (flush-states flush-state)
+      (insert-state nil (make-instance 'project :id 1 :name "ГКБ"
+				       :begin-date "2013-09-01")
+		    (get-class-mapping 'project (projects-managment)))
+    (lift:ensure (not (null flush-states)))
+    (lift:ensure (find flush-state flush-states))))
+
+(lift:addtest init-insert-project-state
+  (let* ((flush-states nil)
+	 (object
+	  (make-instance 'project
+			 :id 1 :name "ГКБ"
+			 :begin-date "2013-09-01"))
+	 (class-mapping
+	  (get-class-mapping 'project (projects-managment)))
+	 (property-values
+	  (property-values object class-mapping))
+	 (flush-state
+	  (make-instance 'new-instance
+			 :object object
+			 :class-mapping class-mapping
+			 :property-values property-values)))
+    (multiple-value-bind (flush-states superclass-dependencies)
+	(apply #'insert-superclass-dependencies
+	       (list* flush-state flush-states) object
+	       (superclass-mappings-of class-mapping))
+      (lift:ensure (not (null flush-states))
+		   :report "insert-superclass-dependencies")
+      (multiple-value-bind (flush-states many-to-one-dependencies)
+	  (apply #'compute-many-to-one-dependencies flush-states
+		 object (many-to-one-mappings-of class-mapping))
+	(lift:ensure (not (null flush-states))
+		     :report "compute-many-to-one-dependencies")
+	(lift:ensure (find flush-state flush-states))
+	(let ((flush-states
+	       (apply #'compute-one-to-many-dependencies
+		      flush-states flush-state
+		      (one-to-many-mappings-of class-mapping))))
+	  (lift:ensure (not (null flush-states))
+		       :report "compute-one-to-many-dependencies"))))))
+    
+    
 (defun test ()
   (describe (lift:run-tests)))

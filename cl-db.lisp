@@ -6,12 +6,6 @@
 
 (defvar *mapping-schema*)
 
-(defun get-class-mapping (class-name
-			  &optional (mapping-schema *mapping-schema*))
-  (or
-   (assoc class-name mapping-schema)
-   (error "class mapping for class ~a not found" class-name)))
-
 (defun parse-slot-mappings (&rest slot-mappings)
   (loop for slot-mapping in slot-mappings collect
        (destructuring-bind
@@ -70,6 +64,12 @@
 
 (defun one-to-many-mappings-of (class-mapping)
   (getf class-mapping :one-to-many-mappings))
+
+(defun get-class-mapping (class-name
+			  &optional (mapping-schema *mapping-schema*))
+  (or
+   (find class-name mapping-schema :key #'class-name-of)
+   (error "class mapping for class ~a not found" class-name)))
 
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
@@ -204,7 +204,7 @@
 	  (apply #'compute-superclass-mappings
 		 (remove root-class superclass-mappings
 			 :key #'first))))
-    (list* class-name
+    (list* :class-name class-name
 	   :table-name table-name
 ;;	   :columns (remove-duplicates
 ;;		     (append primary-key

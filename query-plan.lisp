@@ -147,11 +147,11 @@
 	     (list* (make-property-loader slot-name column-loader)
 		    loaders))))))))
 
-(defun join-many-to-one (join-path root-alias foreign-key class-name
-			 &key table-name primary-key properties
-			   one-to-many-mappings many-to-one-mappings
-			   inverted-one-to-many superclass-mappings
-			   subclass-mappings)
+(defun join-many-to-one (join-path root-alias foreign-key
+			 &key class-name table-name primary-key
+			   properties one-to-many-mappings
+			   many-to-one-mappings inverted-one-to-many
+			   superclass-mappings subclass-mappings)
   (let* ((alias (make-alias "join"))
 	 (table-join
 	  (list #'write-left-join table-name alias
@@ -323,11 +323,11 @@
 		  key-loaders)))))))
 
 (defun fetch-many-to-one (query loader fetch join-path root-class-name
-			  many-to-one-mapping foreign-key-columns class-name
-			  &key table-name primary-key properties
-			    one-to-many-mappings many-to-one-mappings
-			    inverted-one-to-many superclass-mappings
-			    subclass-mappings)
+			  many-to-one-mapping foreign-key-columns 
+			  &key class-name table-name primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings inverted-one-to-many
+			    superclass-mappings subclass-mappings)
   (let ((alias (make-alias "fetch")))
     (multiple-value-bind (primary-key pk-loader)
 	(apply #'plan-key alias primary-key)
@@ -402,11 +402,11 @@
 
 (defun fetch-one-to-many (query loader fetch join-path root-class-name
 			  slot-name root-primary-key foreign-key
-			  serializer class-name
-			  &key table-name primary-key properties
-			    one-to-many-mappings many-to-one-mappings
-			    inverted-one-to-many superclass-mappings
-			    subclass-mappings)
+			  serializer
+			  &key class-name table-name primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings inverted-one-to-many
+			    superclass-mappings subclass-mappings)
   (let* ((root-primary-key
 	  (reduce #'(lambda (primary-key alias)
 		      (list* (funcall query alias) primary-key))
@@ -651,9 +651,9 @@
 				  fetched-references))
 			  class-loader))))))
 
-(defun fetch-subclass (join-path superclass-primary-key class-name
-		       &key primary-key table-name foreign-key
-			 properties one-to-many-mappings
+(defun fetch-subclass (join-path superclass-primary-key 
+		       &key class-name primary-key table-name
+			 foreign-key properties one-to-many-mappings
 			 many-to-one-mappings inverted-one-to-many
 			 superclass-mappings subclass-mappings)
   (let* ((alias (make-alias "fetch"))
@@ -899,7 +899,7 @@
 					       (assoc (get-slot-name class reader)
 						      joined-references)))))))))))
 
-(defun plan-root-class-mapping (class-name &key table-name primary-key
+(defun plan-root-class-mapping (&key class-name table-name primary-key
 				properties one-to-many-mappings
 				many-to-one-mappings inverted-one-to-many
 				superclass-mappings subclass-mappings)
