@@ -2,6 +2,8 @@
 
 (defvar *session*)
 
+(defvar *flush-states*)
+
 (defclass clos-session ()
   ((connection :initarg :connection
 	       :reader connection-of)
@@ -27,9 +29,9 @@
 		  :reader class-mapping-of)
    (property-values :initarg :property-values
 		    :accessor property-values-of)
-   (many-to-one :initarg :many-to-one
-		:accessor many-to-one-values-of
-		:documentation "Loaded many to one values")
+   (many-to-one-values :initform (list)
+		       :accessor many-to-one-values-of
+		       :documentation "Loaded many to one values")
    (one-to-many-values :initform (list)
 		       :accessor one-to-many-values-of)))
 
@@ -71,215 +73,156 @@
 (defun property-values (object class-mapping)
   (reduce #'(lambda (result property-mapping)
 	      (let ((slot-name (slot-name-of property-mapping)))
-		(acons property-mapping
-		       (when (slot-boundp object slot-name)
-			 (slot-value object slot-name))
-		       result)))
-	  (property-mappings-of class-mapping)
-	  :initial-value nil))
+		(if (slot-boundp object slot-name)
+		    (acons property-mapping
+			   (slot-value object slot-name)
+			   result))))
+	  (property-mappings-of class-mapping) :initial-value nil))
 
-(defun serialize-value (value one-to-many-mapping)
-  (apply (getf (rest one-to-many-mapping) :serializer) value))
+;;;; Process only loaded associations. Slot must be bound
+(defun compute-removed-references (flush-state uncommited-value
+				   one-to-many-mapping)
+  (dolist (object (set-difference (value-of one-to-many-value)
+				  uncommited-value))
+    (push (cons one-to-many-mapping flush-state)
+	  (removed-from
+	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
 
-(defun compute-one-to-many-dependencies (flush-states flush-state
-					 &optional one-to-many-mapping
-					 &rest one-to-many-mappings)
-  (if (not (null one-to-many-mapping))
-      (let ((object
-	     (object-of flush-state))
-	    (flush-states
-	     (apply #'compute-one-to-many-dependencies
-		    flush-states flush-state one-to-many-mappings))
-	    (slot-name (slot-name-of one-to-many-mapping)))
-	(if (slot-boundp object slot-name)
-	    (reduce #'(lambda (flush-states object)
-			(multiple-value-bind (flush-states one-to-many-flush-state)
-			    (ensure-state flush-states object
-					  (referenced-class-of one-to-many-mapping))
-			  (setf (appended-to one-to-many-flush-state)
-				(acons (foreign-key-of one-to-many-mapping)
-				       flush-state
-				       (appended-to flush-state)))
-			  flush-states))
-		    (serialize-value (slot-value object slot-name)
-				     one-to-many-mapping)
-		    :initial-value flush-states)
-	    flush-states))
-      flush-states))
-  
-(defun compute-many-to-one-dependencies (flush-states object
-					 &optional many-to-one-mapping
-					 &rest many-to-one-mappings)
-  (if (not (null many-to-one-mapping))
-      (let ((slot-name (slot-name-of many-to-one-mapping)))
-	(when (slot-boundp object slot-name)
-	  (multiple-value-bind (flush-states many-to-one-dependencies)
-	      (apply #'compute-many-to-one-dependencies
-		     flush-states object many-to-one-mappings)
-	    (multiple-value-bind (flush-states many-to-one-flush-state)
-		(ensure-state flush-states object
-			      (referenced-class-of many-to-one-mapping))
-	      (values flush-states
-		      (acons many-to-one-flush-state
-			     many-to-one-mapping
-			     many-to-one-dependencies))))))
-      (values flush-states nil)))
+(defun compute-existing-references (flush-state uncommited-value
+				    one-to-many-mapping)
+  (dolist (object uncommited-value)
+    (push (cons one-to-many-mapping flush-state)
+	  (appended-to
+	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
 
-(defun insert-state (flush-states object class-mapping)
-  (let* ((property-values
-	  (property-values object class-mapping))
+(defun serialized-value (object one-to-many-mapping)
+  (apply (getf (rest one-to-many-mapping) :serializer)
+	 (slot-value object (slot-name-of one-to-many-mapping))))
+
+(defun compute-diff (object commited-state
+		     &optional (flush-states *flush-states*))
+  (let* ((class-mapping
+	  (class-mapping-of commited-state))
+	 (property-values
+	  (apply #'property-values object class-mapping))
+	 (many-to-one-values
+	  (apply #'compute-many-to-one-dependencies
+		 object (many-to-one-mappings-of class-mapping)))
 	 (flush-state
-	  (make-instance 'new-instance
-			 :object object
-			 :class-mapping class-mapping
-			 :property-values property-values)))
-    (multiple-value-bind (flush-states superclass-dependencies)
-	(apply #'insert-superclass-dependencies
-	       (list* flush-state flush-states) object
-	       (superclass-mappings-of class-mapping))
-      (setf (superclass-dependencies-of flush-state)
-	    superclass-dependencies)
-      (multiple-value-bind (flush-states many-to-one-dependencies)
-	  (apply #'compute-many-to-one-dependencies flush-states
-		 object (many-to-one-mappings-of class-mapping))
-	(setf (many-to-one-dependencies-of flush-state)
-	      many-to-one-dependencies)
-	(values (apply #'compute-one-to-many-dependencies
-		       flush-states flush-state
-		       (one-to-many-mappings-of class-mapping))
-		flush-state)))))
+	  (make-instance 'state-diff
+			 :commited-state commited-state
+			 :property-values
+			 (set-difference property-values
+					 (property-values-of commited-state)
+					 :test #'equal)
+			 :many-to-one-values
+			 (set-difference many-to-one-values
+					 (many-to-one-values-of commited-state)
+					 :test #'equal))))
+    (setf (gethash (list (class-name-of class-mapping) object)
+		   flush-states)
+	  flush-state)
+    (dolist (one-to-many-commited-value
+	      (one-to-many-values-of commited-state) flush-state)
+      (let* ((one-to-many-mapping
+	      (mapping-of one-to-many-commited-value))
+	     (uncommited-value
+	      (serialized-value (object-of flush-state)
+				one-to-many-mapping)))
+	(compute-removed-references flush-state uncommited-value
+				    one-to-many-mapping)
+	(compute-existing-references flush-state uncommited-value
+				     one-to-many-mapping)))))
 
-(defun insert-superclass-dependencies (flush-states object
-				       &optional superclass-mapping
-				       &rest superclass-mappings)
-  (if (not (null superclass-mapping))
-      (multiple-value-bind (flush-states superclass-dependencies)
-	  (apply #'insert-superclass-dependencies
-		 flush-states object superclass-mappings)
-	(multiple-value-bind (flush-states flush-state)
-	    (insert-state flush-states object superclass-mapping)
-	  (values flush-states
-		  (acons superclass-mapping flush-state
-			 superclass-dependencies))))
-      (values flush-states nil)))
+(defun get-subclass-mapping (object class-mapping)
+  (find-if #'(lambda (class-name)
+	       (typep object class-name))
+	   (subclass-mappings-of class-mapping)
+	   :key #'class-name-of))
 
-(defun insert-subclass-states (flush-states object class-mapping)
-  (let ((subclass-mapping
-	 (find-if #'(lambda (class-name)
-		      (typep object class-name))
-		  (subclass-mappings-of class-mapping)
-		  :key #'class-name-of)))
-    (if (not (null subclass-mapping))
-	(insert-object flush-states object subclass-mapping)
-	flush-states)))
+(defun insert-superclass-dependencies (object superclass-mappings)
+  (reduce #'(lambda (result superclass-mapping)
+	      (acons superclass-mapping
+		     (insert-state object superclass-mapping)
+		     result))
+	  superclass-mappings :initial-value nil))
 
-(defun insert-object (flush-states object class-mapping)
-  (multiple-value-bind (flush-states flush-state)
-      (insert-state flush-states object class-mapping)
-    (values (insert-subclass-states flush-states flush-state
-				    class-mapping)
-	    flush-state)))
+(defun compute-many-to-one-dependencies (object many-to-one-mappings)
+  (reduce #'(lambda (result many-to-one-mapping)
+	      (let ((slot-name (slot-name-of many-to-one-mapping)))
+		(if (slot-boundp object slot-name)
+		    (acons many-to-one-flush-state 
+			   (ensure-state object (referenced-class-of many-to-one-mapping))
+			   result)
+		    result)))
+	  many-to-one-mappings :initial-value nil))
 
-(defun compute-one-to-many-removed-objects (flush-states state-diff
-					    one-to-many-mapping)
-  (let ((object (object-of state-diff))
-	(slot-name (slot-name-of one-to-many-mapping)))
-    (when (slot-boundp object slot-name)
-      (reduce #'(lambda (flush-states object)
-		  (multiple-value-bind (flush-states flush-state)
-		      (ensure-state flush-states object
-				    (referenced-class-of one-to-many-mapping))
-		    (setf (removed-from flush-state)
-			  (acons one-to-many-mapping state-diff
-				 (removed-from flush-state)))
-		    flush-states))
-	      (set-difference
-	       (slot-value object slot-name)
-	       (rest (assoc one-to-many-mapping
-			    (one-to-many-values-of state-diff))))
-	      :initial-value flush-states))))
-    
-(defun compute-state-diff-dependants (flush-states state-diff
-				      one-to-many-mappings)
-  (reduce #'(lambda (flush-states one-to-many-mapping)
-	      (compute-one-to-many-dependencies
-	       (compute-one-to-many-removed-objects flush-states
-						    state-diff
-						    one-to-many-mapping)
-	       state-diff one-to-many-mapping))
-	  one-to-many-mappings
-	  :initial-value flush-states))
+(defun compute-one-to-many-dependencies (flush-state one-to-many-mappings)
+  (dolist (one-to-many-mapping one-to-many-mappings flush-state)
+    (compute-existing-references flush-state
+				 (serialized-value (object-of flush-state)
+						   one-to-many-mapping)
+				 one-to-many-mapping)))
 
-(defun compute-diff (flush-states object commited-state)
-    (let* ((class-mapping
-	    (class-mapping-of commited-state))
-	   (property-values
-	    (apply #'property-values object class-mapping))
-	   (many-to-one-values
-	    (apply #'many-to-one-values object class-mapping))
-	   (flush-state
-	    (make-instance 'state-diff
-			   :commited-state commited-state
+(defun insert-state (object class-mapping
+		     &optional (flush-states *flush-states*))
+  (let ((inserted
+	 (make-flush-state 'new-instance
+			   :object object
+			   :class-mapping class-mapping
 			   :property-values
-			   (set-difference property-values
-					   (property-values-of commited-state)
-					   :test #'equal)
-			   :many-to-one-values
-			   (set-difference many-to-one-values
-					   (many-to-one-values-of commited-state)
-					   :test #'equal)))
-	   (one-to-many-mappings
-	    (one-to-many-mappings-of class-mapping)))
-      (compute-state-diff-dependants flush-states flush-state
-				     one-to-many-mappings)))
+			   (property-values object class-mapping))))
+    (setf (gethash (list (class-name-of class-mapping) object)
+		   flush-states)
+	  inserted)
+    (setf (superclass-dependencies-of flush-state)
+	  (apply #'insert-superclass-dependencies object
+		 (superclass-mappings-of class-mapping)))
+    (setf (many-to-one-dependencies-of flush-state)
+	  (apply #'compute-many-to-one-dependencies object
+		 (many-to-one-mappings-of class-mapping)))
+    (apply #'compute-one-to-many-dependencies flush-state
+	   (one-to-many-mappings-of class-mapping))
+    inserted))
 
-(defun get-flush-state (flush-states object mapping-name)
-  (find-if #'(lambda (flush-state)
-	       (and
-		(eq (object-of flush-state) object)
-		(eq (mapping-name-of
-		     (mapping-of flush-state)) mapping-name)))
-	   flush-states))
+(defun insert-object (object class-mapping)
+  (let ((inserted
+	 (insert-state object class-mapping))
+	(subclass-mapping
+	 (get-subclass-mapping object class-mapping)))
+    (when (not (null subclass-mapping))
+      (insert-object object subclass-mapping))
+    inserted))
 
-(defun compute-state (flush-states object mapping-name
+(defun compute-state (object mapping-name
 		      &optional (session *session*))
   (multiple-value-bind (commited-state persistedp)
-      (gethash object (instance-states-of session))
+      (gethash
+       (list object mapping-name)
+       (instance-states-of session))
     (if (not persistedp)
-	(insert-object flush-states object mapping-name)
-	(compute-diff flush-states object commited-state))))
+	(insert-object object mapping-name)
+	(compute-diff object commited-state))))
 
-(defun ensure-state (flush-states object &optional (mapping-name (type-of object)))
-  (let ((state (get-flush-state flush-states object mapping-name)))
-    (if (not (null state))
-	(values flush-states state)
-	(compute-state flush-states object mapping-name))))
+(defun get-flush-state (object mapping-name
+			&optional (flush-states *flush-states*))
+  (gethash (list object mapping-name) flush-states))
 
-(defun ensure-inserted-state (flush-states object
-			      &optional (mapping-name (type-of object)))
+(defun ensure-state (object &optional (mapping-name (type-of object)))
+  (let ((state (get-flush-state object mapping-name)))
+    (if (null state)
+	(compute-state object mapping-name)
+	state)))
+
+(defun ensure-inserted (object &optional (class-name (type-of object)))
   (let ((state
-	 (get-flush-state flush-states object mapping-name)))
-    (if (not (null state))
-	(values flush-states state)
-	(insert-object flush-states object mapping-name))))
+	 (get-flush-state object mapping-name)))
+    (if (null state)
+	(insert-object object (get-class-mapping class-name))
+	state)))
 
-(defun insert-objects (&optional (session *session*))
-  (reduce #'ensure-inserted-state
-	  (new-objects-of session)
-	  :initial-value nil))
-
-(defun update-objects (flush-states &optional (session *session*))
-  (reduce #'(lambda (flush-states object-and-mapping-name)
-	      (apply #'ensure-state
-		     flush-states object-and-mapping-name))
-	  (alexandria:hash-table-keys
-	   (instance-states-of session))
-	  :initial-value flush-states))
-
-(defun remove-objects (flush-states session)
-  (dolist (object (removed-objects-of session) flush-states)
-    (dolist (flush-state (remove object flush-states :test-not #'eq))
-      (change-class flush-state 'removed-state))))
+(defun ensure-removed (object)
+  
 
 ;;; cascade removing and setting not removable object's associations
 ;;; to null (if null value permitted)
@@ -294,9 +237,14 @@
   (execute "COMMIT" (connection-of session)))
 
 (defun flush-session (session)
-  (update-objects
-   (remove-objects
-    (insert-objects session) session) session))
+  (let ((*flush-states* (make-hash-table :test #'equal)))
+    (dolist (object (new-objects-of session))
+      (ensure-inserted object))
+    (dolist (object (removed-objects-of session))
+      (ensure-removed object))
+    (dolist (commit-state (alexandria:hash-table-keys
+			   (instance-states-of session)))
+      (ensure-diff commit-state))))
 
 (defun close-session (session)
   (flush-session session)
