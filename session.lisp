@@ -4,6 +4,16 @@
 
 (defvar *flush-states*)
 
+(defvar *state-path*)
+
+(defgeneric execute-query (connection sql-string))
+
+(defgeneric prepare-query (connection name sql-string))
+
+(defgeneric execute-prepared (connection name &rest parameters))
+
+(defgeneric close-connection (connection))
+
 (defclass clos-session ()
   ((connection :initarg :connection
 	       :reader connection-of)
@@ -65,11 +75,6 @@
 (defun get-object-of (key)
   (second key))
 
-(defun open-session (mapping-schema-fn &rest connection-args)
-  (make-instance 'clos-session
-		 :mapping-schema (funcall mapping-schema-fn)
-		 :connection (apply #'open-database connection-args)))
-
 (defun property-values (object class-mapping)
   (reduce #'(lambda (result property-mapping)
 	      (let ((slot-name (slot-name-of property-mapping)))
@@ -82,8 +87,11 @@
 ;;;; Process only loaded associations. Slot must be bound
 (defun compute-removed-references (flush-state uncommited-value
 				   one-to-many-mapping)
-  (dolist (object (set-difference (value-of one-to-many-value)
-				  uncommited-value))
+  (dolist (object (set-difference
+		   (value-of
+		    (one-to-many-values-of
+		     (commited-state-of flush-state)))
+		   uncommited-value))
     (push (cons one-to-many-mapping flush-state)
 	  (removed-from
 	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
@@ -96,8 +104,8 @@
 	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
 
 (defun serialized-value (object one-to-many-mapping)
-  (apply (getf (rest one-to-many-mapping) :serializer)
-	 (slot-value object (slot-name-of one-to-many-mapping))))
+  (funcall (serializer-of one-to-many-mapping)
+	   (slot-value object (slot-name-of one-to-many-mapping))))
 
 (defun compute-diff (object commited-state
 		     &optional (flush-states *flush-states*))
@@ -151,7 +159,7 @@
   (reduce #'(lambda (result many-to-one-mapping)
 	      (let ((slot-name (slot-name-of many-to-one-mapping)))
 		(if (slot-boundp object slot-name)
-		    (acons many-to-one-flush-state 
+		    (acons many-to-one-mapping 
 			   (ensure-state object (referenced-class-of many-to-one-mapping))
 			   result)
 		    result)))
@@ -166,24 +174,24 @@
 
 (defun insert-state (object class-mapping
 		     &optional (flush-states *flush-states*))
-  (let ((inserted
-	 (make-flush-state 'new-instance
-			   :object object
-			   :class-mapping class-mapping
-			   :property-values
-			   (property-values object class-mapping))))
+  (let ((flush-state
+	 (make-instance 'new-instance
+			:object object
+			:class-mapping class-mapping
+			:property-values
+			(property-values object class-mapping))))
     (setf (gethash (list (class-name-of class-mapping) object)
 		   flush-states)
-	  inserted)
+	  flush-state)
     (setf (superclass-dependencies-of flush-state)
-	  (apply #'insert-superclass-dependencies object
-		 (superclass-mappings-of class-mapping)))
+	  (insert-superclass-dependencies
+	         object (superclass-mappings-of class-mapping)))
     (setf (many-to-one-dependencies-of flush-state)
-	  (apply #'compute-many-to-one-dependencies object
+	  (compute-many-to-one-dependencies object
 		 (many-to-one-mappings-of class-mapping)))
-    (apply #'compute-one-to-many-dependencies flush-state
+    (compute-one-to-many-dependencies flush-state
 	   (one-to-many-mappings-of class-mapping))
-    inserted))
+    flush-state))
 
 (defun insert-object (object class-mapping)
   (let ((inserted
@@ -216,68 +224,136 @@
 
 (defun ensure-inserted (object &optional (class-name (type-of object)))
   (let ((state
-	 (get-flush-state object mapping-name)))
+	 (get-flush-state object class-name)))
     (if (null state)
 	(insert-object object (get-class-mapping class-name))
-	state)))
+	(error "Object ~a already perssited" object))))
 
-(defun ensure-removed (object)
-  
+;;(defun remove-object (commited-state)
+;;  (let ((flush-state
+;;	 (make-instance 'removed-instance
+;;			:commited-state commited-state)))
+;;    (setf (many-to-one-dependencies-of flush-state)
+;;	  (mapcar #'(lambda (many-to-one-value)
+;;		      (funcall (cascade-operation-of
+;;				(mapping-of many-to-one-value))
+;;			       flush-state
+;;			       (value-of many-to-one-value)))
+;;		  (many-to-one-values-of commited-state)))
+;;    (setf (one-to-many-dependencies-of flush-state)
+;;	  (reduce #'append (one-to-many-values-of commited-state)
+;;		  :key #'(lambda (one-to-many-value)
+;;			   (let ((one-to-many-mapping
+;;				  (mapping-of one-to-many-commited-value)))
+;;			     (funcall (cascade-operation-of one-to-many-mapping)
+;;				      flush-state
+;;				      (value-of one-to-many-value)
+;;				      one-to-many-mapping)))))))
+
+;;(defun ensure-removed (object &optional (mapping-name
+;;					 (class-name (class-of object))))
+;;  (let ((state
+;;	 (get-flush-state object mapping-name)))
+;;    (if (null state)
+;;	(remove-object state (get-class-mapping class-name))
+;;	(error "Object ~a not perssitend and cannot be removed" object))))
 
 ;;; cascade removing and setting not removable object's associations
 ;;; to null (if null value permitted)
 
 (defun begin-transaction (&optional (session *session*))
-  (execute "BEGIN" (connection-of session)))
+  (execute-query (connection-of session) "BEGIN"))
 
 (defun rollback (&optional (session *session*))
-  (execute "ROLLBACK" (connection-of session)))
+  (execute-query (connection-of session) "ROLLBACK"))
 
 (defun commit (&optional (session *session*))
-  (execute "COMMIT" (connection-of session)))
+  (execute-query (connection-of session) "COMMIT"))
+
+(defun ensure-diff (commited-state &optional
+				     (flush-states *flush-states*))
+  (let ((object (object-of commited-state)))
+    (multiple-value-bind (state presentp)
+	(gethash (list object
+		       (class-name-of
+			(class-mapping-of commited-state)))
+		 flush-states)
+      (if (not presentp)
+	  (compute-diff object commited-state)
+	  state))))
+
+(defgeneric process-state (state &optional state-path)
+
+(defmethod process-state ((state new-instance) &optional state-path)
+  (let ((state-path (list* state state-path)))
+    ;; superclasses
+    (dolist (state (superclass-dependencies-of state))
+      (process-state state state-path))
+    (dolist (state (many-to-one-dependencies-of state))
+      (process-state state state-path))
+    (dolist (state (appended-to state))
+      (process-state state state-path))
+    
+  
+  ;; many-to-one
+  ;; appended-to
+  )
+
+(defmethod process-state ((state state-diff) &optional state-path)
+  ;; superclasses
+  ;; many-to-one
+  ;; appended-to
+  ;; removed-from
+  )
+
+(defmethod process-state ((state removed-state) &optional state-path)
+  ;; superclasses
+  ;; many-to-one
+  ;; appended-to
+  ;; removed-from
+  )
+
+(defun process-states (states)
+  (let ((*passed* (list)))
+    (dolist (state states)
+      (when (not (find state *passed-states*))
+	(process-state state)))))
 
 (defun flush-session (session)
   (let ((*flush-states* (make-hash-table :test #'equal)))
     (dolist (object (new-objects-of session))
       (ensure-inserted object))
-    (dolist (object (removed-objects-of session))
-      (ensure-removed object))
-    (dolist (commit-state (alexandria:hash-table-keys
+;;    (dolist (object (removed-objects-of session))
+;;      (ensure-removed object))
+    (dolist (commit-state (alexandria:hash-table-values
 			   (instance-states-of session)))
-      (ensure-diff commit-state))))
+      (ensure-diff commit-state))
+    (process-states (hash-table-values *flush-states*))))
+
+(defun open-session (mapping-schema-fn connection-fn)
+  (make-instance 'clos-session
+		 :mapping-schema (funcall mapping-schema-fn)
+		 :connection (funcall connection-fn)))
 
 (defun close-session (session)
   (flush-session session)
-  (close-database (connection-of session)))
+  (close-connection (connection-of session)))
 
-(defun call-with-session (mapping-schema-fn connection-args thunk)
+(defun call-with-session (mapping-schema-fn connection-fn thunk)
   (let ((*session*
-	 (apply #'open-session mapping-schema-fn connection-args)))
+	 (open-session mapping-schema-fn connection-fn)))
     (funcall thunk)
     (close-session *session*)))
 
-(defmacro with-session ((mapping-schema &rest connection-args)
+(defmacro with-session ((mapping-schema connection-form)
 			&body body)
-  `(apply #'call-with-session
-	  (function ,mapping-schema)
-	  (quote ,connection-args)
-	  #'(lambda () ,@body)))
-
-(defun execute (sql-string connection)
-  (exec-query connection sql-string))
-
-(defun prepare (sql-string &optional (connection (connection-of *session*)))
-  (prepare-query connection sql-string sql-string)
-  #'(lambda (&rest parameters)
-      (exec-prepared sql-string connection parameters)))
-
-(defun execute-prepared (name connection &rest parameters)
-  (exec-prepared connection name parameters))
+  `(call-with-session
+    (function ,mapping-schema)
+    #'(lambda () ,connection-form)
+    #'(lambda () ,@body)))
 
 (defun db-persist (object &optional (session *session*))
-  (pushnew
-   (list object (class-name (class-of object)))
-   (new-objects-of session)))
+  (pushnew object (new-objects-of session)))
 
 (defun db-remove (object &optional (session *session*))
   (pushnew object (removed-objects-of session)))
