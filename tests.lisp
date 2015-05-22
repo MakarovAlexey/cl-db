@@ -1,5 +1,26 @@
 (in-package #:cl-db)
 
+(defclass test-connection ()
+  ())
+
+(defmethod execute-query ((connection test-connection) sql-string)
+  (declare (ignore connection))
+  (format t "~a~%" sql-string))
+
+(defmethod prepare-query ((connection test-connection) name sql-string)
+  (declare (ignore connection))
+  (format t "PREPARE ~a AS ~a~%" name sql-string)
+  #'(lambda (&rest parameters)
+      (apply #'execute-prepared connection name parameters)))
+
+(defmethod execute-prepared ((connection test-connection) name &rest parameters)
+  (declare (ignore connection))
+  (format t "EXEC ~a ~{~a~}~%" name parameters))
+
+(defmethod close-connection ((connection test-connection))
+  (declare (ignore connection))
+  (format t "CONNECTION CLOSED~%"))
+
 ;;(define-database-interface postgresql-postmodern
 ;;  (:open-connection #'cl-postgres:open-database)
 ;;  (:close-connection #'cl-postgres:close-database)
@@ -49,8 +70,8 @@
 	 :accessor name-of)
    (begin-date :initarg :begin-date
 	       :accessor begin-date-of)
-   (project-members :initarg :project-members
-		    :accessor project-members-of)))
+   (project-members :initform (make-hash-table)
+		    :reader project-members-of)))
 
 (define-schema projects-managment ()
   (user

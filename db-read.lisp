@@ -237,5 +237,5 @@
 		     :offset offset
 		     :limit limit
 		     :fetch fetch)
-    (apply (prepare sql-string (connection-of *session*))
+    (apply (prepare-query (connection-of *session*) sql-string sql-string)
 	   parameters)))

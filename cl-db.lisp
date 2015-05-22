@@ -4,8 +4,6 @@
 
 (defvar *class-mappings*)
 
-(defvar *mapping-schema*)
-
 (defun parse-slot-mappings (&rest slot-mappings)
   (loop for slot-mapping in slot-mappings collect
        (destructuring-bind
@@ -65,10 +63,21 @@
 (defun one-to-many-mappings-of (class-mapping)
   (getf class-mapping :one-to-many-mappings))
 
-(defun get-class-mapping (class-name
-			  &optional (mapping-schema *mapping-schema*))
+(defun table-name-of (class-mapping)
+  (getf class-mapping :table-name))
+
+(defun serializer-of (one-to-many-mapping)
+  (eval (getf (rest one-to-many-mapping) :serializer)))
+
+;;(defun cascade-operation-of (reference-mapping)
+;;  (let ((operation-type (getf reference-mapping :delete-orphan)))
+;;    (if (eq operation-type :delete-orphan)
+;;	#'delete-orphaned ; generic-functions
+;;	#'update-orphaned)))
+
+(defun get-class-mapping (class-name &optional (session *session*))
   (or
-   (find class-name mapping-schema :key #'class-name-of)
+   (find class-name (mapping-schema-of session) :key #'class-name-of)
    (error "class mapping for class ~a not found" class-name)))
 
 (defun parse-class-mapping (class-mapping)

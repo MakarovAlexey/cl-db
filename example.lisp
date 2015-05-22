@@ -2464,3 +2464,26 @@ Single instance
 ;; class-mapping redefinition for each mapping-schema
 ;; mapping-schema redefinition for each class-mappings
 ;; generate database schema for each mapping-schema
+
+;; class tree-node (left-node right-node)
+
+(db-read 'tree-node
+	 :fetch #'(lambda (tree-node)
+		    (values
+		     (fetch-reference #'left-node-of tree-node
+				      :recursive #'(lambda (tree-node)
+						     (values
+						      (fetch-refence #'left-node-of tree-node)
+						      (fetch-reference #'right-node-of tree-node))))
+		     (fetch-reference #'right-node-of tree-node
+				      :recursive #'(lambda (tree-node)
+						     (values
+						      (fetch-refence #'left-node-of tree-node)
+						      (fetch-reference #'right-node-of
+								       tree-node)))))))
+
+(db-read 'tree-node :recursive-fetch ;; recursive-join
+	 #'(lambda (tree-node)
+	     (values
+	      (fetch-refence #'left-node-of tree-node)
+	      (fetch-reference #'right-node-of tree-node))))
