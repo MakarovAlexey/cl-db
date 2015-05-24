@@ -44,6 +44,7 @@
    (property-values :initarg :property-values
 		    :accessor property-values-of)
    (dependencies :initarg :dependencies
+		 :initform (list)
 		 :accessor dependencies-of)))
 
 (defclass commited-state (instance-state)
@@ -95,24 +96,50 @@
 			     (ensure-state object (class-name-of superclass-mapping))))
 	  (superclass-mappings-of class-mapping)))
 
+(defun compute-many-to-one-dependency (many-to-one-mapping object
+				       inverted-association)
+  (let* ((many-to-one-slot-name
+	  (slot-name-of many-to-one-mapping))
+	 (many-to-one-object
+	  (slot-value object many-to-one-slot-name))
+	 (dependency
+	  (make-instance 'state-dependency
+			 :dependency-mapping many-to-one-mapping 
+			 :state (ensure-state many-to-one-object
+					      (reference-class-of many-to-one-mapping)))))
+    (when (and (not (null inverted-association))
+	       (not (member object (serialized-value many-to-one-object
+						     inverted-association))))
+      (error "Non consistent bidirectional association~%between slot ~A of object ~A~%and slot ~A of object ~A"
+	      many-to-one-slot-name object
+	      (slot-name-of inverted-association) many-to-one-object))
+    dependency))
+
 (defun compute-many-to-one-dependencies (object class-mapping)
-  (mapcar #'(lambda (many-to-one-mapping)
-	      (let ((slot-name (slot-name-of many-to-one-mapping)))
-		(if (slot-boundp object slot-name)
-		    (make-instance 'state-dependency
-				   :dependency-mapping many-to-one-mapping 
-				   :state
-				   (ensure-state object (referenced-class-of many-to-one-mapping))))))
-	  (many-to-one-mappings-of class-mapping)))
+  (loop for many-to-one-mapping
+     in (many-to-one-mappings-of class-mapping)
+     for inverted-association =
+       (find-if #'(lambda (inverted-assciation)
+		    (equal
+		     (foreign-key-of inverted-assciation)
+		     (foreign-key-of many-to-one-mapping)))
+		(inverted-one-to-many-mappings-of class-mapping))
+     when (slot-boundp object (slot-name-of many-to-one-mapping))
+     collect (compute-many-to-one-dependency many-to-one-mapping object
+					     inverted-association)))
 
 (defun compute-existing-references (flush-state uncommited-value
 				    one-to-many-mapping)
   (dolist (object uncommited-value)
-    (push (make-instance 'state-dependency
-			 :dependency-mapping one-to-many-mapping
+    (let ((dependency-state
+	   (ensure-state object (reference-class-of one-to-many-mapping))))
+    (push (make-instance 'state-dependency :dependency-mapping
+			 (find (slot-name-of one-to-many-mapping)
+			       (inverted-one-to-many-mappings-of
+				(class-mapping-of dependency-state))
+			       :key #'slot-name-of)
 			 :state flush-state)
-	  (dependencies-of
-	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
+	  (dependencies-of dependency-state)))))
 
 (defun serialized-value (object one-to-many-mapping)
   (funcall (serializer-of one-to-many-mapping)
@@ -133,14 +160,13 @@
 	  (make-instance 'state-diff
 			 :commited-state commited-state
 			 :property-values (property-values object class-mapping))))
-    (setf (gethash (list (class-name-of class-mapping) object)
+    (setf (gethash (list object (class-name-of class-mapping))
 		   flush-states)
 	  flush-state)
     (setf (superclass-dependencies-of flush-state)
 	  (append
 	   (compute-superclass-dependencies object class-mapping)
 	   (compute-many-to-one-dependencies object class-mapping)))
-    (compute-one-to-many-dependencies flush-state class-mapping)
     flush-state))
 
 (defun insert-state (object class-mapping
@@ -151,11 +177,12 @@
 			:class-mapping class-mapping
 			:property-values
 			(property-values object class-mapping))))
-    (setf (gethash (list (class-name-of class-mapping) object)
+    (setf (gethash (list object (class-name-of class-mapping))
 		   flush-states)
 	  flush-state)
     (setf (dependencies-of flush-state)
 	  (append
+	   (dependencies-of flush-state)
 	   (compute-superclass-dependencies object class-mapping)
 	   (compute-many-to-one-dependencies object class-mapping)))
     (compute-one-to-many-dependencies flush-state class-mapping)
@@ -183,7 +210,7 @@
        (list object mapping-name)
        (instance-states-of session))
     (if (not persistedp)
-	(insert-object object mapping-name)
+	(insert-object object (get-class-mapping mapping-name))
 	(compute-diff object commited-state))))
 
 (defun get-flush-state (object mapping-name
@@ -191,17 +218,15 @@
   (gethash (list object mapping-name) flush-states))
 
 (defun ensure-state (object &optional (mapping-name (type-of object)))
-  (let ((state (get-flush-state object mapping-name)))
-    (if (null state)
-	(compute-state object mapping-name)
-	state)))
+  (or (get-flush-state object mapping-name)
+      (compute-state object mapping-name)))
 
 (defun ensure-inserted (object &optional (class-name (type-of object)))
   (let ((state
 	 (get-flush-state object class-name)))
     (if (null state)
 	(insert-object object (get-class-mapping class-name))
-	(error "Object ~a already persisted" object))))
+	state)))
 
 (defun ensure-diff (commited-state &optional
 				     (flush-states *flush-states*))
@@ -253,8 +278,7 @@
 
 (defun process-dependencies (state state-path
 			     &optional (defered-updates *defered-updates*))
-  (loop for dependency
-     in (dependencies-of state)
+  (loop for dependency in (dependencies-of state)
      for flush-state = (dependency-state-of dependency)
      if (member flush-state state-path)
      do (setf (gethash flush-state defered-updates)
@@ -296,7 +320,7 @@
 
 (defun column-value (column-name table-row)
   (rest
-   (assoc column-name table-row :key #'string=)))
+   (assoc column-name table-row :test #'string=)))
 
 (defun foreign-key-values (dependency-mapping dependency-row)
   (mapcar #'(lambda (foreign-key-column primary-key-column)
@@ -304,7 +328,9 @@
 		    (column-value primary-key-column
 				  dependency-row)))
 	  (foreign-key-of dependency-mapping)
-	  (primary-key-of dependency-mapping)))
+	  (primary-key-of
+	   (get-class-mapping
+	    (reference-class-of dependency-mapping)))))
 
 (defun primary-key-values (class-mapping table-row)
   (mapcar #'(lambda (primary-key-column)
@@ -316,7 +342,8 @@
   (let ((dependency-mapping
 	 (dependency-mapping-of dependency))
 	(dependency-row
-	 (table-row-of (dependency-state-of dependency))))
+	 (table-row-of
+	  (dependency-state-of dependency))))
     (foreign-key-values dependency-mapping dependency-row)))
 
 (defgeneric query-state (state defered-updates))
@@ -327,9 +354,11 @@
 	 (row-values
 	  (append (mapcar #'row-value
 			  property-values)
-		  (reduce #'append dependencies
-			  :key #'row-values
-			  :initial-value nil)))
+		  (remove-duplicates
+		   (reduce #'append dependencies
+			   :initial-value nil
+			   :key #'row-values)
+		   :test #'equal)))
 	 (class-mapping (class-mapping-of state)))
     (insert-row (table-name-of class-mapping)
 		(mapcar #'first row-values)
@@ -354,11 +383,12 @@
 	 (gethash flush-state flushed-states))
 	(class-mapping
 	 (class-mapping-of flush-state)))
-    (update-row (table-name-of class-mapping)
-		(primary-key-values class-mapping
-				    (table-row-of commited-state))
-		(foreign-key-values dependency-mapping
-				    (table-row-of dependency-commited-state)))))
+    (update-row
+     (table-name-of class-mapping)
+     (primary-key-values class-mapping
+			 (table-row-of commited-state))
+     (foreign-key-values dependency-mapping
+			 (table-row-of dependency-commited-state)))))
 
 (defun process-defered-updates (flush-state commited-state
 				&optional
@@ -401,6 +431,11 @@
     (dolist (commit-state (alexandria:hash-table-values
 			   (instance-states-of session)))
       (ensure-diff commit-state))
+    (maphash #'(lambda (object-and-class-name flush-state)
+		 (compute-one-to-many-dependencies flush-state
+						   (get-class-mapping
+						    (second object-and-class-name))))
+	     *flush-states*)
     (process-states (hash-table-values *flush-states*))))
 
 (defun open-session (mapping-schema-fn connection-fn)

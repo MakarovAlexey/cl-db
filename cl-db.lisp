@@ -36,8 +36,8 @@
 (defun mapping-of (value-mapping)
   (first value-mapping))
 
-(defun referenced-class-of (slot-mapping)
-  (getf slot-mapping :referenced-class-name))
+(defun reference-class-of (slot-mapping)
+  (getf slot-mapping :reference-class-name))
 
 (defun mapping-name-of (mapping)
   (getf mapping :class-name))
@@ -59,6 +59,9 @@
 
 (defun one-to-many-mappings-of (class-mapping)
   (getf class-mapping :one-to-many-mappings))
+
+(defun inverted-one-to-many-mappings-of (class-mapping)
+  (getf class-mapping :inverted-one-to-many))
 
 (defun table-name-of (class-mapping)
   (getf class-mapping :table-name))
@@ -126,13 +129,16 @@
 			        (eq referenced-class-name 
 				    (referenced-class-of one-to-many-mapping)))
 			     one-to-many-mappings)
+	      :key #'(lambda (one-to-many-mapping)
+		       (list :one-to-many (slot-name-of one-to-many-mapping)
+			     :reference-class-name class-name
+			     :foreign-key (foreign-key-of one-to-many-mapping)
+			     :serializer (getf one-to-many-mapping :serializer)
+			     :deserializer (getf one-to-many-mapping :deserializer)))
 	      :initial-value (apply #'compute-inverted-one-to-many
 				    referenced-class-name
 				    class-mappings)
-	      :from-end t
-	      :key #'(lambda (one-to-many-mapping)
-		       (list* :class-name class-name
-			      :slot-name one-to-many-mapping))))))
+	      :from-end t))))
 
 (defun compute-superclass-mapping (&key class-name superclass-mappings
 				     table-name primary-key
