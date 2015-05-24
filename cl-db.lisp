@@ -25,22 +25,19 @@
 		  :deserializer deserializer))))))
 
 (defun column-of (property)
-  (second property))
-
-(defun foreign-key-of (reference-mapping)
-  (getf reference-mapping :foreign-key))
+  (third property))
 
 (defun slot-name-of (slot-mapping)
-  (first slot-mapping))
+  (second slot-mapping))
 
 (defun value-of (value-mapping)
-  (first value-mapping))
-
-(defun mapping-of (value-mapping)
   (rest value-mapping))
 
+(defun mapping-of (value-mapping)
+  (first value-mapping))
+
 (defun referenced-class-of (slot-mapping)
-  (getf (rest slot-mapping) :referenced-class-name))
+  (getf slot-mapping :referenced-class-name))
 
 (defun mapping-name-of (mapping)
   (getf mapping :class-name))
@@ -67,7 +64,13 @@
   (getf class-mapping :table-name))
 
 (defun serializer-of (one-to-many-mapping)
-  (eval (getf (rest one-to-many-mapping) :serializer)))
+  (eval (getf one-to-many-mapping :serializer)))
+
+(defun primary-key-of (class-mapping)
+  (getf class-mapping :primary-key))
+
+(defun foreign-key-of (reference-mapping)
+  (getf reference-mapping :foreign-key))
 
 ;;(defun cascade-operation-of (reference-mapping)
 ;;  (let ((operation-type (getf reference-mapping :delete-orphan)))
@@ -92,21 +95,18 @@
 	    :table-name table-name
 	    :primary-key primary-key
 	    :superclass-mappings superclasses
-	    :properties (mapcar #'rest
-				(remove-if-not
-				 #'(lambda (mapping)
-				     (eq (first mapping) :property))
-				 slot-mappings))
-	    :many-to-one-mappings (mapcar #'rest
-					  (remove-if-not
-					   #'(lambda (mapping)
-					       (eq (first mapping) :many-to-one))
-					   slot-mappings))
-	    :one-to-many-mappings (mapcar #'rest
-					  (remove-if-not
-					   #'(lambda (mapping)
-					       (eq (first mapping) :one-to-many))
-					   slot-mappings))))))
+	    :properties (remove-if-not
+			 #'(lambda (mapping)
+			     (eq (first mapping) :property))
+			 slot-mappings)
+	    :many-to-one-mappings (remove-if-not
+				   #'(lambda (mapping)
+				       (eq (first mapping) :many-to-one))
+				   slot-mappings)
+	    :one-to-many-mappings (remove-if-not
+				   #'(lambda (mapping)
+				       (eq (first mapping) :one-to-many))
+				   slot-mappings)))))
 
 (defun find-class-mapping (class-name &optional (class-mappings
 						 *class-mappings*))
@@ -124,8 +124,7 @@
       (reduce #'list*
 	      (remove-if-not #'(lambda (one-to-many-mapping)
 			        (eq referenced-class-name 
-				    (getf (rest one-to-many-mapping)
-					  :reference-class-name)))
+				    (referenced-class-of one-to-many-mapping)))
 			     one-to-many-mappings)
 	      :initial-value (apply #'compute-inverted-one-to-many
 				    referenced-class-name

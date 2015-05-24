@@ -6,7 +6,9 @@
 
 (defvar *state-path*)
 
-(defvar *state-rows*)
+(defvar *defered-updates*)
+
+(defvar *flushed-states*)
 
 (defgeneric execute-query (connection sql-string))
 
@@ -41,19 +43,13 @@
 		  :reader class-mapping-of)
    (property-values :initarg :property-values
 		    :accessor property-values-of)
-   (superclass-dependencies :initarg :superclass-dependencies
-			    :accessor superclass-dependencies-of)
-   (many-to-one-dependencies :initarg :many-to-one-dependencies
-			     :accessor many-to-one-dependencies-of)
-   (one-to-many-dependencies :initarg :one-to-many-dependencies
-			     :accessor one-to-many-dependencies-of)))
+   (dependencies :initarg :dependencies
+		 :accessor dependencies-of)))
 
 (defclass commited-state (instance-state)
-  ((primary-key :initarg :primary-key
-		:reader primary-key-of)
-   (column-values :initarg :column-values
-		  :reader column-values-of
-		  :documentation "alist of values by column names")))
+  ((table-row :initarg :table-row
+	      :reader table-row-of
+	      :documentation "alist of values by column names")))
 
 (defclass flush-state (instance-state)
   ())
@@ -69,35 +65,33 @@
   ())
 
 (defclass state-dependency ()
+  ((dependency-state :initarg :state
+		     :reader dependency-state-of)
+   (dependency-mapping :initarg :dependency-mapping
+		       :reader dependency-mapping-of)))
+
+(defclass defered-update ()
   ((flush-state :initarg :flush-state
-		:reader flush-state-of)))
-
-(defclass superclass-dependency (state-dependency)
-  ((superclass-mapping :initarg :superclass-mappings
-		       :reader superclass-mapping-of)))
-
-(defclass many-to-one-dependency (state-dependency)
-  ((many-to-one-mapping :initarg :many-to-one-mapping
-			:reader many-to-one-mapping-of)))
-
-(defclass one-to-many-dependency (state-dependency)
-  ((one-to-many-mapping :initarg :one-to-many-mapping
-			:reader one-to-many-mapping-of)))
+		:reader flush-state-of)
+   (dependency :initarg :dependency
+	       :reader dependency-of)))
 
 (defun property-values (object class-mapping)
-  (reduce #'(lambda (result property-mapping)
+  (reduce #'(lambda (property-mapping result)
 	      (let ((slot-name (slot-name-of property-mapping)))
 		(if (slot-boundp object slot-name)
 		    (acons property-mapping
 			   (slot-value object slot-name)
 			   result))))
-	  (property-mappings-of class-mapping) :initial-value nil))
+	  (property-mappings-of class-mapping)
+	  :initial-value nil
+	  :from-end t))
 
 (defun compute-superclass-dependencies (object class-mapping)
   (mapcar #'(lambda (superclass-mapping)
-	      (make-instance 'superclass-dependency
-			     :superclass-mapping superclass-mapping
-			     :flush-state
+	      (make-instance 'state-dependency
+			     :dependency-mapping superclass-mapping
+			     :state
 			     (ensure-state object (class-name-of superclass-mapping))))
 	  (superclass-mappings-of class-mapping)))
 
@@ -105,19 +99,19 @@
   (mapcar #'(lambda (many-to-one-mapping)
 	      (let ((slot-name (slot-name-of many-to-one-mapping)))
 		(if (slot-boundp object slot-name)
-		    (make-instance 'many-to-one-dependency
-				   :many-to-one-mapping many-to-one-mapping 
-				   :flush-state
+		    (make-instance 'state-dependency
+				   :dependency-mapping many-to-one-mapping 
+				   :state
 				   (ensure-state object (referenced-class-of many-to-one-mapping))))))
 	  (many-to-one-mappings-of class-mapping)))
 
 (defun compute-existing-references (flush-state uncommited-value
 				    one-to-many-mapping)
   (dolist (object uncommited-value)
-    (push (make-instance 'one-to-many-dependency
-			 :one-to-many-mapping one-to-many-mapping
-			 :flush-state flush-state)
-	  (one-to-many-dependencies-of
+    (push (make-instance 'state-dependency
+			 :dependency-mapping one-to-many-mapping
+			 :state flush-state)
+	  (dependencies-of
 	   (ensure-state object (referenced-class-of one-to-many-mapping))))))
 
 (defun serialized-value (object one-to-many-mapping)
@@ -143,9 +137,9 @@
 		   flush-states)
 	  flush-state)
     (setf (superclass-dependencies-of flush-state)
-	  (compute-superclass-dependencies object class-mapping))
-    (setf (many-to-one-dependencies-of flush-state)
-	  (compute-many-to-one-dependencies object class-mapping))
+	  (append
+	   (compute-superclass-dependencies object class-mapping)
+	   (compute-many-to-one-dependencies object class-mapping)))
     (compute-one-to-many-dependencies flush-state class-mapping)
     flush-state))
 
@@ -160,10 +154,10 @@
     (setf (gethash (list (class-name-of class-mapping) object)
 		   flush-states)
 	  flush-state)
-    (setf (superclass-dependencies-of flush-state)
-	  (compute-superclass-dependencies object class-mapping))
-    (setf (many-to-one-dependencies-of flush-state)
-	  (compute-many-to-one-dependencies object class-mapping))
+    (setf (dependencies-of flush-state)
+	  (append
+	   (compute-superclass-dependencies object class-mapping)
+	   (compute-many-to-one-dependencies object class-mapping)))
     (compute-one-to-many-dependencies flush-state class-mapping)
     flush-state))
 
@@ -257,74 +251,149 @@
 ;; состояние, значение - alist обновленных значаний по названиям
 ;; столбцов)
 
-;; process-state => commited-state, differed-updates
-;; process-dependencies => dependencies with commited-state, differed-updates
-;; superclass
-;; many-to-one
-;; one-to-many
-
-(defun set-state-row (state row &optional (processed-states *state-rows*))
-  (setf (gethash state processed-states) row))
-
-(defun process-dependencies (state state-path)
+(defun process-dependencies (state state-path
+			     &optional (defered-updates *defered-updates*))
   (loop for dependency
-     in (append
-	 (superclass-dependencies state state-path)
-	 (many-to-one-dependencies state state-path)
-	 (one-to-many-dependencies state state-path))
-     for flush-state (flush-state-of dependency)
-     when (not (find flush-state state-path))
-     append (process-state flush-state))) ;; добавить differed update
+     in (dependencies-of state)
+     for flush-state = (dependency-state-of dependency)
+     if (member flush-state state-path)
+     do (setf (gethash flush-state defered-updates)
+	      (list* (make-instance 'defered-update
+				    :flush-state state
+				    :dependency dependency)
+		     (gethash flush-state defered-updates)))
+     else collect
+       (make-instance 'state-dependency
+		      :dependency-mapping (dependency-mapping-of dependency)
+		      :state (process-state flush-state
+					    :state-path state-path))))
 
-(defun property-column-values (state)
-  (mapcar #'(lambda (property-value)
-	      (cons (column-of
-		     (mapping-of property-value))
-		    (values-of property-value)))
-	  (property-values-of state)))
+(defun write-value (stream object &rest args)
+  (declare (ignore args))
+  (typecase object
+    (string (format stream "'~A'" object))
+    (t (write object :stream stream))))
 
-(defun process-differed-updates (state differed-updates)
-  (dolist (differed-update differed-updates)
-    (when (eq (differed-state-of differed-update) state)
-      (process-differed-update differed-update)))
-  (remove state differed-updates :key #'differed-state-of))
+(defun insert-row (table-name column-names column-values
+		   &optional (session *session*))
+  (execute-query
+   (connection-of session)
+   (format nil "INSERT INTO ~A (~{~A~^, ~})~%~5TVALUES (~{~/cl-db:write-value/~^, ~})"
+	   table-name column-names column-values)))
 
-(defgeneric process-state (state &optional state-path))
+(defun update-row (table-name primary-key foreign-key
+		   &optional (session *session*))
+  (execute-query
+   (connection-of session)
+   (format nil "UPDATE ~A~%~3TSET ~{~{~A = ~/cl-db:write-value/~}~^, ~%~7T~}~%~1TWHERE ~{~{~A = ~/cl-db:write-value/~}~^~%~3TAND ~}"
+	   table-name
+	   (alist-plist primary-key)
+	   (alist-plist foreign-key))))
 
-(defmethod process-state ((state new-instance) &optional state-path)
-  (let ((differed-updates
-	 (process-dependencies state (list* state state-path)))
-	(row
-	 (append
-	  (property-column-values state)
-	  (foreign-key-values state))))
-    (insert-query (table-name-of
-		   (class-mapping-of state)) row)
-    (set-state-row state row)
-    (process-differed-updates state differed-updates)))
+(defun row-value (property-value)
+  (cons (column-of (mapping-of property-value))
+	(value-of property-value)))
 
-(defmethod process-state ((state state-diff) &optional state-path)
-  ;; superclasses
-  ;; many-to-one
-  ;; appended-to
-  ;; removed-from
-  )
+(defun column-value (column-name table-row)
+  (rest
+   (assoc column-name table-row :key #'string=)))
 
-(defmethod process-state ((state removed-state) &optional state-path)
-  ;; superclasses
-  ;; many-to-one
-  ;; appended-to
-  ;; removed-from
-  )
+(defun foreign-key-values (dependency-mapping dependency-row)
+  (mapcar #'(lambda (foreign-key-column primary-key-column)
+	      (cons foreign-key-column
+		    (column-value primary-key-column
+				  dependency-row)))
+	  (foreign-key-of dependency-mapping)
+	  (primary-key-of dependency-mapping)))
 
+(defun primary-key-values (class-mapping table-row)
+  (mapcar #'(lambda (primary-key-column)
+	      (cons primary-key-column
+		    (column-value primary-key-column table-row)))
+	  (primary-key-of class-mapping)))
+
+(defmethod row-values (dependency)
+  (let ((dependency-mapping
+	 (dependency-mapping-of dependency))
+	(dependency-row
+	 (table-row-of (dependency-state-of dependency))))
+    (foreign-key-values dependency-mapping dependency-row)))
+
+(defgeneric query-state (state defered-updates))
+
+(defmethod query-state ((state new-instance) dependencies)
+  (let* ((property-values
+	  (property-values-of state))
+	 (row-values
+	  (append (mapcar #'row-value
+			  property-values)
+		  (reduce #'append dependencies
+			  :key #'row-values
+			  :initial-value nil)))
+	 (class-mapping (class-mapping-of state)))
+    (insert-row (table-name-of class-mapping)
+		(mapcar #'first row-values)
+		(mapcar #'rest row-values))
+    (make-instance 'commited-state
+		   :table-row row-values
+		   :object (object-of state)
+		   :class-mapping (class-mapping-of state)
+		   :property-values property-values
+		   :dependencies dependencies)))
+
+(defmethod query-state ((state state-diff) defered-updates)
+  (error "Not implemented yet"))
+
+(defmethod query-state ((state removed-state) defered-updates)
+  (error "Not implemented yet"))
+
+(defun process-defered-update (flush-state dependency-mapping
+			       dependency-commited-state
+			       &optional (flushed-states *flushed-states*))
+  (let ((commited-state
+	 (gethash flush-state flushed-states))
+	(class-mapping
+	 (class-mapping-of flush-state)))
+    (update-row (table-name-of class-mapping)
+		(primary-key-values class-mapping
+				    (table-row-of commited-state))
+		(foreign-key-values dependency-mapping
+				    (table-row-of dependency-commited-state)))))
+
+(defun process-defered-updates (flush-state commited-state
+				&optional
+				  (defered-updates *defered-updates*))
+  (dolist (defered-update (gethash flush-state defered-updates))
+    (process-defered-update (flush-state-of defered-update)
+			    (dependency-mapping-of
+			     (dependency-of defered-update))
+			    commited-state))
+  (remhash flush-state defered-updates))
+
+(defun process-state (state &key state-path
+			      (flushed-states *flushed-states*))
+  (multiple-value-bind (commited-state presentp)
+      (gethash state flushed-states)
+    (if (not presentp)
+	(let* ((state-path
+		(list* state state-path))
+	       (dependencies
+		(process-dependencies state state-path))
+	       (commited-state
+		(query-state state dependencies)))
+	  (setf (gethash state flushed-states) commited-state)
+	  (process-defered-updates state commited-state)
+	  commited-state)
+	commited-state)))
+    
 (defun process-states (states)
-  (let ((*passed* (list)))
+  (let ((*flushed-states* (make-hash-table)))
     (dolist (state states)
-      (when (not (find state *passed-states*))
-	(process-state state)))))
+      (process-state state))))
 
 (defun flush-session (session)
-  (let ((*flush-states* (make-hash-table :test #'equal)))
+  (let ((*flush-states* (make-hash-table :test #'equal))
+	(*defered-updates* (make-hash-table)))
     (dolist (object (new-objects-of session))
       (ensure-inserted object))
 ;;    (dolist (object (removed-objects-of session))

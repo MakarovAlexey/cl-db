@@ -1943,8 +1943,9 @@ Structure of a Query
 
 Simple Expressions
 
-(with-session ((:mapping-schema mapping-name)
-	       (:database-interface session-config))
+(with-session ((:session-type postgresql-session)
+	       (:connection-args connection-args)
+	       (:mapping-schema mapping-name))
   (db-read 'cat))
 
 IList<Cat> cats =

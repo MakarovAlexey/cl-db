@@ -45,13 +45,13 @@
        :reader id-of)
    (name :initarg :name
 	 :accessor name-of)
-   (login :initarg :name
+   (login :initarg :login
 	  :accessor login-of)
    (password :initarg :password
 	     :accessor password-of)
-   (project-managments :initarg :project-managments
+   (project-managments :initform (make-hash-table)
 		       :accessor project-managments-of)
-   (project-participations :initarg :project-participations
+   (project-participations :initform (make-hash-table)
 			   :accessor project-participations-of)))
 
 (defclass project-participation ()
@@ -97,7 +97,7 @@
 		 roles)))
     #'alexandria:hash-table-values))
   (project-participation
-   (("project_memebers" "project_id" "user_id"))
+   (("project_members" "project_id" "user_id"))
    (project (:many-to-one project "project_id"))
    (user (:many-to-one user "user_id")))
   (project-managment
@@ -338,20 +338,12 @@
 	(group-by-clause-of user-count-expression))))))
 
 (lift:addtest insert-project-object
-  (multiple-value-bind (flush-states new-instance)
-      (insert-object nil (make-instance 'project :id 1 :name "ГКБ"
-					:begin-date "2013-09-01")
-		     (get-class-mapping 'project (projects-managment)))
-        (lift:ensure (not (null flush-states)))
-    (lift:ensure (find new-instance flush-states))))
-
-(lift:addtest insert-project-state
-  (multiple-value-bind (flush-states flush-state)
-      (insert-state nil (make-instance 'project :id 1 :name "ГКБ"
-				       :begin-date "2013-09-01")
-		    (get-class-mapping 'project (projects-managment)))
-    (lift:ensure (not (null flush-states)))
-    (lift:ensure (find flush-state flush-states))))
+  (with-session (projects-managment
+		 (make-instance 'test-connection))
+    (db-persist (make-instance 'project
+			       :id 1
+			       :name "ГКБ"
+			       :begin-date "2013-09-01"))))
 
 (lift:addtest init-insert-project-state
   (let* ((flush-states nil)
