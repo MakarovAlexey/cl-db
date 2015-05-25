@@ -1,4 +1,5 @@
 * Mapping definition
+** TODO Добавить проверку наличия оборажения названий столбцов первичного ключа
 * Connection managment
 * Session managment
 * Query

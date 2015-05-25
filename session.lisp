@@ -1,7 +1,5 @@
 (in-package #:cl-db)
 
-(defvar *session*)
-
 (defvar *flush-states*)
 
 (defvar *state-path*)
@@ -93,7 +91,7 @@
 	      (make-instance 'state-dependency
 			     :dependency-mapping superclass-mapping
 			     :state
-			     (ensure-state object (class-name-of superclass-mapping))))
+			     (ensure-state object (reference-class-of superclass-mapping))))
 	  (superclass-mappings-of class-mapping)))
 
 (defun compute-many-to-one-dependency (many-to-one-mapping object
@@ -134,10 +132,14 @@
     (let ((dependency-state
 	   (ensure-state object (reference-class-of one-to-many-mapping))))
     (push (make-instance 'state-dependency :dependency-mapping
-			 (find (slot-name-of one-to-many-mapping)
+			 (find-if #'(lambda (inverted-mapping)
+				      (and
+				       (eq (class-name-of one-to-many-mapping)
+					   (class-name-of inverted-mapping))
+				       (eq (slot-name-of one-to-many-mapping)
+					   (slot-name-of inverted-mapping))))
 			       (inverted-one-to-many-mappings-of
-				(class-mapping-of dependency-state))
-			       :key #'slot-name-of)
+				(class-mapping-of dependency-state)))
 			 :state flush-state)
 	  (dependencies-of dependency-state)))))
 
@@ -152,6 +154,14 @@
 						   one-to-many-mapping)
 				 one-to-many-mapping)))
 
+(defun compute-subclass-dependencies (flush-state class-mapping)
+  (let* ((object
+	  (object-of flush-state))
+	 (subclass-mapping
+	  (get-subclass-mapping object class-mapping)))
+     (when (not (null subclass-mapping))
+       (ensure-state object (reference-class-of subclass-mapping)))))
+
 (defun compute-diff (object commited-state
 		     &optional (flush-states *flush-states*))
   (let* ((class-mapping
@@ -163,7 +173,7 @@
     (setf (gethash (list object (class-name-of class-mapping))
 		   flush-states)
 	  flush-state)
-    (setf (superclass-dependencies-of flush-state)
+    (setf (dependencies-of flush-state)
 	  (append
 	   (compute-superclass-dependencies object class-mapping)
 	   (compute-many-to-one-dependencies object class-mapping)))
@@ -185,23 +195,10 @@
 	   (dependencies-of flush-state)
 	   (compute-superclass-dependencies object class-mapping)
 	   (compute-many-to-one-dependencies object class-mapping)))
-    (compute-one-to-many-dependencies flush-state class-mapping)
     flush-state))
 
-(defun get-subclass-mapping (object class-mapping)
-  (find-if #'(lambda (class-name)
-	       (typep object class-name))
-	   (subclass-mappings-of class-mapping)
-	   :key #'class-name-of))
-
 (defun insert-object (object class-mapping)
-  (let ((inserted
-	 (insert-state object class-mapping))
-	(subclass-mapping
-	 (get-subclass-mapping object class-mapping)))
-    (when (not (null subclass-mapping))
-      (insert-object object subclass-mapping))
-    inserted))
+  (insert-state object class-mapping))
 
 (defun compute-state (object mapping-name
 		      &optional (session *session*))
@@ -209,9 +206,15 @@
       (gethash
        (list object mapping-name)
        (instance-states-of session))
-    (if (not persistedp)
-	(insert-object object (get-class-mapping mapping-name))
-	(compute-diff object commited-state))))
+    (let* ((class-mapping
+	    (get-class-mapping mapping-name))
+	   (flush-state 
+	    (if (not persistedp)
+		(insert-object object class-mapping)
+		(compute-diff object commited-state))))
+      (compute-one-to-many-dependencies flush-state class-mapping)
+      (compute-subclass-dependencies flush-state class-mapping)
+      flush-state)))
 
 (defun get-flush-state (object mapping-name
 			&optional (flush-states *flush-states*))
@@ -222,11 +225,8 @@
       (compute-state object mapping-name)))
 
 (defun ensure-inserted (object &optional (class-name (type-of object)))
-  (let ((state
-	 (get-flush-state object class-name)))
-    (if (null state)
-	(insert-object object (get-class-mapping class-name))
-	state)))
+  (or (get-flush-state object class-name)
+      (insert-object object (get-class-mapping class-name))))
 
 (defun ensure-diff (commited-state &optional
 				     (flush-states *flush-states*))
@@ -309,10 +309,10 @@
 		   &optional (session *session*))
   (execute-query
    (connection-of session)
-   (format nil "UPDATE ~A~%~3TSET ~{~{~A = ~/cl-db:write-value/~}~^, ~%~7T~}~%~1TWHERE ~{~{~A = ~/cl-db:write-value/~}~^~%~3TAND ~}"
+   (format nil "UPDATE ~A~%~3TSET ~{~A = ~/cl-db:write-value/~^, ~%~7T~}~%~1TWHERE ~{~A = ~/cl-db:write-value/~^~%~3TAND ~}"
 	   table-name
-	   (alist-plist primary-key)
-	   (alist-plist foreign-key))))
+	   (alist-plist foreign-key)
+	   (alist-plist primary-key))))
 
 (defun row-value (property-value)
   (cons (column-of (mapping-of property-value))
@@ -431,11 +431,13 @@
     (dolist (commit-state (alexandria:hash-table-values
 			   (instance-states-of session)))
       (ensure-diff commit-state))
-    (maphash #'(lambda (object-and-class-name flush-state)
-		 (compute-one-to-many-dependencies flush-state
-						   (get-class-mapping
-						    (second object-and-class-name))))
-	     *flush-states*)
+;;    (maphash #'(lambda (object-and-class-name flush-state)
+;;		 (let ((class-mapping
+;;			(get-class-mapping
+;;			 (second object-and-class-name))))
+;;		   (compute-one-to-many-dependencies flush-state class-mapping)
+;;		   (compute-subclass-dependencies flush-state class-mapping)))
+;;	     *flush-states*)
     (process-states (hash-table-values *flush-states*))))
 
 (defun open-session (mapping-schema-fn connection-fn)

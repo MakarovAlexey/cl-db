@@ -4,6 +4,8 @@
 
 (defvar *class-mappings*)
 
+(defvar *session*)
+
 (defun parse-slot-mappings (&rest slot-mappings)
   (loop for slot-mapping in slot-mappings collect
        (destructuring-bind
@@ -127,7 +129,7 @@
       (reduce #'list*
 	      (remove-if-not #'(lambda (one-to-many-mapping)
 			        (eq referenced-class-name 
-				    (referenced-class-of one-to-many-mapping)))
+				    (reference-class-of one-to-many-mapping)))
 			     one-to-many-mappings)
 	      :key #'(lambda (one-to-many-mapping)
 		       (list :one-to-many (slot-name-of one-to-many-mapping)
@@ -178,9 +180,8 @@
   (mapcar #'(lambda (superclass-mapping)
 	      (destructuring-bind (class-name &rest foreign-key)
 		  superclass-mapping
-		(apply #'compute-superclass-mapping
-		       :foreign-key foreign-key
-		       (find-class-mapping class-name))))
+		(list :reference-class-name class-name
+		      :foreign-key foreign-key)))
 	  superclass-mappings))
 
 (defun compute-subclass-mappings (class-name &optional
@@ -193,10 +194,8 @@
 		(destructuring-bind
 		      (superclass-name &rest foreign-key)
 		    (find class-name superclass-mappings :key #'first)
-		  (apply #'compute-class-mapping
-			 :root-class superclass-name
-			 :foreign-key foreign-key
-			 class-mapping))))
+		  (list :reference-class-name superclass-name
+			:foreign-key foreign-key))))
 	  (remove-if-not #'(lambda (class-mapping)
 			     (destructuring-bind
 				   (&key superclass-mappings

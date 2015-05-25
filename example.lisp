@@ -2483,8 +2483,11 @@ Single instance
 						      (fetch-reference #'right-node-of
 								       tree-node)))))))
 
-(db-read 'tree-node :recursive-fetch ;; recursive-join
+(db-read 'tree-node :fetch ;; recursive-join
 	 #'(lambda (tree-node)
 	     (values
-	      (fetch-refence #'left-node-of tree-node)
-	      (fetch-reference #'right-node-of tree-node))))
+	      (fetch tree-node #'left-node-of
+			       :recursive tree-node)
+	      (fetch tree-node #'right-node-of
+			       :recursive tree-node)
+	      (fetch tree-node #'commit-of))))

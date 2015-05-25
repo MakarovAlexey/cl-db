@@ -8,7 +8,6 @@
   (format t "~a~%" sql-string))
 
 (defmethod prepare-query ((connection test-connection) name sql-string)
-  (declare (ignore connection))
   (format t "PREPARE ~a AS ~a~%" name sql-string)
   #'(lambda (&rest parameters)
       (apply #'execute-prepared connection name parameters)))
@@ -73,6 +72,10 @@
    (project-members :initform (make-hash-table)
 		    :reader project-members-of)))
 
+(defclass cyclic-reference ()
+  ((id :initarg :id)
+   (s1 :accessor s1-of)))
+
 (define-schema projects-managment ()
   (user
    (("users" "id"))
@@ -115,7 +118,11 @@
 	 (mapcar #'(lambda (role)
 		     (cons (user-of role) role))
 		 roles)))
-    #'alexandria:hash-table-values)))
+    #'alexandria:hash-table-values))
+  (cyclic-reference
+   (("cyclic_references" "id"))
+   (id (:property "id" "uuid"))
+   (s1 (:many-to-one cyclic-reference "s1_id"))))
 
 (lift:deftestsuite query-execute-tests ()
   ()
@@ -378,7 +385,96 @@
 		      (one-to-many-mappings-of class-mapping))))
 	  (lift:ensure (not (null flush-states))
 		       :report "compute-one-to-many-dependencies"))))))
+
+(defun superclass-mapping-test-1 ()
+  (with-session (projects-managment (make-instance 'test-connection))
+    (let* ((project
+	    (make-instance 'project
+			   :id 1 :name "ГКБ"
+			   :begin-date "2013-09-01"))
+	   (user
+	    (make-instance 'user :id 2 :name "Макаров Алексей"
+			   :login "makarov" :password "zxcvb"))
+	   (project-managment
+	    (make-instance 'project-managment
+			   :user user :project project)))
+      (setf (gethash user (project-members-of project))
+	    project-managment)
+      (setf (gethash project (project-managments-of user))
+	    project-managment
+	    (gethash project (project-participations-of user))
+	    project-managment)
+      (db-persist project)
+      (db-persist project-managment)
+      (db-persist user))))
+
+(defun superclass-mapping-test-2 ()
+  (let* ((*session*
+	  (make-instance 'clos-session
+			 :mapping-schema (projects-managment)
+			 :connection (make-instance 'test-connection)))
+	 (*flush-states*
+	  (make-hash-table :test #'equal))
+	 (project
+	  (make-instance 'project
+			 :id 1 :name "ГКБ"
+			 :begin-date "2013-09-01"))
+	 (user
+	  (make-instance 'user :id 2 :name "Макаров Алексей"
+			 :login "makarov" :password "zxcvb"))
+	 (project-managment
+	  (make-instance 'project-managment
+			 :user user :project project)))
+    (setf (gethash user (project-members-of project))
+	  project-managment)
+    (setf (gethash project (project-managments-of user))
+	  project-managment
+	  (gethash project (project-participations-of user))
+	  project-managment)
+    (db-persist project-managment)
     
-    
+    (dolist (object (new-objects-of *session*))
+      (ensure-inserted object))
+
+    (hash-table-values *flush-states*)))
+
+(defun superclass-mapping-test-3 ()
+  (let* ((*session*
+	  (make-instance 'clos-session
+			 :mapping-schema (projects-managment)
+			 :connection (make-instance 'test-connection)))
+	 (*flush-states*
+	  (make-hash-table :test #'equal))
+	 (project
+	  (make-instance 'project
+			 :id 1 :name "ГКБ"
+			 :begin-date "2013-09-01"))
+	 (user
+	  (make-instance 'user :id 2 :name "Макаров Алексей"
+			 :login "makarov" :password "zxcvb"))
+	 (project-managment
+	  (make-instance 'project-managment
+			 :user user :project project)))
+    (setf (gethash user (project-members-of project))
+	  project-managment)
+    (setf (gethash project (project-managments-of user))
+	  project-managment
+	  (gethash project (project-participations-of user))
+	  project-managment)
+    (db-persist project-managment)
+    (row-values
+     (first
+      (compute-superclass-dependencies project-managment
+				       (get-class-mapping 'project-managment))))))
+
+(defun test-defered-update ()
+  (with-session (projects-managment (make-instance 'test-connection))
+    (let ((root (make-instance 'cyclic-reference :id 1))
+	  (node (make-instance 'cyclic-reference :id 2)))
+      (setf (s1-of root) node
+	    (s1-of node) root)
+      (db-persist root)
+      (db-persist node))))
+
 (defun test ()
   (describe (lift:run-tests)))
