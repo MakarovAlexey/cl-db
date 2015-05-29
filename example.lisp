@@ -2486,8 +2486,73 @@ Single instance
 (db-read 'tree-node :fetch ;; recursive-join
 	 #'(lambda (tree-node)
 	     (values
-	      (fetch tree-node #'left-node-of
-			       :recursive tree-node)
-	      (fetch tree-node #'right-node-of
-			       :recursive tree-node)
-	      (fetch tree-node #'commit-of))))
+	      (fetch tree-node #'left-node-of :recursive tree-node)
+	      (fetch tree-node #'right-node-of :recursive tree-node))))
+
+(let ((property-id <id>))
+  (db-read 'proprty-change ;; узелы которые хранять имзенения свойств
+	   :join #'(lambda (property-change)
+		     (join property-change #'property-of))
+	   :where #'(lambda (property-change property)
+		      (eq (property property #'id-of) property-id)))) => все изменения свойства, какие только есть
+
+(let ((property-id <id>)
+      (commit-id <id>))
+  (db-read 'commit ;; (подкласс commit)
+	   :join #'(lambda (commit)
+		     (join commit #'property-values :property-values-root
+			   :join #'(lambda (tree-node)
+				     (join tree-node
+					  (eq (reference last-commit
+							 #'left-node-of)
+					      tree-node)
+					  (eq (reference tree-node
+							 #'right-node-of)
+					      tree-node))))
+  :join #'(lambda (commit)
+				     (join property-value
+					   #'property-of
+					   :property))))
+	   :where #'(lambda (property-change &key property-value property)
+		      (declare (ignore (property-change property-value)))
+		      (values
+		       (eq (property property-change #'id-of) commit-id)
+		       (eq (property property #'id-of) property-id)))
+	   :select #'(lambda (property-change &key property-value property)
+		       (declare (ignore (property-change property)))
+		       property-value))) => ;; должен вернуть значение свойства
+	   
+;; recursive fetching
+	 
+(let ((property-id <id>)
+      (commit-id <id>))
+  (db-read 'commit
+	   :where #'(lambda (commit)
+		      #Q(eq (property commit #'id-of) commit-id))
+	   :fetch #'(lambda (commit)
+		     (fetch commit #'property-values-root
+			    :fetch #'(lambda (tree-node)
+				       (values
+					(fetch tree-node #'left-node-of
+					       :recursive tree-node)
+					(fetch tree-node #'right-node-of
+					       :recursive tree-node)))))))
+
+;; recursive joining
+
+(let ((property-id <id>)
+      (commit-id <id>))
+  (db-read '(commit)
+	   :join #'(lambda (commit)
+		     (join commit #'property-values-of
+			   :recursive #'(lambda (tree-node)
+					  (values
+					   (recursive tree-node #'left-node-of tree-node)
+					   (recursive tree-node #'right-node-of tree-node)))
+			   :join #'(lambda (tree-node)
+				     (join tree-node #'property-of
+					   :alias :property))))
+	   :where #'(lambda (commit &key property)
+		      #Q(and 
+			 (eq (property commit #'id-of) commit-id)
+			 (eq (property property #'id-of) property-id)))))

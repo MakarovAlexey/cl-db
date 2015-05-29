@@ -1,5 +1,56 @@
 (in-package #:cl-db)
 
+(defclass class-mapping-plan ()
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)
+   (table-alias :initarg :table-alias
+		:reader table-alias-of)
+   (columns :initarg :columns
+	    :reader columns-of)
+   (join-tree :initarg :join-tree
+	      :reader join-tree-of)
+   (join-path :initarg :join-path
+	      :reader join-path-of)
+   (properties :initarg :properties
+	       :reader properties-of)
+   (references :initarg :references
+	       :reader references-of)
+   (child-plans :initarg :children
+		:reader child-plans)))
+
+(defclass query-plan ()
+  ((select-list)
+   (where-clause)
+   (order-by-clause)
+   (having-clause)
+   (fetch-references)
+   (recursive-expressions)
+   (limit)
+   (offset)))
+
+(defmethod initialize-instance :after ((instance class-mapping-plan)
+				       &key class-mapping table-alias)
+  (with-slots (alias columns properties references)
+      instance
+    (setf columns (mapcar #'(lambda (column)
+			      (make-instance 'column-plan
+					     :column column
+					     :class-plan instance))
+			  (columns-of class-mapping)))
+    (setf properties (mapcar #'(lambda (property)
+				 (cons property (plan-property property instance)))
+			     (properties-of class-mapping)))
+    (setf primary-key (mapcar #'(lambda (column-name)
+				  (get-column column-name instance))
+			      (primary-key-of class-mapping)))
+    (setf references
+	  (append
+	   (mapcar #'(lambda (reference)
+		       (plan-many-to-one-reference reference instance))
+		   (many-to-one-mappings-of class-mapping))
+	   (mapcar #'(lambda (reference)
+		       (plan-one-to-many-reference reference instance)))))))
+
 (defun make-expression (&key properties expression count
 			  count-from-clause select-list from-clause
 			  group-by-clause loader fetch join)

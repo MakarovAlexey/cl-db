@@ -1,5 +1,5 @@
 * Mapping definition
-** TODO Добавить проверку наличия оборажения названий столбцов первичного ключа
+** TODO Добавить проверку наличия отоборажения названий столбцов первичного ключа
 * Connection managment
 * Session managment
 * Query
@@ -424,7 +424,91 @@
 ** Object persistence (inserting and updateing queries)
 ** Selecting values (slot values, functions, aggegation)
 ** Query examples
-** Рекурсиваня выборка с ограничением "до об"
+** Рекурсиваня выборка
+   Все рекрусивные вызовы в объектом запросе должны аккумулироваться в
+   `WHERE' рекурсивной части `WITH' разделенных оператором `OR'.
+
+   #+NAME: Выборка бинарного дерева
+   #+BEGIN_SRC sql
+     -- binary tree
+     
+     CREATE TABLE tree_nodes (
+            id integer,
+            node_value varchar,
+            PRIMARY KEY (id)
+     );
+     
+     CREATE TABLE left_nodes (
+            id integer,
+            tree_node_id integer,
+            PRIMARY KEY (id),
+            FOREIGN KEY (id) REFERENCES tree_nodes (id),
+            FOREIGN KEY (tree_node_id) REFERENCES tree_nodes (id)
+     );
+     
+     CREATE TABLE right_nodes (
+            id integer,
+            tree_node_id integer,
+            PRIMARY KEY (id),
+            FOREIGN KEY (id) REFERENCES tree_nodes (id),
+            FOREIGN KEY (tree_node_id) REFERENCES tree_nodes (id)
+     );
+     
+     INSERT INTO tree_nodes (id, node_value) VALUES
+                 (1, 'четыре'),
+                 (2, 'два'),
+                 (3, 'шесть'),
+                 (4, 'один'),
+                 (5, 'три'),
+                 (6, 'пять'),
+                 (7, 'семь');
+     
+     INSERT INTO left_nodes (tree_node_id, id) VALUES
+                 (2, 1),
+                 (4, 2),
+                 (6, 3);
+     
+     INSERT INTO right_nodes (tree_node_id, id) VALUES
+                 (3, 1),
+                 (5, 2),
+                 (7, 3);
+     
+     -- plain
+     
+     SELECT tree_nodes.id, tree_nodes.node_value,
+            left_nodes.tree_node_id, right_nodes.tree_node_id
+       FROM tree_nodes
+       LEFT JOIN left_nodes
+         ON left_nodes.id = tree_nodes.id
+       LEFT JOIN right_nodes
+         ON right_nodes.id = tree_nodes.id
+     
+     -- recursive with `WHERE' clause
+     
+     WITH RECURSIVE children (id, node_value, left_node_id, right_node_id) AS (
+          SELECT tree_nodes.id, tree_nodes.node_value,
+                 left_nodes.tree_node_id, right_nodes.tree_node_id
+            FROM tree_nodes
+       LEFT JOIN left_nodes
+              ON left_nodes.id = tree_nodes.id
+       LEFT JOIN right_nodes
+              ON right_nodes.id = tree_nodes.id
+           WHERE tree_nodes.id = 1
+           UNION ALL
+          SELECT tree_nodes.id, tree_nodes.node_value,
+                 left_nodes.tree_node_id, right_nodes.tree_node_id
+            FROM children, tree_nodes
+       LEFT JOIN left_nodes
+              ON left_nodes.id = tree_nodes.id
+       LEFT JOIN right_nodes
+              ON right_nodes.id = tree_nodes.id
+           WHERE tree_nodes.id = children.left_node_id
+              OR tree_nodes.id = children.right_node_id)
+     
+     SELECT id, node_value, left_node_id, right_node_id
+       FROM children;
+     
+   #+END_SRC
 ** SQL-операторы и функции
 ** Переделать функцит для select-list
    - class-mapping (columns, from-clause, group-by-clause, properties, references)
