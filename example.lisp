@@ -2509,7 +2509,7 @@ Single instance
 					  (eq (reference tree-node
 							 #'right-node-of)
 					      tree-node))))
-  :join #'(lambda (commit)
+		     :join #'(lambda (commit)
 				     (join property-value
 					   #'property-of
 					   :property))))
@@ -2540,19 +2540,126 @@ Single instance
 
 ;; recursive joining
 
-(let ((property-id <id>)
-      (commit-id <id>))
-  (db-read '(commit)
+(let ((commit-id <id>)
+      (object-id <id>))
+  (db-read 'commit
 	   :join #'(lambda (commit)
-		     (join commit #'property-values-of
-			   :recursive #'(lambda (tree-node)
-					  (values
-					   (recursive tree-node #'left-node-of tree-node)
-					   (recursive tree-node #'right-node-of tree-node)))
-			   :join #'(lambda (tree-node)
-				     (join tree-node #'property-of
-					   :alias :property))))
-	   :where #'(lambda (commit &key property)
-		      #Q(and 
-			 (eq (property commit #'id-of) commit-id)
-			 (eq (property property #'id-of) property-id)))))
+		     (values
+		      (join commit #'property-values-tree-of
+			    :alias :property-value-node
+			    :join #'(lambda (tree-node)
+				      (values
+				       (join tree-node #'property-value
+					     :join #'(lambda (property-value)
+						       (join property-value #'property-of
+							     :alias :property-of-value)))
+				       (join tree-node #'left-node-of
+					     :recursive #'(lambda (left-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of left-node))))
+				       (join tree-node #'right-node-of
+					     :recursive #'(lambda (right-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of right-node)))))))
+		      (join commit #'properties-tree-of
+			    :join #'(lambda (tree-node)
+				      (values
+				       (join tree-node #'object-properties-of
+					     :join #'(lambda (object-property-node)
+						       (values
+							(join object-property #'object-of
+							      :where #'(lambda (object)
+									 #Q(eq (id-of object) <object-id>)))
+							(join object-property-node #'next-node-of
+							      :recursive #'(lambda (next-node)
+									     #Q(eq
+										(id-of object-property-node)
+										(id-of next-node)))
+							      :join #'(lambda (property-node)
+									(join property-node #'property-of
+									      :alias :object-property))))))
+				       (join tree-node #'left-node-of
+					     :recursive #'(lambda (left-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of left-node))))
+				       (join tree-node #'right-node-of
+					     :recursive #'(lambda (right-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of right-node)))))))))
+	   :where #'(lambda (commit &key value object-property property-of-value)
+		      (declare (ignore property-of-value))
+		      #Q(and (eq (id-of commit) <commit-id>)
+			     (eq (id-of property)
+				 (id-of object-property))))
+	   :select #'(lambda (commit &key value object-property property-of-value)
+		       (declare (ignore commit object-property property-of-value))
+		       (list property property-value))))
+
+;; recursive joining 2
+(defun query-properites (commit-id object-id)
+  (db-read 'comment 
+	   :join #'(lambda (commit)
+		     (values
+		      (join commit #'property-values-tree-of
+			    :alias :property-value-node
+			    :join #'(lambda (tree-node)
+				      (values
+				       (join tree-node #'property-value
+					     :join #'(lambda (property-value)
+						       (join property-value #'property-of
+							     :alias :property-of-value)))
+				       (join tree-node #'left-node-of
+					     :recursive #'(lambda (left-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of left-node))))
+				       (join tree-node #'right-node-of
+					     :recursive #'(lambda (right-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of right-node)))))))
+		      (join commit #'properties-tree-of
+			    :join #'(lambda (tree-node)
+				      (values
+				       (join tree-node #'object-properties-of
+					     :join #'(lambda (object-property-node)
+						       (values
+							(join object-property #'object-of
+							      :alias :object)
+							(join object-property-node #'next-node-of
+							      :recursive #'(lambda (next-node)
+									     #Q(eq
+										(id-of object-property-node)
+										(id-of next-node)))
+							      :join #'(lambda (property-node)
+									(join property-node #'property-of
+									      :alias :object-property))))))
+				       (join tree-node #'left-node-of
+					     :recursive #'(lambda (left-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of left-node))))
+				       (join tree-node #'right-node-of
+					     :recursive #'(lambda (right-node)
+							    #Q(eq
+							       (id-of tree-node)
+							       (id-of right-node)))))))))
+	   :aux #'(lambda (commit &key value object-property property-of-value) ;; same as where but pass to WHERE condition of WITH clause
+		    (declare (ignore value object-property property-of-value))
+		    #Q(eq (id-of commit) commit-id))
+	   :where #'(lambda (commit &key value object-property property-of-value)
+		      (declare (ignore property-of-value))
+		      #Q(and
+			 (eq (id-of property-of-value)
+			     (id-of object-property))
+			 (eq (id-of object) <object-id>)))
+	   :select #'(lambda (commit &key value object-property property-of-value)
+		       (declare (ignore commit object-property property-of-value))
+		       (values property value))))
+
+;; нужно определить функции и разделить выражение
+	 

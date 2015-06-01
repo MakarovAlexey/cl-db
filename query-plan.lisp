@@ -1,22 +1,24 @@
 (in-package #:cl-db)
 
-(defclass class-mapping-plan ()
+(defclass query-node ()
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
    (table-alias :initarg :table-alias
-		:reader table-alias-of)
+		:rea33der table-alias-of)
    (columns :initarg :columns
 	    :reader columns-of)
-   (join-tree :initarg :join-tree
-	      :reader join-tree-of)
-   (join-path :initarg :join-path
-	      :reader join-path-of)
-   (properties :initarg :properties
-	       :reader properties-of)
    (references :initarg :references
-	       :reader references-of)
-   (child-plans :initarg :children
-		:reader child-plans)))
+	       :reader references-of)))
+
+(defclass superclass-node (query-node)
+  ((properties :initarg :properties
+	       :reader properties-of)))
+
+(defclass subclass-node (query-node)
+  ())
+
+(defclass root-node (superclass-node subclass-node)
+  ())
 
 (defclass query-plan ()
   ((select-list)
