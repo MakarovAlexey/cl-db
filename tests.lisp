@@ -467,6 +467,18 @@
       (compute-superclass-dependencies project-managment
 				       (get-class-mapping 'project-managment))))))
 
+(lift:addtest root-computing
+  (let ((*session*
+	 (make-instance 'clos-session
+			:mapping-schema (projects-managment)
+			:connection (make-instance 'test-connection))))
+    (make-instance 'root-node :class-mapping
+		   (get-class-mapping 'project))
+    (make-instance 'root-node :class-mapping
+		   (get-class-mapping 'user))
+    (make-instance 'root-node :class-mapping
+		   (get-class-mapping 'project-managment))))
+
 (defun test-defered-update ()
   (with-session (projects-managment (make-instance 'test-connection))
     (let ((root (make-instance 'cyclic-reference :id 1))

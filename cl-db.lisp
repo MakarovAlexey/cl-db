@@ -74,7 +74,7 @@
 (defun primary-key-of (class-mapping)
   (getf class-mapping :primary-key))
 
-(defun foreign-key-of (reference-mapping)
+(defmethod foreign-key-of ((reference-mapping list))
   (getf reference-mapping :foreign-key))
 
 ;;(defun cascade-operation-of (reference-mapping)

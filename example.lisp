@@ -2663,3 +2663,6 @@ Single instance
 
 ;; нужно определить функции и разделить выражение
 	 
+(define-expression and
+    (left-expression right-expression &rest rest-expressions)
+  

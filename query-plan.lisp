@@ -1,24 +1,203 @@
 (in-package #:cl-db)
 
-(defclass query-node ()
+;; Query root
+
+(defclass class-node ()
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
-   (table-alias :initarg :table-alias
-		:rea33der table-alias-of)
-   (columns :initarg :columns
-	    :reader columns-of)
-   (references :initarg :references
-	       :reader references-of)))
+   (superclass-nodes :reader superclass-nodes-of)
+   (columns :reader columns-of)
+   (alias :initarg :alias
+	  :reader table-alias-of) ; возможно его нужно определить в элементе select-list
+   (path :initarg :path
+	 :reader path-of)))
 
-(defclass superclass-node (query-node)
-  ((properties :initarg :properties
-	       :reader properties-of)))
+(defclass superclass-node (class-node)
+  ((foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
 
-(defclass subclass-node (query-node)
-  ())
+(defclass concrete-class-node (class-node)
+  ((references :reader references-of)))
 
-(defclass root-node (superclass-node subclass-node)
-  ())
+(defclass root-node (concrete-class-node)
+  ((properties :reader properties-of)))
+
+(defclass reference-node (root-node)
+  ((reference :initarg :reference
+	      :reader reference-of)
+   (parent-node :initarg :parent-node
+		:reader parent-node-of)))
+
+(defun make-alias (&rest name-parts)
+  (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))	  
+
+(defmethod initialize-instance :after ((instance class-node)
+				       &key class-mapping path
+					 (superclass-mappings
+					  (superclass-mappings-of class-mapping)))
+  (with-slots (superclass-nodes)
+      instance
+    (setf columns
+	  (reduce #'(lambda (column-name result)
+		      (acons column-name
+			     (make-alias column-name)
+			     result))
+		  (columns-of class-mapping)))
+    (setf superclass-nodes
+	  (mapcar #'(lambda (superclass-mapping)
+		      (make-instance 'superclass-node
+				     :alias (make-alias)
+				     :class-mapping (get-class-mapping
+						     (reference-class-of superclass-mapping))
+				     :foreign-key (foreign-key-of superclass-mapping)
+				     :path (list* instance path)))
+		  superclass-mappings))))
+
+(defun plan-superclasses-references (class-node)
+  (reduce #'append
+	  (superclass-nodes-of class-node)
+	  :key #'plan-references
+	  :from-end t))
+
+(defun plan-references (class-node)
+  (let ((class-mapping
+	 (class-mapping-of class-node)))
+    (reduce #'(lambda (reference result)
+		(acons reference class-node result))
+	    (append
+	     (many-to-one-mappings-of class-mapping)
+	     (one-to-many-mappings-of class-mapping))
+	    :from-end t
+	    :initial-value (plan-superclasses-references class-node))))
+
+(defmethod initialize-instance :after ((instance concrete-class-node)
+				       &key &allow-other-keys)
+  (setf (slot-value instance 'references)
+	(plan-references instance)))
+
+(defun plan-superclasses-properties (class-node)
+  (reduce #'append
+	  (superclass-nodes-of class-node)
+	  :key #'plan-properties
+	  :from-end t))
+
+(defun plan-properties (class-node)
+  (reduce #'(lambda (property result)
+	      (acons property class-node result))
+	  (property-mappings-of
+	   (class-mapping-of class-node))
+	  :from-end t
+	  :initial-value (plan-superclasses-properties class-node)))
+
+(defmethod initialize-instance :after ((instance root-node)
+				       &key &allow-other-keys)
+  (setf (slot-value instance 'properties)
+	(plan-properties instance)))
+
+;;; Joins
+
+(defun join (root-node reader &key alias join recursive)
+  (let* ((reference
+	  (assoc (get-slot-name (find-class class-name) reader)
+		 (references-of concrete-class-node)
+		 :key slot-name-of))
+	 (reference-node
+	  (make-instance 'reference-node
+			 :class-node class-node
+			 :reference reference
+			 :recursive recursive))
+	 (arg-list
+	  (when (not (null join))
+	    (multiple-value-call #'append
+	      (funcall join reference-node)))))
+    (if (not (null ailas))
+	(list* alias reference-node args)
+	args))) ; recursive clause collection. Нужно рекурсивно обойти
+					; весь arg-list по
+					; зависимостям, до узлов с
+					; alias.  Каждый
+					; reference-node хранит ссылку
+					; на предыдущий
+
+;; Select list
+
+;;; Property
+
+(defun property (root-node reader)
+  (let* ((class-name
+	  (class-name-of (class-mapping-of root-node)))
+	 (slot-name
+	  (get-slot-name (find-class class-name) reader)))
+    (or
+     (assoc slot-name
+	    (properties-of root-node)
+	    :key #'slot-name-of)
+     (error "Property mapping for slot-name ~a of class mapping ~a not found"
+	    slot-name class-name))))
+
+(defgeneric select-item (expression))
+
+(defclass property-selection ()
+  ((property-mapping :initarg :property-mapping
+		     :reader property-mapping-of)
+   (class-node :initarg :class-node
+	       :reader class-node-of)))
+
+(defmethod select-item ((expression list))
+  (destructuring-bind (property-mapping . class-node)
+      expression
+    (make-instance 'property-selection
+		   :class-node class-node
+		   :property-mapping property-mapping)))
+
+;;; Class selection
+
+(defclass class-selection ()
+  ((root-node :initarg :root-node
+	      :reader root-node-of)
+   (subclass-nodes :reader subclass-nodes-of)))
+
+(defclass subclass-node (class-node)
+  ((parent-node :initarg :parent-node
+		:reader parent-node-of)))
+
+(defun make-subclass-node (subclass-mapping parent-node)
+  (let ((class-mapping
+	 (get-class-mapping
+	  (class-name-of subclass-mapping))))
+    (make-instance 'subclass-node
+		   :class-mapping class-mapping
+		   :superclass-mappings (remove
+					 (class-name-of class-mapping)
+					 (superclass-mappings-of class-mapping))
+		   :foreign-key (foreign-key-of subclass-mapping)
+		   :parent-node parent-node)))
+
+(defmethod initialize-instance ((instance class-selection) &key root-node)
+  (setf (slot-value instance 'subclass-nodes)
+	(mapcar #'(lambda (subclass-mapping)
+		    (make-subclass-node subclass-mapping root-node))
+		(subclass-mappings-of
+		 (class-mapping-of root-node)))))
+
+(defmethod initialize-instance :after ((instance subclass-node)
+				       &key class-mapping)
+  (setf (slot-value instance 'subclass-nodes)
+	(mapcar #'(lambda (subclass-mapping)
+		    (make-subclass-node subclass-mapping instance))
+		(subclass-mappings-of class-mapping))))
+
+(defmethod select-item ((expression root-node))
+  (make-instance 'class-selection :root-node expression))
+
+;; WHERE clause
+
+;;; Operators, functions, aggregate functions
+
+
+
+;; выборка подклассов производится только при указании класса объектов
+;; в select-list
 
 (defclass query-plan ()
   ((select-list)
@@ -30,28 +209,11 @@
    (limit)
    (offset)))
 
-(defmethod initialize-instance :after ((instance class-mapping-plan)
-				       &key class-mapping table-alias)
-  (with-slots (alias columns properties references)
-      instance
-    (setf columns (mapcar #'(lambda (column)
-			      (make-instance 'column-plan
-					     :column column
-					     :class-plan instance))
-			  (columns-of class-mapping)))
-    (setf properties (mapcar #'(lambda (property)
-				 (cons property (plan-property property instance)))
-			     (properties-of class-mapping)))
-    (setf primary-key (mapcar #'(lambda (column-name)
-				  (get-column column-name instance))
-			      (primary-key-of class-mapping)))
-    (setf references
-	  (append
-	   (mapcar #'(lambda (reference)
-		       (plan-many-to-one-reference reference instance))
-		   (many-to-one-mappings-of class-mapping))
-	   (mapcar #'(lambda (reference)
-		       (plan-one-to-many-reference reference instance)))))))
+
+
+;;    (setf primary-key (mapcar #'(lambda (column-name)
+;;				  (get-column column-name instance))
+;;			      (primary-key-of class-mapping)))))
 
 (defun make-expression (&key properties expression count
 			  count-from-clause select-list from-clause
@@ -73,9 +235,6 @@
   (if (functionp expression)
       (funcall expression :expression)
       expression))
-
-(defun properties-of (class-mapping)
-  (funcall class-mapping :property))
 
 (defun count-expression-of (expression)
   (funcall expression :count))
@@ -109,9 +268,6 @@
        (assoc alias row :test #'string=))))
 
 (defvar *table-index*)
-
-(defun make-alias (&optional (name "table"))
-  (format nil "~a_~a" name (incf *table-index*)))
 
 (defun plan-column (table-alias column-name)
   (let ((alias (make-alias column-name))

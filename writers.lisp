@@ -10,6 +10,48 @@
       (progn (push object *parameters*)
 	     (format stream "$~a" (length *parameters*)))))
 
+;;; ~I
+;;;
+;;;    Indent. The directive ~nI is equivalent to (pprint-indent
+;;;    :block n). The directive ~:nI is equivalent to (pprint-indent
+;;;    :current n). In both cases, n defaults to zero, if it is
+;;;    omitted.
+;;;
+;;; The format directives after this point are much more complicated
+;;; than the foregoing; they constitute control structures that can
+;;; perform case conversion, conditional selection, iteration,
+;;; justification, and non-local exits. Used with restraint, they can
+;;; perform powerful tasks. Used with abandon, they can produce
+;;; completely unreadable and unmaintainable code.
+;;;
+;;; The case-conversion, conditional, iteration, and justification
+;;; constructs can contain other formatting constructs by bracketing
+;;; them. These constructs must nest properly with respect to each
+;;; other. For example, it is not legitimate to put the start of a
+;;; case-conversion construct in each arm of a conditional and the end
+;;; of the case-conversion construct outside the conditional:
+;;;
+;;; (format nil "~:[abc~:@(def~;ghi~:@(jkl~]mno~)" x)  ;Illegal!
+;;;
+;;; One might expect this to produce either "abcDEFMNO" or
+;;; "ghiJKLMNO", depending on whether x is false or true; but in fact
+;;; the construction is illegal because the ~[...~;...~] and ~(...~)
+;;; constructs are not properly nested.
+;;;
+;;; The processing indirection caused by the ~? directive is also a
+;;; kind of nesting for the purposes of this rule of proper
+;;; nesting. It is not permitted to start a bracketing construct
+;;; within a string processed under control of a ~? directive and end
+;;; the construct at some point after the ~? construct in the string
+;;; containing that construct, or vice versa. For example, this
+;;; situation is illegal:
+;;;
+;;; (format nil "~?ghi~)" "abc~@(def")     ;Illegal!
+;;;
+;;; One might expect it to produce "abcDEFGHI", but in fact the
+;;; construction is illegal because the ~? and ~(...~) constructs are
+;;; not properly nested.
+
 (defun write-select-list (stream &rest args)
   (format stream "SELECT ~{~/cl-db:write-expression/~^,~%~7T~}~%" args))
 
