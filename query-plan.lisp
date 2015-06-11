@@ -96,28 +96,41 @@
 
 ;;; Joins
 
-(defun join (root-node reader &key alias join recursive)
+(defmethod initialize-instance :after ((instance reference-node)
+				       &key recursive &allow-other-keys)
+  (let ((aux-query-part
+	 (make-instance 'aux-query-part :class-node instance)))
+    (setf (slot-value instance 'aux-query-part) aux-query-part)
+    (setf (slot-value instance 'recursive-condoition)
+	  (when (not (null recursive))
+	    (funcall recursive aux-query-part)))))
+
+(defun join (concrete-class-node reader &key alias join recursive)
   (let* ((reference
-	  (assoc (get-slot-name (find-class class-name) reader)
+	  (assoc (get-slot-name
+		  (find-class
+		   (class-name-of
+		    (class-mapping-of class-node))) reader)
 		 (references-of concrete-class-node)
-		 :key slot-name-of))
+		 :key #'slot-name-of))
 	 (reference-node
 	  (make-instance 'reference-node
-			 :class-node class-node
-			 :reference reference
+			 :class-node (first reference)
+			 :reference (rest reference)
 			 :recursive recursive))
-	 (arg-list
+	 (args
 	  (when (not (null join))
 	    (multiple-value-call #'append
 	      (funcall join reference-node)))))
-    (if (not (null ailas))
-	(list* alias reference-node args)
-	args))) ; recursive clause collection. Нужно рекурсивно обойти
-					; весь arg-list по
-					; зависимостям, до узлов с
-					; alias.  Каждый
-					; reference-node хранит ссылку
-					; на предыдущий
+    (if (not (null alias))
+	(acons alias reference-node args)
+	args)))
+
+;; recursive clause collection. Нужно рекурсивно обойти весь arg-list
+;; по зависимостям, до узлов с alias. Каждый reference-node хранит
+;; ссылку на предыдущий
+
+;; рекурсивгые части знают
 
 ;; Select list
 
@@ -194,10 +207,401 @@
 
 ;;; Operators, functions, aggregate functions
 
+(defclass expression ()
+  ())
+
+(defclass operation (expression)
+  ((operator :initarg :operator :reader operator-of)))
+
+(defclass binary-operation (operation)
+  ((lhs-expression :initarg :lhs-expression
+		   :reader lhs-expression-of)
+   (rhs-expression :initarg :rhs-expression
+		   :reader rhs-expression-of)))
+
+(defmacro define-binary-operation (name)
+  `(defclass ,name (binary-operation)
+     ()))
+
+(define-binary-operation less-than)
+
+(define-binary-operation greater-than)
+
+(define-binary-operation less-than-or-equal)
+
+(define-binary-operation greater-than-or-equal)
+
+(define-binary-operation equal)
+
+(define-binary-operation not-equal)
+
+(define-binary-operation like)
+
+(defclass binary-operator-extended (binary-operation)
+  ((rest-expressions :initarg :rest-expressions
+		     :reader rest-expressions-of)))
+
+(defmacro define-binary-operator-extended (name)
+  `(defclass ,name (binary-operation)
+     ()))
+
+(define-binary-operator-extended and-operation)
+
+(define-binary-operator-extended or-operation)
+
+(define-binary-operator-extended addition)
+
+(define-binary-operator-extended subtraction)
+
+(define-binary-operator-extended multiplication)
+
+(define-binary-operator-extended division)
+
+(defclass postfix-operation (operation)
+  ((expression :initarg :expression
+	       :reader expression-of)))
+
+(defmacro define-postfix-operation (name)
+  `(defclass ,name (postfix-operation)
+     ()))
+
+(define-postfix-operation is-null)
+
+(define-postfix-operation is-not-null)
+
+(define-postfix-operation is-true)
+
+(define-postfix-operation is-not-true)
+
+(define-postfix-operation ascending)
+
+(define-postfix-operation descending)
+
+(defclass sql-function-call (expression)
+  ((function-name :initarg :function-name
+		  :reader function-name-of)
+   (arguments :initarg :arguments
+	      :reader arguments-of)))
+
+(defmacro define-sql-function (name)
+  `(defclass ,name (sql-function-call)
+     ()))
+
+(define-sql-function abs)
+
+(define-sql-function exp)
+
+(define-sql-function floor)
+
+(define-sql-function log)
+
+(define-sql-function mod)
+
+(define-sql-function power)
+
+(define-sql-function round)
+
+(define-sql-function sqrt)
+
+(define-sql-function trunc)
+
+(define-sql-function acos)
+
+(define-sql-function asin)
+
+(define-sql-function atan)
+
+(define-sql-function cos)
+
+(define-sql-function sin)
+
+(define-sql-function tan)
+
+(defgeneric parse-expression (element &optional result))
+
+(defmethod parse-expression ((element list) &optional result)
+  (append
+   (list* :begin (reduce #'parse-element element
+			 :from-end t :initial-value result))
+   (list* :end result)))
+
+(defmethod parse-expression ((element t) &optional result)
+  (list* element result))
+
+(defun expression-lexer (expression)
+  (let ((parsed-expression
+	 (parse-expression expression)))
+  #'(lambda ()
+      (let ((value (pop parsed-expression)))
+	(when (not (null value))
+	  (values
+	   (cond
+	     ((keywordp value) value)
+	     ((symbolp value) :symbol)
+	     (t :parameter))
+	   value))))))
+
+(yacc:define-parser *expression-parser*
+  (:start-symbol form)
+  (:terminals (:begin :end :symbol :parameter :property
+		      :and :or :not :null := :eq :eql :equal :equalp
+		      :< :> :<= :>= :<> :!= :+ :- :* :/
+		      :abs :sqrt :exp :floor :log
+		      :mod :pi :expt :round :truncate
+		      :acos :asin :atan :atan2 :cos :sin :tan
+		      :like
+		      :ascending :descending))
+  
+  (form
+   (:begin expression :end #'(lambda (begin expression end)
+			       (declare (ignore begin end))
+			       expression))
+   (:begin postfix-operation :end #'(lambda (begin expression end)
+				      (declare (ignore begin end))
+				      expression))
+   :parameter)
+  
+  (postfix-operation
+   (:null form #'(lambda (null form)
+		   (declare (ignore null))
+		   `(make-instance 'is-null :expression ,form)))
+   (:not :begin :null form :end #'(lambda (not begin null form end)
+				    (declare (ignore not begin null end))
+				    `(make-instance 'is-not-null :expression ,form))))
+  
+  (expression binary-operation binary-operation-extended
+	      function-call property sort)
+
+  (sort
+   (direction form #'(lambda (direction expression)
+		       `(make-instance (quote ,direction)
+				       :expression (quote ,expression)))))
+
+  (direction
+   (:ascending #'(lambda (op)
+		   (declare (ignore op))
+		   'ascending))
+   (:descending #'(lambda (op)
+		    (declare (ignore op))
+		    'descending)))
+
+  (property
+   (:symbol :symbol #'(lambda (reader class-mapping)
+			`(property ,class-mapping
+				   (function ,reader)))))
+  
+  (binary-operation comparison pattern-matching)
+
+  (pattern-matching
+   (:like object :parameter #'(lambda (like object pattern)
+				(declare (ignore like))
+				`(make-instance 'like
+						:lhs-expression ,object
+						:rhs-expression ,pattern))))
+
+  (comparison
+   (comparison-operator form form #'(lambda (op lhs rhs)
+				      `(make-instance (quote ,op)
+						      :lhs-expression ,lhs
+						      :rhs-expression ,rhs))))
+
+  (comparison-operator
+   (equal #'(lambda (op)
+	      (declare (ignore op))
+	      'equal))
+   (:< #'(lambda (op)
+	   (declare (ignore op))
+	   'less-than))
+   (:> #'(lambda (op)
+	   (declare (ignore op))
+	   'more-than))
+   (:<= #'(lambda (op)
+	   (declare (ignore op))
+	   'less-than-or-equal))
+   (:>= #'(lambda (op)
+	    (declare (ignore op))
+	    'more-than-or-equal))
+   (:<> #'(lambda (op)
+	    (declare (ignore op))
+	    'not-equal))
+   (:!= #'(lambda (op)
+	    (declare (ignore op))
+	    'not-equal)))
+
+  (equal := :eq :eql :equal :equalp)
+
+  (binary-extended-operator
+   (:and #'(lambda (op)
+	    (declare (ignore op))
+	    'and-operation))
+   (:or #'(lambda (op)
+	    (declare (ignore op))
+	    'or-operation))
+   (:+ #'(lambda (op)
+	    (declare (ignore op))
+	    'addition))
+   (:- #'(lambda (op)
+	    (declare (ignore op))
+	    'subtraction))
+   (:* #'(lambda (op)
+	    (declare (ignore op))
+	    'multiplication))
+   (:/ #'(lambda (op)
+	    (declare (ignore op))
+	    'division)))
+
+  (binary-operation-extended
+   (binary-extended-operator forms #'(lambda (op forms)
+				       `(make-instance (quote ,op)
+						       :lhs-expression (first (quote ,forms))
+						       :reast-expressions (rest (quote forms))))))
+  
+  (forms
+   (form forms)
+   (form))
+
+  (sql-function-call function-call aggregation)
+  
+  (function-call
+   (sql-function arguments #'(lambda (sql-function arguments)
+			       `(make-instance (quote ,sql-function)
+					       :argumets (quote ,arguments)))))
+  
+  (sql-function
+   (:abs #'(lambda (op)
+	    (declare (ignore op))
+	    'abs))
+   (:sqrt #'(lambda (op)
+	      (declare (ignore op))
+	      'sqrt))
+   (:exp #'(lambda (op)
+	    (declare (ignore op))
+	    'exp))
+   (:floor #'(lambda (op)
+	       (declare (ignore op))
+	       'floor))
+   (:log #'(lambda (op)
+	    (declare (ignore op))
+	    'log))
+   (:mod #'(lambda (op)
+	    (declare (ignore op))
+	    'mod))
+   (:pi #'(lambda (op)
+	    (declare (ignore op))
+	    'pi))
+   (:expt #'(lambda (op)
+	      (declare (ignore op))
+	      'power))
+   (:round #'(lambda (op)
+	       (declare (ignore op))
+	       'round))
+   (:truncate #'(lambda (op)
+		  (declare (ignore op))
+		  'trunc))
+   (:acos #'(lambda (op)
+	    (declare (ignore op))
+	    'acos))
+   (:asin #'(lambda (op)
+	      (declare (ignore op))
+	      'asin))
+   (:atan #'(lambda (op)
+	      (declare (ignore op))
+	      'atan))
+   (:cos #'(lambda (op)
+	    (declare (ignore op))
+	    'cos))
+   (:sin #'(lambda (op)
+	     (declare (ignore op))
+	     'sin))
+   (:tan #'(lambda (op)
+	     (declare (ignore op))
+	     'tan)))
+
+  (arguments
+   (form arguments)
+   form)
+  
+  (aggregation (aggregate-function form))
+  
+  (aggregate-function
+   (:avg #'(lambda (op)
+	     (declare (ignore op))
+	     'avg))
+   (:count #'(lambda (op)
+	     (declare (ignore op))
+	     'count))
+   (:every #'(lambda (op)
+	     (declare (ignore op))
+	     'count))
+   (:max #'(lambda (op)
+	     (declare (ignore op))
+	     'max))
+   (:min #'(lambda (op)
+	     (declare (ignore op))
+	     'min))
+   (:sum #'(lambda (op)
+	     (declare (ignore op))
+	     'max))))
+
+(defmacro expressions ((&rest args) &body body)
+  `(values ,(mapcar #'parse-expression (quote body))))
+
+(defun make-root (class-name)
+  (make-instance 'root-node :class-mapping (get-class-mapping class-name)))
+
+(defun make-query (roots &key join select where order-by having
+			   offset limit fetch mapping-schema)
+  (let* ((*table-index* 0)
+	 (selectors
+	  (if (listp roots)
+	      (mapcar #'make-root roots)
+	      (list (make-root class-name))))
+	 (joined-list
+	  (append selectors
+		  (when (not (null join))
+		    (multiple-value-call #'append
+		      (apply join selectors)))))
+	 (select-list
+	  (apply #'compute-select
+		 (if (not (null select))
+		     (multiple-value-list
+		      (apply select joined-list))
+		     selectors))))
+    (compute-query select-list
+		   (when (not (null where))
+		     (multiple-value-list
+		      (apply where joined-list)))
+		   (when (not (null order-by))
+		     (multiple-value-list
+		      (apply order-by select-list)))
+		   (when (not (null having))
+		     (multiple-value-list
+		      (apply having joined-list)))
+		   (when (not (null fetch))
+		     (multiple-value-list
+		      (apply fetch fetch-references)))
+		   limit offset)))
+
+(defun db-read (roots &key join select where order-by having
+			offset limit singlep transform fetch
+			(mapping-schema (mapping-schema-of *session*)))
+  (declare (ignore transform singlep))
+  (let ((query
+	 (make-query roots :mapping-schema mapping-schema
+		     :join join
+		     :select select
+		     :where where
+		     :order-by order-by
+		     :having having
+		     :offset offset
+		     :limit limit
+		     :fetch fetch)))
+    (load (execute (query-string query)) query)))
 
 
 ;; выборка подклассов производится только при указании класса объектов
 ;; в select-list
+
 
 (defclass query-plan ()
   ((select-list)
@@ -208,8 +612,6 @@
    (recursive-expressions)
    (limit)
    (offset)))
-
-
 
 ;;    (setf primary-key (mapcar #'(lambda (column-name)
 ;;				  (get-column column-name instance))

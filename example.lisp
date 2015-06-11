@@ -25,28 +25,6 @@
 ;; Сам компилируется в вызов обращения к БД с запросом и 
 ;; создание объекта загрузчика результата.
 
-;; сделать db-read макросом? или оставить как функцию, а переделывать
-;; выражение в with-session?  осталось написать
-
-;;(defvar *session*)
-
-;;(defun db-read (&key all)
-;;  (db-find-all all))
-
-;;(defun db-find-all (session class-name)
-;;  (let ((class-mapping (gethash class-name (mappings-of session))))
-;;    (map 'list #'(lambda (row)
-;;		   (load row class-mapping session))
-;;	 (execute (connection-of session)
-;;		  (make-select-query (table-of class-mapping))))))
-
-;;(defun make-select-query (table)
-;;  (let ((table-name (name-of table)))
-;;    (format nil "SELECT ~{~a~^, ~} FROM ~a"
-;;	    (map 'list #'(lambda (column)
-;;			   (format nil "~a.~a" table-name (name-of column)))
-;;		 (columns-of table)) table-name)))
-
 ;;(defclass clos-transaction ()
 ;;  ((clos-session :initarg :clos-session :reader clos-session-of)
 ;;   (new-objects :initform (list) :accessor new-objects-of)
@@ -57,14 +35,9 @@
 ;;		 :objects-snapshots (make-snapshot (list-loaded-objects session)
 ;;						   (mappings-of session))))
 
-;;(defun list-loaded-objects (session)
-  
-
 ;;(defun persist (object &optional (transaction *transaction*))
 ;;  (when (not (loaded-p object (clos-session-of transaction)))
 ;;    (push (new-objects-of transaction) object)))
-
-;;(defgeneric db-query (connection query))
 
 ;;(defun load (mapping row))
 
@@ -72,77 +45,6 @@
 ;;	    (get-mapping class-name)
 
 ;;(defun db-get (class-name &rest primary-key)
-
-;;(with-session (*session*)
-;;  (db-read :all 'project))
-
-;;(defun db-find-all (session class &rest fetch) 
-;;  (let* ((class-mapping (get-class-mapping session class))
-;;	 (result (execute (make-select-query class-mapping fetch)
-;;			  (connection-of session))))
-;;    (map 'list #'(lambda (table-row)
-;;		   (load session class-mapping fetch table-row))
-;;	 table-rows)))
-
-;;(defun db-read (&key all)
-;;  (db-find-all *session* (find-class all)))
-
-(defclass table-expression ()
-  ((table-reference :initarg :table-reference
-		    :reader table-reference-of)
-   (joins :initarg :joins
-	  :reader joins-of)))
-
-(defclass join (table-expression)
-  ((column-pairs :initarg :column-pairs
-		 :reader column-pairs-of)))
-
-(defclass inner-join (join) ())
-
-(defclass left-outer-join (join) ())
-
-(defclass select-query ()
-  ((table-expression :initarg :table-expression
-		     :reader table-expression-of)
-   (select-list-items :initarg :select-list-items
-		      :reader select-list-items-of)))
-
-(defun compute-column-pairs (table foreign-key)
-  (mapcar #'cons
-	  (primary-key-of table)
-	  (alexandria:hash-table-keys (columns-of foreign-key))))
-
-(defun compute-superclasses-joins (table-reference superclass-mappings)
-  (let ((table (table-of table-reference)))
-    (mapcar #'(lambda (superclass-mapping)
-		(let* ((superclass-table (table-of superclass-mapping))
-		       (superclass-table-reference (make-instance 'table-reference
-								  :table superclass-table)))
-		  (cons (make-instance 'inner-join
-				       :table-reference table-reference
-				       :joined-table-reference superclass-table-reference
-				       :column-pairs (compute-columns-pairs superclass-table
-									    (get-foreign-key table
-											     (primary-key-of table)
-											     superclass-table)))
-			(compute-joins superclass-table-reference superclass-mapping))))
-	    superclass-mappings)))
-
-(defun compute-subclasses-joins (table-reference subclasses-mappings)
-  (let ((table (table-of table-reference)))
-    (mapcar #'(lambda (subclass-mapping)
-		(let* ((subclass-table (table-of subclass-mapping))
-		       (subclass-table-reference (make-instance 'table-reference
-								:table subclass-table)))
-		  (cons (make-instance 'left-outer-join
-				       :table-reference table-reference
-				       :joined-table-reference subclass-table-reference
-				       :column-pairs (compute-columns-pairs subclass-table
-									    (get-foreign-key subclass-table
-											     (primary-key-of subclass-table)
-											     table)))
-			(compute-class-joins superclass-mapping))))
-	    subclasses-mappings)))
 
 (defun compute-fetch-joins (class-mapping joined-fetch)
   (mapcar #'(lambda (joined-fetch)
@@ -164,8 +66,6 @@
 			     (superclasses-mappings-of class-mapping))
    (compute-superclasses-joins table-reference
 			       (subclasses-mappings-of class-mapping))))
-
-
 
 (defgeneric make-query-string (query))
 
@@ -191,7 +91,6 @@
 ;; наследование и инициализация слотов объект какого класса создавать?
 ;; При условии, что нет абстрактных классов объекты по иерархии
 ;; загружаются снизу-вверх из исключенных записей нижнего уровня
-
 
 ;; скорее всего функция будет рекурсивной (особенно если fetch будет с Join'ами)
 ;;(defun load (session class-mapping fetch result)
@@ -387,27 +286,13 @@ Structure of a Query
 
 Simple Expressions
 
-(db-query cat) => list all cats
+(define-query list-cats (cat))
 
+(list-cats) => list all cats
+;; OR
 (db-read 'cat)
 
-=>
-
-(let ((cat (bind-root 'cat)))
-  (make-query cat))
-
-
-OR
-
-(with-session ((:mapping-schema mapping-name)
-	       (:database-interface session-config))
-  (db-read 'cat))
-
-OR
-
-(with-session ((:mapping-schema mapping-name)
-	       (:database-interface session-config))
-  (db-query cat))
+;;;;;;;;;;;;;;;;;;;
 
 IList<Cat> cats =
     session.QueryOver<Cat>()
@@ -415,25 +300,20 @@ IList<Cat> cats =
 
 Macro:
 
-(db-query ((cat cat))
-    ((:where (:eq (name-of cat) "Max"))))
+(define-query (get-cat name)
+    (cat)
+  (:where (:eq (name-of cat) name)))
+
+(get-cat "Max")
 
 Function:
 
-(make-query
- (make-root 'cat :where (expression cats := #'name-of name)))
+(db-read 'cat :where #'(lambda (root)
+			 (expression
+			  (:eq (property root #'name-of) "Max"))))
 
-OR
-
-(db-read 'cat :where
-	 #'(lambda (root)
-	     (expression #'eq (property-of root #'name-of) "Max")))
-
-OR
-
-(let ((cat (make-root 'cat)))
-  (make-query cat
-	      :where (expression := (slot-of cats #'name-of) "Max")))
+(db-read 'cat :where (expression (root)
+		       (:eq (property root #'name-of) "Max")))
 
 Additional Restrictions
 
@@ -443,34 +323,32 @@ var catNames = session.QueryOver<Cat>()
         .OrderBy(c => c.Name).Asc
         .List<string>();
 
-(db-query ((cat cat))
-    ((:where
-      (:between (age-of cat) 2 8))
-     (:order-by
-      ((name-of cat) :asc)))
-  (name-of cat))
+(define-query (get-cat-names min-age max-age)
+    (cat)
+  (:select (name-of cat))
+  (:where
+   (:between (age-of cat) min-age max-age))
+  (:order-by
+   (:ascending (name-of cat))))
 
-(make-query 'cat
-	    :select #'name-of
-	    :where (expression :betweenp #'age-of 2 8)
-	    :order-by (expression :asc #'name-of))
+(get-cats 2 8)
 
 (db-read 'cat
 	 :select #'(lambda (cat)
-		     (property-of cat #'name-of))
+		     (property cat #'name-of))
 	 :where #'(lambda (cat)
-		    (expression :between
-				(property-of cat #'age-of) 2 8))
+		    (expression
+		     (:between (property cat #'age-of) 2 8)))
 	 :order-by #'(lambda (cat)
-		       (cons (property-of cat #'name-of) :ascending)))
+		       (ascending (property cat #'name-of))))
 
-(let* ((cat (make-root 'cat))
-       (name (make-alias cat #'name-of)))
-  (make-query cat
-	      :select name
-	      :order-by (asc name)
-	      :where (expression :betweenp
-				 (slot-of cat #'age-of) 2 8)))
+(db-read 'cat
+	 :select (expression (cat)
+		   (property cat #'name-of))
+	 :where (expression (cat)
+		  (:between (property cat #'age-of) 2 8))
+	 :order-by (expression (cat)
+		     (:ascending (property cat #'name-of))))
 
 var cats =
     session.QueryOver<Cat>()
@@ -478,22 +356,23 @@ var cats =
         .And(c => c.Age > 4)
         .List();
 
-(db-query ((cat cat))
-    ((:where
-      (:eq (name-of cat) "Max")
-      (:> (age-of cat) 4))))
+(define-query (get-cats name min-age)
+    (cat)
+  (:where
+   (:eq (name-of cat) name)
+   (:> (age-of cat) min-age)))
 
-(let ((cat (make-root 'cat)))
-  (make-query cat
-	      :where (list
-		      (expression := (slot-of cat #'name-of) "Max")
-		      (expression :> (slot-of cat #'age-of) 2 8))))
+(get-cats "Max" 4)
 
-(db-read 'cat
-	 :where #'(lambda (root)
-		    (list
-		     (expression #'eq (property-of root #'name-of) "Max")
-		     (expression #'> (property-of root #'age-of) 8))))
+(db-read 'cat :where #'(lambda (root)
+			 (expression
+			  (:and
+			   (:eq (property root #'name-of) "Max")
+			   (:> (property root #'age-of) 8)))))
+
+(db-read 'cat :where (expressions (root)
+		       (:eq (property root #'name-of) "Max")
+		       (:> (property root #'age-of) 8)))
 
 Associations
 
@@ -502,70 +381,23 @@ IQueryOver<Cat,Kitten> catQuery =
         .JoinQueryOver(c => c.Kittens)
             .Where(k => k.Name == "Tiddles");
 
-(db-query ((cat cat)
-	   (kitten (kittens-of cat)))
-    ((:where (:eq (name-of kitten) "Tiddles"))))
-
-(db-read 'cat :join
-	 #'(lambda (cat)
-	     (reference-of cat #'kittens-of
-			   :where #'(lambda (kitten)
-				      (property-of kitten #'name-of
-						   "Tiddles")))))
-
-(let* ((cat (make-root 'cat))
-       (kitten (join-association cat #'kittens-of)))
-  (make-query (list cat kitten)
-	      :where (expression := (slot-of #'name-of) "Tiddles")))
+(db-read 'cat
+	 :join #'(lambda (cat)
+		   (join cat #'kittens-of :alias :kitten))
+	 :where #'(lambda (cat &key kitten)
+		    (expression
+		     (:eq (property kitten #'name-of) "Tiddles"))))
 
 => (list cat kitten)
 
-(db-read 'cat :join
-	 #'(lambda (cat)
-	     (reference-of root #'kittens-of
-			   :select #'(lambda (kitten)
-				       kitten)
-			   :where #'(lambda (kitten)
-				      (property-of kitten
-						   #'name-of
-						   "Tiddles")))))
+(define-query (find-kittens kitten-name)
+    ((cat cat)
+     (kitten (kittens-of cat)))
+  (:select kitten)
+  (:where
+   (:eq (name-of kitten) kitten-name)))
 
-(db-query ((cat cat)
-	   (kitten (kittens-of cat)))
-    ((:where (:eq (name-of kitten) "Tiddles")))
-  cat)
-
-(let* ((cat (make-root 'cat))
-       (kitten (join-association cat #'kittens-of)))
-  (make-query cat :where (expression := (slot-of #'name-of)
-				     "Tiddles")))
-
-=> cats
-
-Aliases
-
-Cat catAlias = null;
-Kitten kittenAlias = null;
-
-IQueryOver<Cat,Cat> catQuery =
-    session.QueryOver<Cat>(() => catAlias)
-        .JoinAlias(() => catAlias.Kittens, () => kittenAlias)
-        .Where(() => catAlias.Age > 5)
-        .And(() => kittenAlias.Name == "Tiddles");
-
-(db-query ((cat cat)
-	   (kitten (kittens-of cat)))
-    ((:where
-      (:> (age-of cat) 5)
-      (:eq (name-of kitten) "Tiddles")))
-  cat)
-
-(let* ((cat (make-root 'cat))
-       (kitten (join-association cat #'kitten-of)))
-  (make-query cat :where (list
-			  (expression := (slot-of cat #'age-of) 5)
-			  (expression := (slot-of kitten #'name-of)
-				      "Tiddles"))))
+(parents "Tiddles") => cats
 
 Projections
 
@@ -576,14 +408,19 @@ IList selection =
             c => c.Age)
         .List<object[]>();
 
-(db-query ((cat cat))
-    ()
-  (name-of cat)
-  (age-of cat))
+(define-query name-and-age (cat)
+  (:select
+   (name-of cat)
+   (age-of cat)))
 
-(let ((cat (make-root 'cat)))
-  (make-query (list (slot-of cat #'name-of)
-		    (slot-of cat #'age-of))))
+(db-read 'cat :select #'(lambda (cat)
+			  (values
+			   (property cat #'name-of)
+			   (property cat #'age-of))))
+
+(db-read 'cat :select (expressions (cat)
+			(property cat #'name-of)
+			(property cat #'age-of)))
 
 IList selection =
     session.QueryOver<Cat>()
@@ -592,16 +429,19 @@ IList selection =
             .Add(Projections.Avg<Cat>(c => c.Age)))
         .List<object[]>();
 
-(db-query ((cat cat))
-    ()
-  (name-of cat)
-  (:avg #'age-of cat))
+(define-query average-age (cat)
+  (:select
+   (name-of cat)
+   (:avg (age-of cat))))
 
-(query 'cat :select (list #'name-of (expression :avg #'age-of)))
+(db-read 'cat :select #'(lambda (cat)
+			  (values
+			   (name-of cat)
+			   (:avg (age-of cat)))))
 
-(let* ((cat (make-root 'cat)))
-  (make-query (list (slot-of #'name-of cats)
-		    (expression :avg (slot-of cat #'age-of)))))
+(db-read 'cat :select (expressions (cat)
+			(name-of cat)
+			(:avg (age-of cat))))
 
 Subqueries
 
@@ -614,78 +454,51 @@ IList<Cat> oldestCats =
         .WithSubquery.WhereProperty(c => c.Age).Eq(maximumAge)
         .List();
 
-(db-query ((cat cat)
-	   (maximum-age-cat cat))
-    ((:having
-      (:= (age-of cat)
-	  (:max (age-of maximum-age-cat)))))
-  cat)
+(define-query maximum-age ((cat cat)
+			   (max-age-cat cat))
+  (:select cat)
+  (:having
+   (:eq
+    (age-of cat)
+    (:max
+     (age-of max-age-cat)))))
 
-(db-read 'cat :having
-	 #'(lambda (cat)
-	     (let ((age-of-property (property-of cat #'age-of)))
-	       (expression #'eq age-of-property
-			   (expression #'max age-of-property)))))
+(db-read '(cat cat) :having #'(lambda (cat max-age-cat)
+				(expression
+				 (:eq (property cat #'age-of)
+				      (:max (property max-age-cat #'age-of))))))
 
-or without subquery
-
-(let* ((cat (make-root 'cat))
-       (maximum-age-cat (make-root 'cat)))
-  (make-query cat :having
-	      (expression := (slot-of cat #'age-of)
-			  (expression :max
-				      (slot-of maximum-age-cat
-						#'age-of)))))
-
-(db-read '(cat cat)
-	 :where #'(lambda (cat maximum-age-cat)
-		    (expression #'= 
+(db-read '(cat cat) :having (expressions (cat max-age-cat)
+			      (:eq (property cat #'age-of)
+				   (:max (property max-age-cat #'age-of)))))
 
 Limit, offset
 
-(db-query ((cat cat)
-	   (maximum-age-cat cat))
-    ((:having
-      (:eq (age-of cat)
-	   (:max (age-of maximum-age-cat))))
-     (:limit 10)
-     (:offset 100))
-  cat)
-
-(make-query
- (make-root 'cat) :limit 100 :offset 100))
+(define-query limit-offset (cat)
+  (:limit 10)
+  (:offset 100))
 
 (db-read 'cat :limit 100 :offset 100)
 
 Fetching
 
-(db-query ((cat cat))
-    ((:fetch (cat #'kittens-of))))
-
-(db-query ((cat (cat 35))
-	   (kitten (kittens-of cat)))
-    ((:fetch (cat #'kittens-of)
-	     (kitten #'parents-of)))
-  cat)
-
-(query 'cat
-       :fetch #'kittens-of
-       :join (join-association #'kittens-of
-			       :fetch #'parents-of))
+(define-query cats (cat)
+  (:fetch (kittens-of cat)))
 
 (db-read 'cat :fetch #'(lambda (cat)
-			 (reference-of cat #'kittens-of)))
+			 (fetch cat #'kittens-of)))
 
 Single instance
 
-(db-query ((cat cat))
-    ((:where (:eq (id-of cat) 35))
-     (:single t)))
+(define-query get-cat (cat)
+  (:where (:eq (id-of cat) 35))
+  (:single t))
 
 (db-read 'cat
-	 :single t
 	 :where (lambda (cat)
-		  (expression #'eq (property-of cat #'id-of) 35)))
+		  (expression
+		   (:eq (property-of cat #'id-of) 35)))
+	 :single t)
 
 ;; Проблема рекурсивных ключей. Идентификатор объекта не может
 ;; идентифицироваться в дереве своим родителем. В противном случае
@@ -693,31 +506,26 @@ Single instance
 
 If PK (user id and project id)
 
-(db-query ((project-manager project-manager)
-	   (project (project-of project-manager))
-	   (user (user-of project-manager)))
-    ((:single t)
-     (:where
-      (:eq (id-of user) 1)
-      (:eq (id-of project) 1)))
-  project-manager)
-
-;; select roots only?
-
-(db-query ((project-manager project-manager)
-	   (project (project-of project-manager))
-	   (user (user-of project-manager)))
-	  (:select project-manager)
-  (:single t)
+(define-query <>
+    ((project-manager project-manager)
+     (project
+      (project-of project-manager))
+     (user
+      (user-of project-manager))) ; joins
+  (:select project-manager)
   (:where
    (:eq (id-of user) 1)
-   (:eq (id-of project) 1))))
+   (:eq (id-of project) 1))
+  (:single t))
 
-(let* ((project-manager (make-root 'project-manager))
-       (project (join-association project-manager #'project-of))
-       (user (join-association project-manager #'user-of)))
-  (make-query (list project-manager project user)
-	      
+(db-read 'project-manager
+	 :join #'(lambda (project-manager)
+		   (values
+		    (join project-manager #'project-of :alias :project)
+		    (join project-manager #'user-of :alias :user)))
+	 :select #'(lambda (project-manager &key project user) ;; include joins in selection
+		     (values project-manager project user)))
+   => (list-of (list project-manager project user))
 
 (defmacro db-query (bindings &body clauses)
   (
@@ -736,20 +544,6 @@ If PK (user id and project id)
     AND t_3.id = $2")
  1 1)
 
-----------------
-
-(let ((cat (make-root 'cat)))
-  (make-query cat :single t
-	      :fetch (fetch cat #'kittens)
-	      :where (expression := (slot-of cat #'id-of) 23)))
-
-----------------
-
-(make-query 'cat
-	    
-	    :select (list #'name-of #'age-of)
-	    :where (expression := #'name-of "Max")
-	    :having (expression :< #'age-of (expression :avg #'age-of))
 
 ;; Criteria API
 
@@ -757,18 +551,19 @@ ICriteria crit = sess.CreateCriteria(typeof(Cat));
 crit.SetMaxResults(50);
 List cats = crit.List();
 
-(db-list (make-query 'cat :limit 50))
+(db-read 'cat :limit 50)
 
 IList cats = sess.CreateCriteria(typeof(Cat))
     .Add(Expression.Like("Name", "Fritz%"))
     .Add(Expression.Between("Weight", minWeight, maxWeight))
     .List();
 
-(db-list
- (make-query 'cat :where (list
-			  (expression :like #'name-of "Fritz%")
-			  (expression :between #'weignt-of
-				      min-weight max-weight))))
+(db-read 'cat :where #'(lambda (cat)
+			 (expression
+			  (:and
+			   (:like (name-of cat) "Fritz%")
+			   (:between (weignt-of cat)
+				     min-weight max-weight)))))
 
 IList cats = sess.CreateCriteria(typeof(Cat))
     .Add(Expression.Like("Name", "Fritz%"))
@@ -776,12 +571,12 @@ IList cats = sess.CreateCriteria(typeof(Cat))
         Expression.Eq("Age", 0),
         Expression.IsNull("Age"))).List();
 
-(db-list
- (make-query 'cat :where (list
-			  (expression :like #'name-of "Fritz%")
-			  (expression :or
-				      (expression :eq #'age-of 0)
-				      (expression :is-null #'age-of)))))
+(db-read 'cat :where #'(lambda (cat)
+			 (expression
+			  (:like (name-of cat) "Fritz%")
+			  (:or
+			   (:eq (age-of cat) 0)
+			   (:null (age-of cat))))))
 
 IList cats = sess.CreateCriteria(typeof(Cat))
     .Add( Expression.In( "Name", new String[] { "Fritz", "Izi", "Pk" } ) )
@@ -793,12 +588,12 @@ IList cats = sess.CreateCriteria(typeof(Cat))
     ) )
     .List();
 
-(db-list
- (make-query 'cat :where (list
-			  (expression :in #'name-of "Fritz", "Izi", "Pk")
-			  (expression :or
-				      (expression 'eq #'age-of 0)
-				      (expression 'null #'age-of)))))
+(db-read 'cat :where (lambda (cat)
+		       (expression
+			(:member (name-of cat) "Fritz" "Izi" "Pk")
+			(:or
+			 (:eq (age-of cat) 0)
+			 (:null (age-of cat))))))
 
 ;; биарные операции применимы только для значений схожего типа
 ;; унарные применимы только для одного значения или выражения
@@ -814,37 +609,7 @@ Expressions
 (define-expression :sum (column)
   (format "sum(~a)" column))
 
-;;;;
-
-Form:
-
-(db-query ((cat cat)
-	   (kitten (kittens-of cat)))
-  (:select cat kitten
-	   (- (age-of cat)
-	      (age-of kitten))))
-
-Expand into:
-
-(let ((cat (make-root 'cat))
-      (kitten (join-reference cat #'kittens-of)))
-  (make-query
-   (list cat kitten
-	 (expression :-
-		     (property cat #'age-of)
-		     (property kitten #'age-of)))))
-
-(let ((project-mapping
-       (map-class 'project (list "id")
-		  (map-value 'id (column "id" "uuid"))))
-      (user-mapping
-       (map-class 'user (list "id")
-		  (map-value 'id (column "id" "uuid"))))
-      (project-member-mapping
-       (map-subclass 'project-member (list "user_id" "prject_id")
-		  (map-value
-
-;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-class-mapping (user "users")
     ((:primary-key "id"))
@@ -980,14 +745,6 @@ Expand into:
 ;;(defun make-sql-query (select-list where order-by having limit offset)
 ;;  (format "SELECT ~a FROM ~a ~@[WHERE ~a~] ~@[ORDER BY ~a~]
 
-
-
-
-
-
-
-
-
 (defun make-query-path (select-list where-clause
 			order-by-clause having-clause)
   (let ((root-bindings
@@ -1018,29 +775,6 @@ Expand into:
 				    reference-bindings))
 			 (apply #'find-reference-bindings
 				binding reference-bindings))))
-
-
-	 
-
-
-
-		   
-		    
-	 (
-    
-    ( (make-loaders e-loader select-list)))
-    (
-
-=> make-loaders
-
-(defun sql-query (query)
-  ("SELECT"
-   (select-list-of query)
-   "FROM"
-   (tquery-mappings-of query)
-
-
-
 
 (defclass expression-loader ()
   ((alias :initarg :alias :reader alias-of)
@@ -1101,31 +835,13 @@ Expand into:
 		 :reference-binding binding
 		 :parent-loader (ensure-loader (parent-
 
-
-
-
-
-
-	     
-  
-
-
-    
-
-
-
-
-
 (defvar *expression-types* (make-hash-table))
 
 (defun register-expression (function name &rest names)
   (dolist (name (list* name names) function)
     (setf (gethash name *expressions*) function)))
 
-
-
 ;; connection name parameters
-
 
 ;; object-loader
 ;; table-loader - загрузка части объекта?
@@ -1157,24 +873,6 @@ Expand into:
 ;;			     having order-by limit offset))
 ;;		  (get-parameters where having limit offset)))))
 
-
-
-(defgeneric compile-binding (name binding))
-
-(defmethod compile-binding (name (binding symbol))
-  `(,name (make-loader (quote binding))))
-
-(defmethod compile-binding (name (binding list))
-  (destructuring-bind (association-accessor binding-name) binding
-    `(,name
-      (join-association binding-name
-			(get-association-name association-accessor)))))
-
-(defun compile-bindings (&rest bindings)
-  (mapcar #'(lambda (binding)
-	      (apply #'compile-binding binding))
-	  bindings))
-
 (defmacro db-query (bindings &optional clauses)
   `(let* (,@(apply #'compile-bindings bindings))
      (db-list ,@(or (apply #'compile-select-list
@@ -1193,11 +891,6 @@ Expand into:
 				 (apply #'get-option
 					:order-by clauses)))))
 
-
-(let ((cat (bind-root 'cat))
-      (kittens (bind-reference cat #'kittens-of)))
-  (make-query (fetch-also cat kittens)))
-
 (let ((curriculum
        (bind-root 'curriculum))
       (subjects
@@ -1207,30 +900,26 @@ Expand into:
 
 (db-read 'curriculum
 	 :select #'(lambda (curriculum)
-		     (list
+		     (values
 		      (property curriculum #'id-of)
 		      (property curroculum #'name-of)
-		      (expression #'count (property curriculum #'version-of))))
+		      (expression
+		       (:count
+			(property curriculum #'version-of)))))
 	 :join #'(lambda (curriculum)
-		   (join (list
-			  (reference curriculum #'semesters-of)
-			  (reference curriculum #'subject-courses-of))
-			 :join #'(lambda (semester subject-course)
-				   (join
-				    (list
-				     (reference semester #'subject-parts-of)
-				     (reference subject-course #'course-parts-of))))))
-	 :where #'(lambda (curriculum)
-		    (expression #'eq
-				(reference curriculum #'direction-of)
-				direction))
+		   (join curriculum #'direction-of :alias direction))
+	 :where #'(lambda (curriculum &key direction)
+		    (declare (ignore curriculum))
+		    (expression
+		     (:eq (id-of direction) <direction-id>)))
 	 :fetch #'(lambda (curriculum)
-		    (fetch #'(lambda (subject-course semester)
-			       (values
-				(reference semester #'subject-parts-of)
-				(reference subject-course #'course-parts-of)))
-			   (reference curriculum #'subject-courses-of)
-			   (reference curriculum #'semesters-of))))
+		    (values
+		     (fetch curriculum #'semesters-of
+			    :fetch #'(lambda (semester)
+				       (fetch semester #'subject-parts-of)))
+		     (fetch curriculum #'subject-courses-of
+			    :fetch #'(lambda (subject-course)
+				       (fetch subject-course #'course-parts-of))))))
 
 ;; при запросе:
 1. Информация о наследовании
@@ -1248,180 +937,10 @@ Expand into:
 (<- value-mapping class-name slot-name columns deserializer serializer)
 (<- many-to-one class-name slot-name reference-class-name foreign-key)
 (<- one-to-many class-name slot-name reference-class-name foreign-key
-    deserializer serializer))
+    deserializer serializer)
     
 (?- (or (class-mapping class-name ?table-name)
-	(iheritance class-name ?superclass-name ?foreign-key))
-
-    
-    (
-
-;; without refernces
-'((test-class-1
-   ("test-table-1" "id"))
-  (test-class-2
-   ("test-table-2" "id"))
-  (test-class-3
-   ("test-table-3" "id")
-   ((test-class-1
-     ("test-table-1" "id"))
-    "test-class-1-id")
-   ((test-class-2
-     ("test-table-2" "id"))
-    "test-class-2-id"))
-  (test-class-4
-   ("test-table-4" "id")
-   ((test-class-3
-     ("test-table-3" "id"))
-    ((test-class-1
-      ("test-table-1" "id"))
-     "test-class-1-id")
-    ((test-class-2
-      ("test-table-2" "id"))
-     "test-class-2-id")
-    "id")))
-'((test-class-1
-   (value-slot-1 "value-1")
-   (value-slot-1 "value-2"))
-  (test-class-2)
-  (test-class-3)
-  (test-class-4))
-
-;; without refernces 2
-'(((test-class-1
-    ("test-table-1" "id"))
-   (value-slot-1 "value-1")
-   (value-slot-2 "value-2"))
-  ((test-class-2
-    ("test-table-2" "id")))
-  ((test-class-3
-    ("test-table-3" "id")
-    (((test-class-1
-       ("test-table-1" "id"))
-      (value-slot-1 "value-1")
-      (value-slot-2 "value-2"))
-     "test-class-1-id")
-    (((test-class-2
-       ("test-table-2" "id")))
-     "test-class-2-id"))
-   (value-slot-3 "value-3")
-   (value-slot-4 "value-4"))
-  ((test-class-4
-    ("test-table-4" "id")
-    (((test-class-3
-       ("test-table-3" "id")
-       (((test-class-1
-	  ("test-table-1" "id"))
-	 (value-slot-1 "value-1")
-	 (value-slot-2 "value-2"))
-	"test-class-1-id")
-       (((test-class-2
-	  ("test-table-2" "id")))
-	"test-class-2-id")))
-     "id"))
-   (value-slot-5 "value-5")
-   (value-slot-6 "value-6")))
-
-;; with references
-'((((test-class-1
-     ("test-table-1" "id")
-     (value-slot-1 "value-1")
-     (value-slot-1 "value-2"))
-    (one-to-many-slot-1
-     (test-class-3
-      ("test-table-3" "id")
-      ((test-class-1
-	("test-table-1" "id" ("id")))
-       "test-class-1-id")
-      ((test-class-2
-	("test-table-2" "id" ("id")))
-       "test-class-2-id")) "test-class-3-id"))
-   (many-to-one-slot-1
-    (test-class-4
-     ("test-table-4" "id")
-     (test-class-3
-      ("test-table-3" "id")
-      ((test-class-1
-	("test-table-1" "id"))
-       "test-class-1-id")
-      ((test-class-2
-	("test-table-2" "id"))
-       "test-class-2-id"))
-     "id") "test-class-4-id"))
-  (test-class-2
-   ("test-table-2" "id"))
-  (test-class-3
-   ("test-table-3" "id")
-   ((test-class-1
-     ("test-table-1" "id"))
-    "test-class-1-id")
-   ((test-class-2
-     ("test-table-2" "id"))
-    "test-class-2-id"))
-  (test-class-4
-   ("test-table-4" "id")
-   ((test-class-3
-     ("test-table-3" "id"))
-    ((test-class-1
-      ("test-table-1" "id" ("id")))
-     "test-class-1-id")
-    ((test-class-2
-      ("test-table-2" "id" ("id")))
-     "test-class-2-id"))
-   "id"))
-    
-'((test-class-1
-  ("test-table-1" "id")
-  (value-slot-1 "value-1")
-  (value-slot-1 "value-2")))
-
-;;(make-mapping-schema
-;; #'(lambda (schema)
-;;     (values
-;;      (map-class 'project "projects"
-;;		 :primary-key '("id")
-;;		 :slots #'(lambda (
-
-'(((test-class-1 ("test-table-1" "id"))
-   (test-class-2 ("test-table-2" "id"))
-   (test-class-3 ("test-table-3" "id")
-    ((test-class-1 ("test-table-1" "id")) "test-class-1-id")
-    ((test-class-2 ("test-table-2" "id")) "test-class-2-id"))
-   (test-class-4 ("test-table-4" "id")
-    (test-class-3 ("test-table-3" "id")
-		  ((test-class-1 ("test-table-1" "id")) "test-class-1-id")
-		  ((test-class-2 ("test-table-2" "id")) "test-class-2-id")))
-   (test-class-5 ("test_table_5" "id")))
-  ((test-class-1
-    (value-slot-1 "value-1")
-    (value-slot-1 "value-2"))
-   (test-class-2)
-   (test-class-3
-    (value-slot-1 "value-1" test-class-1)
-    (value-slot-1 "value-2" test-class-1))
-   (test-class-4
-    ((value-slot-1 "value-1") test-class-1)
-    ((value-slot-1 "value-2") test-class-1)))
-  ((test-class-5
-    (slot-1 (:many-to-one test-class-4 "test_class_4_id"))
-    (slot-2 (:one-to-many test-class-3 "test_class_4_id")))))
-
-  
-((test-class-1
-    (value-slot-1 "value-1")
-    (value-slot-1 "value-2"))
- (test-class-2
-  (many-to-one-slot :many-to-one
-		    (test-class-4
-		     "test-table-4"
-		     (test-class-3
-		      "test-table-3"
-		      ((test-class-1 "test-table-1")
-		       "test-class-1-id")
-		      ((test-class-2 "test-table-2")
-		       "test-class-2-id")))))
-   (test-class-3)
-   (test-class-4)))
+	(iheritance class-name ?superclass-name ?foreign-key)))
 
 (defun make-schema (class-mapping &rest class-mappings)
   (reduce #'(lambda (schema mapping-fn)
@@ -1488,665 +1007,17 @@ Expand into:
   #'(lambda (schema class-name serialize-fn deserialize-fn)
       schema))
 
-
-
 ;;  #'(lambda (schema class-name)
 ;;      (let ((class-mapping (assoc class-name schema)))
 ;;	(acons class-name
 ;	       
 ;;	       (remove class-name schema :key #'first)
 
-(define-schema test-mapping ()
-  (test-class
-   (("test-table" "id"))
-   ((id "id" "integer")))
-  (test-class-2
-   (("test_table_2" "id"))
-   ((id "id" "integer")))
-  (test-class-3
-   (("test_table_3" "test_class_1_id" "test_class_2_id")
-    (test-class-1 "test_class_1_id")
-    (test-class-2 "test_class_2_id")))
-  (test-class-4
-   (("test_table_4" "test_class_1_id")
-    (test-class-3 "test_class_1_id" "test_class_2_id")))
-  (test-class-5
-   (("test_table_5" "id"))
-   ((id "id" "integer"))))
-
-(define-schema projects-managment ()
-  (user
-   (("users" "id"))
-   (id (:value ("id" "uuid")))
-   (name (:value ("name" "varchar")))
-   (login (:value ("login" "varchar")))
-   (password (:value ("password" "varchar")))
-   (project-managments (:one-to-many project-managment "user_id")
-		       #'(lambda (&rest roles)
-			   (alexandria:alist-hash-table
-			    (mapcar #'(lambda (role)
-					(cons (project-of role) role))
-				    roles)))
-		       #'alexandria:hash-table-values)
-   (project-participations (:one-to-many project-managment "user_id")
-			   #'(lambda (&rest roles)
-			       (alexandria:alist-hash-table
-				(mapcar #'(lambda (role)
-					    (cons (project-of role) role))
-					roles)))
-			   #'alexandria:hash-table-values))
-  (project-participation
-   (("project_memebers" "project_id" "user_id"))
-   (project (:many-to-one project "project_id"))
-   (user (:many-to-one user "user_id")))
-  (project-managment
-   (("project_managers" "project_id" "user_id")
-    (project-participation "project_id" "user_id"))
-   (project-participation
-    (:many-to-one project-participation "project_id" "user_id")))
-  (project
-   (("projects" "id"))
-   (id (:value ("id" "uuid")))
-   (name (:value ("name" "varchar")))
-   (begin-date (:value ("begin_date" "date")))
-   (objects (:many-to-one project-root-object "project_id"))
-   (document-directories
-    (:many-to-one root-document-directory "project_id"))
-   (document-registrations
-    (:one-to-many document-registration "project_id")
-    #'(lambda (&rest registrations)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (registration)
-		     (cons (document-of registration)
-			   registration))
-		 registrations)))
-    #'alexandria:hash-table-values)
-   (project-members (:one-to-many project-member ("project_id"))
-		    #'(lambda (&rest roles)
-			(alexandria:alist-hash-table
-			 (mapcar #'(lambda (role)
-				     (cons (user-of role) role))
-				 roles)))
-		    #'alexandria:hash-table-values)))
-
-(defun compute-value-columns (&rest class-mappings)
-  (mapcar #'(lambda (mapping)
-	      (destructuring-bind (class-name
-				   ((table-name &rest primary-key)
-				    &rest superclasses)
-				   &rest slots)
-		  mapping
-		(list table-name
-		      (mapcar #'(lambda (value-mapping)
-				  (destructuring-bind
-					(slot-name
-					 (mapping-type &rest columns)
-					 &optional serialize-fn
-					 deserialize-fn)
-				      value-mapping
-				    columns))
-			      (remove-if-not #'(lambda (slot-mapping)
-						 (destructuring-bind
-						       (slot-name
-							(mapping-type &rest columns)
-							&optional serialize-fn
-							deserialize-fn)
-						     slot-mapping
-						   (eq mapping-type :value)))
-					     slots)))))
-	  class-mappings))
-
-(defun compute-many-to-one-columns (tables &rest class-mappings)
-  (mapcar #'(lambda (mapping)
-	      (destructuring-bind (class-name
-				   ((table-name &rest primary-key)
-				    &rest superclasses)
-				   &rest slots)
-		  mapping
-		(list table-name
-		      (mapcar #'(lambda (many-to-one-mapping)
-				  (destructuring-bind
-					(slot-name
-					 (mapping-type reference-class
-						       &rest columns)
-					 &optional serialize-fn
-					 deserialize-fn)
-				      (mapcar value-mapping
-				    columns))
-			      (remove-if-not #'(lambda (slot-mapping)
-						 (destructuring-bind
-						       (slot-name
-							(mapping-type reference-class
-								      &rest columns)
-							&optional serialize-fn
-							deserialize-fn)
-						     slot-mapping
-						   (eq mapping-type :many-to-one)))
-					     slots)))))
-	  class-mappings))
-
-
-
-(defun mapping-type (mapping)
-  (destructuring-bind
-	(slot-name (mapping-type columns &rest columns)
-		   &optional deserialize-fn serialize-fn)
-      mapping
-    (declare (ignore columns columns deserialize-fn serialize-fn))
-    mapping-type))
-
-(defun map-properties (function &rest slot-mappings)
-  (mapcar #'(lambda (mapping)
-	      (destructuring-bind
-		    (slot-name (mapping-type columns &rest columns)
-			       &optional deserialize-fn serialize-fn)
-		  mapping
-		(declare (ignore mapping-type))
-		(funcall function
-			 :slot-name slot-name
-			 :serialize-fn deserialize-fn
-			 :deserialize-fn deserialize-fn
-			 :columns (list* column columns))))
-	  (remove :property slot-mappings
-		  :key #'mapping-type
-		  :test-not #'eq)))
-
-(defun map-many-to-one (function &rest slot-mappings)
-  (mapcar #'(lambda (mapping)
-	      (destructuring-bind
-		    (slot-name
-		     (mapping-type class-name columns &rest columns)
-		     &optional deserialize-fn serialize-fn)
-		  mapping
-		(declare (ignore mapping-type))
-		(funcall function
-			 :slot-name slot-name
-			 :serialize-fn deserialize-fn
-			 :deserialize-fn deserialize-fn
-			 :columns (list* column columns)
-			 :class (find-class class-name))))
-	  (remove :many-to-one slot-mappings
-		  :key #'mapping-type
-		  :test-not #'eq)))
-
-(defun map-one-to-many (function &rest slot-mappings)
-  (mapcar #'(lambda (mapping)
-	      (destructuring-bind
-		    (slot-name
-		     (mapping-type class-name columns &rest columns)
-		     &optional deserialize-fn serialize-fn)
-		  mapping
-		(declare (ignore mapping-type))
-		(funcall function
-			 :slot-name slot-name
-			 :serialize-fn deserialize-fn
-			 :deserialize-fn deserialize-fn
-			 :columns (list* column columns)
-			 :class (find-class class-name))))
-	  (remove :one-to-many slot-mappings
-		  :key #'mapping-type
-		  :test-not #'eq)))
-
-
-  
-  ;;		   (destructuring-bind (class-name
-;;					((table-name &rest primary-key)
-;;					 &rest superclasses)
-;;					&rest slots)
-;;		       mapping
-;;		     (list class-name table-name)))
-;;	       mappings)
-;;      ,(apply #'compute-value-columns mappings))))
-      
-
-(define-schema test-schema ()
-  ("test_table_1"
-   ((test-class-1 "id"))
-   (id (:property ("id" "integer"))))
-  ("test_table_2"
-   ((test-class-2 "id"))
-   (id (:property ("id" "integer"))))
-  ("test_table_3"
-   ((test-class-3 "test_class_1_id" "test_class_2_id")
-    (test-class-1 "test_class_1_id")
-    (test-class-2 "test_class_2_id")))
-  ("test_table_4"
-   ((test-class-4 "test_class_1_id")
-    (test-class-3 "test_class_1_id" "test_class_2_id")))
-  ("test_table_5"
-   ((test-class-5  "id"))
-   (id (:property ("id" "integer")))))
-
-(define-schema projects-managment ()
-  (user
-   (("users" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (login (:property ("login" "varchar")))
-   (password (:property ("password" "varchar")))
-   (project-managments
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (project-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values)
-   (project-participations
-    (:one-to-many project-managment "user_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (project-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values))
-  (project-participation
-   (("project_memebers" "project_id" "user_id"))
-   (project (:many-to-one project "project_id"))
-   (user (:many-to-one user "user_id")))
-  (project-managment
-   (("project_managers" "project_id" "user_id")
-    (project-participation "project_id" "user_id")))
-  (project
-   (("projects" "id"))
-   (id (:property ("id" "uuid")))
-   (name (:property ("name" "varchar")))
-   (begin-date (:property ("begin_date" "date")))
-   (objects
-    (:many-to-one project-root-object "project_id"))
-   (document-directories
-    (:many-to-one root-document-directory "project_id"))
-   (document-registrations
-    (:one-to-many document-registration "project_id")
-    #'(lambda (&rest registrations)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (registration)
-		     (cons (document-of registration)
-			   registration))
-		 registrations)))
-    #'alexandria:hash-table-values)
-   (project-members
-    (:one-to-many project-member "project_id")
-    #'(lambda (&rest roles)
-	(alexandria:alist-hash-table
-	 (mapcar #'(lambda (role)
-		     (cons (user-of role) role))
-		 roles)))
-    #'alexandria:hash-table-values)))
-
-
-
-(defclass class-mapping ()
-  ((class-name :initarg :class-name :reader class-name-of)
-   (table-name :initarg :class-name :reader table-name-of)
-   (primary-key :initarg :foreign-key :reader foreign-key)))
-
-(defclass superclass-mapping ()
-  ((class-name :initarg :class-name :reader class-name-of)
-   (superclass-name :initarg :superclass-name :reader superclass-name-of)
-   (foreign-key :initarg :foreign-key :reader foreign-key)))
-
-(defclass slot-mapping ()
-  ((class-name :initarg :class-name
-	       :reader class-name-of)
-   (slot-name :initarg :class-name
-	      :reader slot-name-of)))
-
-(defclass value-mapping (slot-mapping)
-  ((columns :initarg :columns
-	    :reader columns-of)
-   (serializer :initarg :serializer
-	       :reader serializer-of)
-   (deserializer :initarg :deserializer
-		 :reader deserializer-of)))
-
-(defclass reference-mapping (slot-mapping)
-  ((referenced-class-name :initarg :referenced-class-name
-			  :reader referenced-class-name-of)
-   (foreign-key :initarg :foreign-key
-		:reader foreign-key-of)))
-
-(defclass many-to-one-mapping (reference-mapping)
-  ())
-
-(defclass one-to-many-mapping (reference-mapping)
-  ((serializer :initarg :serializer
-	       :reader serializer-of)
-   (deserializer :initarg :deserializer
-		 :reader deserializer-of)))
-
-(defvar *superclass-primary-key*)
-(defvar *subclass-alias*)
-
-(define-query select (from-clause)
-  (root
-   (let ((alias (make-alias)))
-     (lisp*
-      (list :from table-name :as alias)
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append superclasses subclasses))
-  (subclasses
-   (let ((alias (make-alias)))
-     (lisp*
-      (list :left-join table-name :as alias
-	    :on (pairlis *superclass-primary-key*
-			 (apply #'append-alias alias foreign-key)))
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append
-	 (superclasses)
-	 (subclasses))))))
-  (superclasses
-   (let ((alias (make-alias)))
-     (lisp*
-      (list :inner-join table-name :as alias
-	    :on (pairlis
-		 (apply #'append-alias alias foreign-key)
-		 (apply #'append-alias *subclass-alias* primary-key)))
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append
-	 (superclasses)
-	 (subclasses)))))))
-
-(defun select (class-mapping)
-  (destructuring-bind (table-name)
-  #'(lambda (alias-fn)
-      (values
-       (:from table-name :as (funcall alias-fn))))))
-
-
-  
-(define-query select (select-list from-clause)
-  (root
-   ((*subclass-alias* (make-alias))
-    ((table-name primary-key)
-    
-   
-   (superclass-mappings subclass-mappings))
-  (superclass-mappings
-   ((*subclass-alias* (make-alias)))
-   (superclass-mapping superclass-mappings))
-  (subclass-mappings
-   ((*subclass-alias* (make-alias)))
-   (subclass-mapping subclass-mappings))
-  (superclass-mapping
-   ())
-  (subclass-mapping))
-  
-   (let ((alias (make-alias)))
-     
-     (lisp*
-      (list :from table-name :as alias)
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append superclasses subclasses))
-  (subclasses
-   (let ((alias (make-alias)))
-     (lisp*
-      (list :left-join table-name :as alias
-	    :on (pairlis *superclass-primary-key*
-			 (apply #'append-alias alias foreign-key)))
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append
-	 (superclasses)
-	 (subclasses))))))
-  (superclasses
-   (let ((alias (make-alias)))
-     (lisp*
-      (list :inner-join table-name :as alias
-	    :on (pairlis
-		 (apply #'append-alias alias foreign-key)
-		 (apply #'append-alias *subclass-alias* primary-key)))
-      (let ((*subclass-alias* alias)
-	    (*superclass-primary-key*
-	     (apply #'append-alias alias primary-key)))
-	(append
-	 (superclasses)
-	 (subclasses)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-
-(defun select (arg &rest args)
-  (optima:match arg
-    ((property :class-name class-name))
-    ()))
-
-(define-query select
-    ((select-list (list))
-     (from-clause (list))
-     (unique-table-index 0))
-  ((:class-name class-name) ;; (property :class-name class-name)
-   ((:select-list select-list)
-    (:from-clause from-clause)
-    (:alias (make-alia))))
-  ((:table-name table-name)
-   ((list* (list :from ) from-clasuse  format from-clause "FROM ")))
-  ((:table-name table-name)
-   #'(lambda (&key alias &allow-other-keys)
-       (format from-clause "~a AS ~a~% " table-name)))
-  ((:primary-key primary-key))
-  ((:superclass-name superclass-name)
-   (:subclass-alias alias)
-   (:alias (make-alias))
-   #'(lambda (&key &allow-other-keys)
-       (format from-clause "INNER JOIN ")))
-  ((:superclass-foreign-key foreign-key)))
-
-
-Structure of a Query
-
-Simple Expressions
-
-(with-session ((:session-type postgresql-session)
-	       (:connection-args connection-args)
-	       (:mapping-schema mapping-name))
-  (db-read 'cat))
-
-IList<Cat> cats =
-    session.QueryOver<Cat>()
-        .Where(c => c.Name == "Max")
-
-(db-read 'cat
-	 :where #'(lambda (cat)
-		    (expression-eq cat #'name-of "Max")))
-
-Additional Restrictions
-
-var catNames = session.QueryOver<Cat>()
-        .WhereRestrictionOn(c => c.Age).IsBetween(2).And(8)
-        .Select(c => c.Name)
-        .OrderBy(c => c.Name).Asc
-        .List<string>();
-
-(db-read 'cat
-	 :select #'(lambda (cat)
-		     (list (property-of cat #'name-of)))
-	 :where #'(lambda (cat)
-		    (expression-between cat #'age-of 2 8))
-	 :order-by #'(lambda (cat)
-		       (ascending cat #'name-of)))
-
-var cats =
-    session.QueryOver<Cat>()
-        .Where(c => c.Name == "Max")
-        .And(c => c.Age > 4)
-        .List();
-
-(db-read 'cat
-	 :where #'(lambda (cat)
-		    (list
-		     (expression-more root #'age-of 8)
-		     (expression-eq root #'name-of "Max"))))
-
-Associations
-
-IQueryOver<Cat,Kitten> catQuery =
-    session.QueryOver<Cat>()
-        .JoinQueryOver(c => c.Kittens)
-            .Where(k => k.Name == "Tiddles");
-
-(db-read 'cat
-	 :alias #'(lambda (cat)
-		    (alias cat :cat))
-	 :join #'(lambda (&key cat)
-		   (join-reference cat #'kittens-of :kitten))
-	 :where #'(lambda (&key kitten &allow-other-keys) ;; cat
-		    (expression-eq kitten #'name-of "Tiddles")))
-
-Projections
-
-IList selection =
-    session.QueryOver<Cat>()
-        .Select(
-            c => c.Name,
-            c => c.Age)
-        .List<object[]>();
-
-(db-read 'cat :select #'(lambda (cat)
-			  (list
-			   (property-of cat #'age-of)
-			   (property-of cat #'name-of))))
-
-IList selection =
-    session.QueryOver<Cat>()
-        .Select(Projections.ProjectionList()
-            .Add(Projections.Property<Cat>(c => c.Name))
-            .Add(Projections.Avg<Cat>(c => c.Age)))
-        .List<object[]>();
-
-(db-read 'cat :select #'(lambda (cat)
-			  (list
-			   (property-of cat #'name-of)
-			   (projection-avg cat #'age-of))))
-
-Subqueries (no subqueries)
-
-QueryOver<Cat> maximumAge =
-    QueryOver.Of<Cat>()
-        .SelectList(p => p.SelectMax(c => c.Age));
-
-IList<Cat> oldestCats =
-    session.QueryOver<Cat>()
-        .WithSubquery.WhereProperty(c => c.Age).Eq(maximumAge)
-        .List();
-
-(db-read 'cat :having #'(lambda (cat)
-			  (property-more-than cat #'age-of
-					      (projection-max cat #'age-of))))
-
-Limit, offset
-
-(db-read 'cat :limit 100 :offset 100)
-
-Fetching
-
-(db-read 'cat
-	 :fetch #'(lambda (cat)
-		    (fetch cat #'kittens-of)))
-
-Single instance
-
-(db-read 'cat :single t
-	 :where (lambda (cat)
-		  (expression-eq cat #'id-of 35)))
-
-
-(db-read '(commit commit)
-	 :join #'(lambda (commit-1 commit-2)
-		   (values (join commit-1 #'branch-of)
-			   (join commit-2 #'branch-of)))
-	 :select #'(lambda (commit-1 commit-2 branch-1 branch-2)
-		     (declare (ignore branch-1 branch-2))
-		     (db-or commit-1 commit-2))
-	 :where #'(lambda (commit-1 commit-2 branch-1 branch-2)
-		    (declare (ignore branch-1 branch-2))
-		    (db-and
-		     (slot-eq commit-1 #'branch-of branch-1)
-		     (slot-eq commit-2 #'branch-of branch-2)
-		     (db-not (db-eq commit-1 commit-2))))
-	 :order-by #'(lambda (commit)
-		       (ascending commit #'date-of)))
-
-Или
-
-(db-read '(branch-1 branch-2)
-	 :join #'(lambda (branch-1 branch-2)
-		   (values
-		    (join branch-1 #'commit-of
-			  :recursive #'parent-commit-of)
-		    (join branch-2 #'commit-of
-			  :recursive #'parent-commit-of)))
-	 :select #'(lambda (branch-1 branch-2 commit-1 commit-2)
-		     (declare (ignore branch-1 branch-2))
-		     (commit-1 commit-2))
-	 :where #'(lambda (branch-1 branch-2 commit-1 commit-2)
-		    (db-and
-		     (slot-eq commit-1 #'branch-of branch-1)
-		     (slot-eq commit-2 #'branch-of branch-2)
-		     (db-not (db-eq commit-1 commit-2))))
-	 :order-by #'(lambda (commit)
-		       (ascending commit #'date-of))))
-;;; ?????
-
 (define-session postgresql ()
   (:open-connection #'open-database)
   (:close-connection #'close-database)
   (:prepare #'prepare)
   (:exec-prepared #'exec-prepared))
-
-(defclass property ()
-  ((slot-name)
-   (column-name)
-   (column-type)))
-
-(define-class-mapping cat (("cats" "id"))
-  (kittens (:sequnce
-	    (:many-to-many
-	     (:class kitten)
-	     (:table "kittens")
-	     (:foreign-key "parent_id"))
-	    (:serialize #'list)
-	    (:deserialize #'list))))
-
-;; same as 
-(define-class-mapping cat (("cats" "id"))
-  (kittens
-   (:list
-    (:one-to-many
-     (:class kitten)
-     (:foreign-key "parent_id")))))
-
-;; 
-
-(define-class-mapping cat-mapping
-    (cat (("cats" "id")))
-  (parent (:many-to-one
-	   (:class cat)
-	   (:foreign-key "parent_id")
-	   (:not-null t)))
-  (kittens (:hash-table
-	    (:key
-	     (:many-to-one
-	      (:class cat)
-	      (:foreign-key "id")))
-	    (:value
-	     (:one-to-many
-	      (:class kitten)
-	      (:foreign-key "parent_id"))))))
-
-(defgeneric serialize (objects))
-
-(defmethod serialize ((objects list))
-  objects)
-
-(defmethod serialize ((objects hash-table))
-  (alexandria:hash-table-values objects))
 
 (define-mapping (user ("users" "id"))
     ((:id (:column "id" "uuid")
@@ -2252,111 +1123,6 @@ Single instance
 	  project)
       #'project-participations-of))
   (allocate-instance 'project))
-
-;; OR
-
-(define-mapping (user ("users" "id"))
-    (allocate-instance 'user)
-  (((:column "id" "uuid")
-    #'(lambda (user id)
-	(setf (slot-value user 'id) id)
-	user)
-    #'id-of)
-   ((:column "name" "varchar")
-    #'(lambda (user name)
-	(setf (slot-value user 'name) name)
-	user)
-    #'name-of)
-   ((:column "login" "varchar")
-    #'(lambda (user login)
-	(setf (slot-value user 'login)
-	      login)
-	user)
-    #'login-of)
-   ((:column "password" "varchar")
-    #'(lambda (user password)
-	(setf (slot-value user 'password)
-	      password)
-	user)
-    #'password-of)
-   ((:one-to-many project-managment "user_id")
-    #'(lambda (user &rest roles)
-	(setf
-	 (slot-value user 'project-managments)
-	 (alexandria:alist-hash-table
-	  (mapcar #'(lambda (role)
-		      (cons (project-of role)
-			    role))
-		  roles)))
-	user)
-    #'project-managments-of)
-   ((:one-to-many project-participation "user_id")
-    #'(lambda (&rest roles)
-	(setf
-	 (slot-value user 'project-participations)
-	 (alexandria:alist-hash-table
-	  (mapcar #'(lambda (role)
-		      (cons (project-of role) role))
-		  roles)))
-	user)
-    #'project-participations-of)))
-
-(define-mapping (project-participation
-		 ("project-participations" "user_id" "project_id"))
-    (allocate-instance 'project-participation)
-  (((:many-to-one project "project_id")
-    #'(lambda (project-participation project)
-	(setf (slot-value project-participation 'project)
-	      project)
-	project-participation)
-    #'project-of)
-   ((:many-to-one user "user_id")
-    #'(lambda (project-participatio user)
-	(setf (slot-value project-participation 'user)
-	      user)
-	project-participation)
-    #'user-of)))
-
-(define-mapping (project-managment
-		 ("project-participations" "user_id" "project_id")
-		 (project-participation "user_id" "project_id"))
-    (allocate-instance 'project-managment))
-		  
-(define-mapping (project ("projects" "id"))
-    (allocate-instance 'project)
-  (((:column "id" "uuid")
-    #'(lambda (user id)
-	(setf (slot-value user 'id) id)
-	user)
-    #'id-of)
-   ((:column "name" "varchar")
-    #'(lambda (user name)
-	(setf (slot-value user 'name) name)
-	user)
-    #'name-of)
-   ((:one-to-many project-managment "project_id")
-    #'(lambda (project &rest roles)
-	(setf
-	 (slot-value project 'project-managments)
-	 (alexandria:alist-hash-table
-	  (mapcar #'(lambda (role)
-		      (cons (project-of role) role))
-		  roles)))
-	project)
-    #'project-managments-of)
-   ((:one-to-many project-participation "project_id")
-    #'(lambda (project &rest roles)
-	(setf
-	 (slot-value project 'project-participations)
-	 (alexandria:alist-hash-table
-	  (mapcar #'(lambda (role)
-		      (cons (project-of role) role))
-		  roles)))
-	project)
-    #'project-participations-of)))
-
-;; rotate mapping and allocation
-
 
 (define-mapping (map-name
 		 ("table-name" "primary" "key")
@@ -2468,75 +1234,57 @@ Single instance
 
 ;; class tree-node (left-node right-node)
 
-(db-read 'tree-node
-	 :fetch #'(lambda (tree-node)
-		    (values
-		     (fetch-reference #'left-node-of tree-node
-				      :recursive #'(lambda (tree-node)
-						     (values
-						      (fetch-refence #'left-node-of tree-node)
-						      (fetch-reference #'right-node-of tree-node))))
-		     (fetch-reference #'right-node-of tree-node
-				      :recursive #'(lambda (tree-node)
-						     (values
-						      (fetch-refence #'left-node-of tree-node)
-						      (fetch-reference #'right-node-of
-								       tree-node)))))))
-
 (db-read 'tree-node :fetch ;; recursive-join
 	 #'(lambda (tree-node)
 	     (values
-	      (fetch tree-node #'left-node-of :recursive tree-node)
-	      (fetch tree-node #'right-node-of :recursive tree-node))))
+	      (fetch tree-node #'left-node-of
+		     :recursive #'(lambda (left-node)
+				    (expression
+				     (:eq
+				      (id-of left-node)
+				      (id-of tree-node)))))
+	      (fetch tree-node #'right-node-of
+		     :recursive #'(lambda (right-node)
+				    (expression
+				     (:eq (id-of tree-node)
+					  (id-of right-node))))))))
 
 (let ((property-id <id>))
-  (db-read 'proprty-change ;; узелы которые хранять имзенения свойств
+  (db-read 'proprty-change ;; узелы которые хранят изменения свойств
 	   :join #'(lambda (property-change)
-		     (join property-change #'property-of))
-	   :where #'(lambda (property-change property)
-		      (eq (property property #'id-of) property-id)))) => все изменения свойства, какие только есть
+		     (join property-change #'property-of :alias :property))
+	   :where #'(lambda (property-change &key property)
+		      (expression
+		       (:eq (id-of property) property-id)))))
+ => все изменения свойства, какие только есть
 
-(let ((property-id <id>)
-      (commit-id <id>))
-  (db-read 'commit ;; (подкласс commit)
-	   :join #'(lambda (commit)
-		     (join commit #'property-values :property-values-root
-			   :join #'(lambda (tree-node)
-				     (join tree-node
-					  (eq (reference last-commit
-							 #'left-node-of)
-					      tree-node)
-					  (eq (reference tree-node
-							 #'right-node-of)
-					      tree-node))))
-		     :join #'(lambda (commit)
-				     (join property-value
-					   #'property-of
-					   :property))))
-	   :where #'(lambda (property-change &key property-value property)
-		      (declare (ignore (property-change property-value)))
-		      (values
-		       (eq (property property-change #'id-of) commit-id)
-		       (eq (property property #'id-of) property-id)))
-	   :select #'(lambda (property-change &key property-value property)
-		       (declare (ignore (property-change property)))
-		       property-value))) => ;; должен вернуть значение свойства
-	   
 ;; recursive fetching
 	 
-(let ((property-id <id>)
-      (commit-id <id>))
+(let ((commit-id <id>))
   (db-read 'commit
 	   :where #'(lambda (commit)
-		      #Q(eq (property commit #'id-of) commit-id))
+		      (expression
+		       (:eq (id-of commit) commit-id)))
 	   :fetch #'(lambda (commit)
 		     (fetch commit #'property-values-root
 			    :fetch #'(lambda (tree-node)
 				       (values
+					(fetch tree-node #'property-value
+					       :fetch #'(lambda (property-value)
+							  (fetch property-value
+								 #'property-of)))
 					(fetch tree-node #'left-node-of
-					       :recursive tree-node)
+					       :recursive #'(lambda (left-node)
+							      (expression
+							       (:eq
+								(id-of left-node)
+								(id-of tree-node)))))
 					(fetch tree-node #'right-node-of
-					       :recursive tree-node)))))))
+					       :recursive #'(lambda (right-node)
+							      (expression
+							       (:eq
+								(id-of right-node)
+								(id-of tree-node)))))))))))
 
 ;; recursive joining
 
@@ -2592,77 +1340,126 @@ Single instance
 							       (id-of right-node)))))))))
 	   :where #'(lambda (commit &key value object-property property-of-value)
 		      (declare (ignore property-of-value))
-		      #Q(and (eq (id-of commit) <commit-id>)
-			     (eq (id-of property)
-				 (id-of object-property))))
+		      (expression
+		       (:and
+			(:eq (id-of commit) <commit-id>)
+			(:eq (id-of property)
+			     (id-of object-property)))))
 	   :select #'(lambda (commit &key value object-property property-of-value)
 		       (declare (ignore commit object-property property-of-value))
 		       (list property property-value))))
 
 ;; recursive joining 2
-(defun query-properites (commit-id object-id)
-  (db-read 'comment 
-	   :join #'(lambda (commit)
-		     (values
-		      (join commit #'property-values-tree-of
-			    :alias :property-value-node
-			    :join #'(lambda (tree-node)
-				      (values
-				       (join tree-node #'property-value
-					     :join #'(lambda (property-value)
-						       (join property-value #'property-of
-							     :alias :property-of-value)))
-				       (join tree-node #'left-node-of
-					     :recursive #'(lambda (left-node)
-							    #Q(eq
-							       (id-of tree-node)
-							       (id-of left-node))))
-				       (join tree-node #'right-node-of
-					     :recursive #'(lambda (right-node)
-							    #Q(eq
-							       (id-of tree-node)
-							       (id-of right-node)))))))
-		      (join commit #'properties-tree-of
-			    :join #'(lambda (tree-node)
-				      (values
-				       (join tree-node #'object-properties-of
-					     :join #'(lambda (object-property-node)
-						       (values
-							(join object-property #'object-of
-							      :alias :object)
-							(join object-property-node #'next-node-of
-							      :recursive #'(lambda (next-node)
-									     #Q(eq
-										(id-of object-property-node)
-										(id-of next-node)))
-							      :join #'(lambda (property-node)
-									(join property-node #'property-of
-									      :alias :object-property))))))
-				       (join tree-node #'left-node-of
-					     :recursive #'(lambda (left-node)
-							    #Q(eq
-							       (id-of tree-node)
-							       (id-of left-node))))
-				       (join tree-node #'right-node-of
-					     :recursive #'(lambda (right-node)
-							    #Q(eq
-							       (id-of tree-node)
-							       (id-of right-node)))))))))
-	   :aux #'(lambda (commit &key value object-property property-of-value) ;; same as where but pass to WHERE condition of WITH clause
-		    (declare (ignore value object-property property-of-value))
-		    #Q(eq (id-of commit) commit-id))
-	   :where #'(lambda (commit &key value object-property property-of-value)
-		      (declare (ignore property-of-value))
-		      #Q(and
-			 (eq (id-of property-of-value)
-			     (id-of object-property))
-			 (eq (id-of object) <object-id>)))
-	   :select #'(lambda (commit &key value object-property property-of-value)
-		       (declare (ignore commit object-property property-of-value))
-		       (values property value))))
+(db-read 'comment 
+	 :aux #'(lambda (commit &key value object-property property-of-value) ;; same as where but pass to WHERE condition of WITH clause
+		  (declare (ignore value object-property property-of-value))
+		  #Q(eq (id-of commit) commit-id))
+	 :where #'(lambda (commit &key value object-property property-of-value)
+		    (declare (ignore property-of-value))
+		    #Q(and
+		       (eq (id-of property-of-value)
+			   (id-of object-property))
+		       (eq (id-of object) <object-id>)))
+	 :select #'(lambda (commit &key value object-property property-of-value)
+		     (declare (ignore commit object-property property-of-value))
+		     (values property value))
+	 :join #'(lambda (commit)
+		   (values
+		    (join commit #'property-values-tree-of
+			  :alias :property-value-node
+			  :join #'(lambda (tree-node)
+				    (values
+				     (join tree-node #'property-value
+					   :join #'(lambda (property-value)
+						     (join property-value #'property-of
+							   :alias :property-of-value)))
+				     (join tree-node #'left-node-of
+					   :recursive #'(lambda (left-node)
+							  (expression #'eq
+							    (id-of tree-node)
+							    (id-of left-node))
+							  #E(eq
+							     (id-of tree-node)
+							     (id-of left-node))))
+				     (join tree-node #'right-node-of
+					   :recursive #'(lambda (right-node)
+							  #E(eq
+							     (id-of tree-node)
+							     (id-of right-node)))))))
+		    (join commit #'properties-tree-of
+			  :join #'(lambda (tree-node)
+				    (values
+				     (join tree-node #'object-properties-of
+					   :join #'(lambda (object-property-node)
+						     (values
+						      (join object-property #'object-of
+							    :alias :object)
+						      (join object-property-node #'next-node-of
+							    :recursive #'(lambda (next-node)
+									   #Q(eq
+									      (id-of object-property-node)
+									      (id-of next-node)))
+							    :join #'(lambda (property-node)
+								      (join property-node #'property-of
+									    :alias :object-property))))))
+				     (join tree-node #'left-node-of
+					   :recursive #'(lambda (left-node)
+							  #Q(eq
+							     (id-of tree-node)
+							     (id-of left-node))))
+				     (join tree-node #'right-node-of
+					   :recursive #'(lambda (right-node)
+							  #Q(eq
+							     (id-of tree-node)
+							     (id-of right-node))))))))))))))))))))))))
 
-;; нужно определить функции и разделить выражение
-	 
-(define-expression and
-    (left-expression right-expression &rest rest-expressions)
-  
+WITH RECURSIVE parent (pid, id, node_value, left_node_id, right_node_id) AS (
+     SELECT tree_nodes.id, tree_nodes.id, tree_nodes.node_value,
+     	    left_nodes.tree_node_id, right_nodes.tree_node_id
+       FROM tree_nodes
+  LEFT JOIN left_nodes
+         ON left_nodes.id = tree_nodes.id
+  LEFT JOIN right_nodes
+         ON right_nodes.id = tree_nodes.id
+      UNION ALL
+     SELECT chidlren.id, tree_nodes.id, tree_nodes.node_value,
+     	    left_nodes.tree_node_id, right_nodes.tree_node_id
+       FROM children, tree_nodes
+  LEFT JOIN left_nodes
+         ON left_nodes.id = tree_nodes.id
+  LEFT JOIN right_nodes
+         ON right_nodes.id = tree_nodes.id
+      WHERE tree_nodes.id = parent.left_node_id
+         OR tree_nodes.id = parent.right_node_id);
+
+(defclass car ()
+  (car))
+
+(defclass cons (value)
+  (cdr))
+
+(db-read 'car
+	 :where #'(lambda (car)
+		    (expression (:eq (id-of car) 1)))
+	 :fetch #'(lambda (car)
+		    (fetch car #'cdr :recursive
+			   #'(lambda (next-node)
+			       (expression
+				 (:eq (id-of car)
+				      (id-of next-node)))))))
+
+(db-read 'tree-node
+	 :where #'(lambda (node)
+		    (expression (:eq (id-of node) 1)))
+	 :fetch #'(lambda (node)
+		    (values
+		     (fetch node #'left-node
+			    :recursive #'(lambda (left-node)
+					  (expression
+					    (:eq (id-of left-node)
+						 (id-of node)))))
+		     (fetch node #'right-node
+			    :recursive #'(lambda (right-node)
+					   (expression
+					     (:eq (id-of right-node)
+						  (id-of node))))))))
