@@ -308,12 +308,9 @@ Macro:
 
 Function:
 
-(db-read 'cat :where #'(lambda (root)
-			 (expression
-			  (:eq (property root #'name-of) "Max"))))
-
-(db-read 'cat :where (expression (root)
-		       (:eq (property root #'name-of) "Max")))
+(db-read 'cat :where #'(lambda (cat)
+			 (restrict
+			  (property root #'name-of) :equal "Max")))
 
 Additional Restrictions
 
@@ -337,18 +334,11 @@ var catNames = session.QueryOver<Cat>()
 	 :select #'(lambda (cat)
 		     (property cat #'name-of))
 	 :where #'(lambda (cat)
-		    (expression
-		     (:between (property cat #'age-of) 2 8)))
+		     (restrict (property cat #'age-of)
+			       :more-than-or-equal 2
+			       :less-than-or-equal 8))
 	 :order-by #'(lambda (cat)
 		       (ascending (property cat #'name-of))))
-
-(db-read 'cat
-	 :select (expression (cat)
-		   (property cat #'name-of))
-	 :where (expression (cat)
-		  (:between (property cat #'age-of) 2 8))
-	 :order-by (expression (cat)
-		     (:ascending (property cat #'name-of))))
 
 var cats =
     session.QueryOver<Cat>()
@@ -364,15 +354,19 @@ var cats =
 
 (get-cats "Max" 4)
 
-(db-read 'cat :where #'(lambda (root)
-			 (expression
-			  (:and
-			   (:eq (property root #'name-of) "Max")
-			   (:> (property root #'age-of) 8)))))
+(db-read 'cat :where #'(lambda (cat)
+			 (conjunction
+			  (restrict
+			   (property root #'name-of) :equal "Max")
+			  (restrict
+			   (property root #'age-of) :more-than-or-equal 8))))
 
-(db-read 'cat :where (expressions (root)
-		       (:eq (property root #'name-of) "Max")
-		       (:> (property root #'age-of) 8)))
+(db-read 'cat :where #'(lambda (cat)
+			 (values
+			  (restrict
+			   (property root #'name-of) :equal "Max")
+			  (restrict
+			   (property root #'age-of) :more-than-or-equal 8))))
 
 Associations
 
@@ -385,8 +379,8 @@ IQueryOver<Cat,Kitten> catQuery =
 	 :join #'(lambda (cat)
 		   (join cat #'kittens-of :alias :kitten))
 	 :where #'(lambda (cat &key kitten)
-		    (expression
-		     (:eq (property kitten #'name-of) "Tiddles"))))
+		     (restrict
+		      (property kitten #'name-of) :equal "Tiddles")))
 
 => (list cat kitten)
 
@@ -417,11 +411,6 @@ IList selection =
 			  (values
 			   (property cat #'name-of)
 			   (property cat #'age-of))))
-
-(db-read 'cat :select (expressions (cat)
-			(property cat #'name-of)
-			(property cat #'age-of)))
-
 IList selection =
     session.QueryOver<Cat>()
         .Select(Projections.ProjectionList()
@@ -437,11 +426,7 @@ IList selection =
 (db-read 'cat :select #'(lambda (cat)
 			  (values
 			   (name-of cat)
-			   (:avg (age-of cat)))))
-
-(db-read 'cat :select (expressions (cat)
-			(name-of cat)
-			(:avg (age-of cat))))
+			   (aggregation 'avg (age-of cat)))))
 
 Subqueries
 
@@ -463,14 +448,13 @@ IList<Cat> oldestCats =
     (:max
      (age-of max-age-cat)))))
 
-(db-read '(cat cat) :having #'(lambda (cat max-age-cat)
-				(expression
-				 (:eq (property cat #'age-of)
-				      (:max (property max-age-cat #'age-of))))))
-
-(db-read '(cat cat) :having (expressions (cat max-age-cat)
-			      (:eq (property cat #'age-of)
-				   (:max (property max-age-cat #'age-of)))))
+(db-read '(cat cat)
+	 :having #'(lambda (cat max-age-cat)
+		     (let ((max-age
+			    (agggregation
+			     (property max-age-cat #'age-of))))
+		       (restrict
+			(property cat #'age-of) :equal max-age))))
 
 Limit, offset
 
@@ -494,11 +478,10 @@ Single instance
   (:where (:eq (id-of cat) 35))
   (:single t))
 
-(db-read 'cat
+(db-read 'cat :singlep t
 	 :where (lambda (cat)
-		  (expression
-		   (:eq (property-of cat #'id-of) 35)))
-	 :single t)
+		  (restrict
+		   (property-of cat #'id-of) :equal 35)))
 
 ;; Проблема рекурсивных ключей. Идентификатор объекта не может
 ;; идентифицироваться в дереве своим родителем. В противном случае
@@ -559,11 +542,20 @@ IList cats = sess.CreateCriteria(typeof(Cat))
     .List();
 
 (db-read 'cat :where #'(lambda (cat)
-			 (expression
-			  (:and
-			   (:like (name-of cat) "Fritz%")
-			   (:between (weignt-of cat)
-				     min-weight max-weight)))))
+			 (values
+			  (restrict
+			   (property cat #'name-of) :like "Fritz%")
+			  (restrict (property cat #'weignt-of)
+				    :more-than-or-equal min-weight
+				    :less-than-or-equal max-weight))))
+
+(db-read 'cat :where #'(lambda (cat)
+			 (conjunction
+			  (restrict
+			   (property cat #'name-of) :like "Fritz%")
+			  (restrict (property cat #'weignt-of)
+				    :more-than-or-equal min-weight
+				    :less-than-or-equal max-weight))))
 
 IList cats = sess.CreateCriteria(typeof(Cat))
     .Add(Expression.Like("Name", "Fritz%"))
@@ -572,11 +564,14 @@ IList cats = sess.CreateCriteria(typeof(Cat))
         Expression.IsNull("Age"))).List();
 
 (db-read 'cat :where #'(lambda (cat)
-			 (expression
-			  (:like (name-of cat) "Fritz%")
-			  (:or
-			   (:eq (age-of cat) 0)
-			   (:null (age-of cat))))))
+			 (conjunction
+			  (restrict
+			   (property cat #'name-of) :like "Fritz%")
+			  (disjunction
+			   (restrict
+			    (property cat #'age-of) :equal 0)
+			   (restrict
+			    (property cat #'age-of) :is #'null)))))
 
 IList cats = sess.CreateCriteria(typeof(Cat))
     .Add( Expression.In( "Name", new String[] { "Fritz", "Izi", "Pk" } ) )
@@ -589,11 +584,18 @@ IList cats = sess.CreateCriteria(typeof(Cat))
     .List();
 
 (db-read 'cat :where (lambda (cat)
-		       (expression
-			(:member (name-of cat) "Fritz" "Izi" "Pk")
-			(:or
-			 (:eq (age-of cat) 0)
-			 (:null (age-of cat))))))
+		       (conjunction
+			(restrict (property cat #'name-of)
+				  :member (list "Fritz" "Izi" "Pk"))
+			(disjunction
+			 (restrict
+			  (property cat #'age-of) :null t)
+			 (restrict
+			  (property cat #'age-of) :equal 0)
+			 (restrict
+			  (property cat #'age-of) :equal 1)
+			 (restrict
+			  (property cat #'age-of) :equal 2)))))
 
 ;; биарные операции применимы только для значений схожего типа
 ;; унарные применимы только для одного значения или выражения
@@ -1234,37 +1236,31 @@ Expressions
 
 ;; class tree-node (left-node right-node)
 
-(db-read 'tree-node :fetch ;; recursive-join
+(db-read 'tree-node :fetch ;; recursive-fetch
 	 #'(lambda (tree-node)
 	     (values
 	      (fetch tree-node #'left-node-of
-		     :recursive #'(lambda (left-node)
-				    (expression
-				     (:eq
-				      (id-of left-node)
-				      (id-of tree-node)))))
+		     :recursive tree-node)
 	      (fetch tree-node #'right-node-of
-		     :recursive #'(lambda (right-node)
-				    (expression
-				     (:eq (id-of tree-node)
-					  (id-of right-node))))))))
+		     :recursive tree-node))))
+;; все дерево
 
 (let ((property-id <id>))
   (db-read 'proprty-change ;; узелы которые хранят изменения свойств
 	   :join #'(lambda (property-change)
 		     (join property-change #'property-of :alias :property))
 	   :where #'(lambda (property-change &key property)
-		      (expression
-		       (:eq (id-of property) property-id)))))
- => все изменения свойства, какие только есть
+		      (restrict
+		       (property property #'id-of) :equal property-id))))
+;; все изменения свойства, какие только есть
 
 ;; recursive fetching
 	 
 (let ((commit-id <id>))
   (db-read 'commit
 	   :where #'(lambda (commit)
-		      (expression
-		       (:eq (id-of commit) commit-id)))
+		      (restrict
+		       (property commit #'id-of) :equal commit-id))
 	   :fetch #'(lambda (commit)
 		     (fetch commit #'property-values-root
 			    :fetch #'(lambda (tree-node)
@@ -1275,10 +1271,10 @@ Expressions
 								 #'property-of)))
 					(fetch tree-node #'left-node-of
 					       :recursive #'(lambda (left-node)
-							      (expression
-							       (:eq
-								(id-of left-node)
-								(id-of tree-node)))))
+							      (restrict
+							       (property left-node #'id-of)
+							       :equal
+							       (property tree-node #'id-of))))
 					(fetch tree-node #'right-node-of
 					       :recursive #'(lambda (right-node)
 							      (expression
