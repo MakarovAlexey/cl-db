@@ -394,33 +394,27 @@
 (defun descending (arg)
   (make-instance 'descending :arg arg))
 
-(defclass selection () ;; SELECT FROM
-  ((select-list)))
+(defclass query ()
+  ((select-list :initarg :seleect-list
+		:reader select-list-of)
+   (where-clause :initarg :where-clause
+		 :reader where-clause-of)
+   (having-clause :initarg :having-clause
+		  :reader having-clause-of)
+   (order-by-clause :initarg :order-by-clause
+		    :reader order-byclause-of)
+   (limit :initarg :limit
+	  :reader limit-of)
+   (offset :initarg :offset
+	   :reader offset-of)))
 
-(defclass recursive-selection (selection) ;; WITH
-  ((aux-clause)
-   (recursive-clause)))
-
-(defclass filtering () ;; WHERE
-  ((where-clause)))
-
-(defclass grouping () ;; GROUP BY
-  ())
-
-(defclass sorting () ;; ORDER BY
-  ((order-by-clause)))
-
-(defclass aggregate-filtering () ;; HAVING
-  ((having-clause)))
-
-(defclass limiting () ;; LIMIT OFFSET
-  ((limit) (ofset))
-
-(defclass fetching () ;; join fetch
-  ((fetch-references)))
-
-(defclass recursive-fetching (fetching) ;; WITH
-  ())
+(defclass with-statement ()
+  ((name :initarg :name
+	 :reader name-of)
+   (query :initarg :query
+	  :reader query-of)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause-of)))
 
 (defun make-root (class-name mapping-schema)
   (make-instance 'root-node :class-mapping
@@ -433,9 +427,51 @@
       (multiple-value-list (apply clause parameters))
       default))
 
-(defun make-query (roots mapping-schema
-		   &key aux recursive where order-by having
-		   select fetch offset limit)
+
+     offset)
+
+    (
+    (make-instance 'query
+		   :select-list
+
+					  (when (not (null aux))
+					    (apply aux joined-list))
+					  (when (not (null recursive))
+					    (apply recursive joined-list)))
+		   :where-clause (when (not (null where))
+				   (apply where joined-list))
+		   :having (when (not (null having))
+			     (apply having joined-list))
+		   :order-by (when (not (null order-by))
+			       (apply order-by joined-list)))
+     
+     
+    ;; два возможных CTE, рекурсивнвая выборка и рекурсивная загрузка
+    
+
+(defun compute-joined-list (selectors join)
+  (make-instance 'query :joined-list
+		 (multiple-value-call #'append selectors
+				      (when (not (null join))
+					(apply join selectors)))))
+
+(defun ensure-recursive (query aux recursive)
+  (if (not (null recursive))
+      (let ((joined-list (joined-list-of query)))
+	(make-instance 'with-statement
+		       :query query
+		       :name "recursive_join"
+		       :aux (when (not (null aux))
+			      (apply aux joined-list))
+		       :recursive (when (not (null recursive))
+				    (apply recursive joined-list))))
+      query))
+
+;; каждый encure создает новый объект запроса со ссылкой на предыдущий
+
+(defun make-query (roots mapping-schema &key join aux recursive where
+					  order-by having select fetch
+					  offset limit)
   (let* ((*table-index* 0)
 	 (selectors
 	  (if (listp roots)
@@ -444,22 +480,40 @@
 		      roots)
 	      (list (make-root class-name))))
 	 (joined-list
-	  (multiple-value-call #'append selectors
-			       (when (not (null join))
-				 (apply join selectors))))
-	 (select-list
-	  (ensure-clause select joined-list selectors)))
-    ;; два возможных CTE, рекурсивнвая выборка и рекурсивная загрузка
+	  (ensure-recursive
+	   (compute-joined-list selectors join) aux recursive)))
     (make-instance 'query
-		   :aux (ensure-clause aux joined-list)
-		   :recursive (ensure-clause recursive joined-list)
-		   :where (ensure-clause where joined-list)
-		   :order-by (ensure-clause order-by joined-list)
-		   :having (ensure-clause having joined-list)
-		   :select-list select-list
+		   :select-list (ensure-clause select joined-list 
 		   :fetch (ensure-clause fetch select-list selectors)
 		   :offset offset
 		   :limit limit)))
+
+
+(ensure-fetching
+ (ensure-filtering
+  (ensure-recursive-join joined-list aux recursive)
+			 joined-list where having order-by limit offset)
+  limit)
+ selectors fetch))
+
+
+    
+    
+	   )))
+
+    (compute-join-list selection joined-list aux recursive)
+	 (select-list
+	  (ensure-clause select joined-list selectors)))
+    
+    (plan-query joined-list select-list where having order-by limit
+		offset fetch)))
+	 (filtering
+	  (ensure-filtering joined-list where order-by having offset limit))
+	 (selection
+	  (ensure-selection filtering select))
+	 (fetching
+	  (ensure-fetching selection fetch)))
+    (ensure-query fetching)))
 
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform
