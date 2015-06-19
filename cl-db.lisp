@@ -77,6 +77,11 @@
 (defmethod foreign-key-of ((reference-mapping list))
   (getf reference-mapping :foreign-key))
 
+(defgeneric columns-of (object))
+
+(defmethod columns-of ((class-mapping list))
+  (getf class-mapping :columns))
+
 ;;(defun cascade-operation-of (reference-mapping)
 ;;  (let ((operation-type (getf reference-mapping :delete-orphan)))
 ;;    (if (eq operation-type :delete-orphan)
@@ -155,19 +160,19 @@
 		class-name *class-mappings*)))
     (list :class-name class-name
 	  :table-name table-name
-;;	  :columns (remove-duplicates
-;;		    (append primary-key
-;;			    foreign-key
-;;			    (reduce #'append superclass-mappings
-;;				    :key #'foreign-key-of
-;;				    :initial-value nil)
-;;			    (reduce #'list* properties
-;;				    :key #'column-of :from-end t
-;;				    :initial-value nil)
-;;			    (reduce #'append inverted-one-to-many
-;;				    :key #'foreign-key-of
-;;				    :initial-value nil))
-;;		    :test #'string=)
+	  :columns (remove-duplicates
+		    (append primary-key
+			    foreign-key
+			    (reduce #'append superclass-mappings
+				    :key #'foreign-key-of
+				    :initial-value nil)
+			    (reduce #'list* properties
+				    :key #'column-of :from-end t
+				    :initial-value nil)
+			    (reduce #'append inverted-one-to-many
+				    :key #'foreign-key-of
+				    :initial-value nil))
+		    :test #'string=)
 	  :properties properties
 	  :many-to-one-mappings many-to-one-mappings
 	  :one-to-many-mappings one-to-many-mappings
@@ -219,19 +224,19 @@
 			 :key #'first))))
     (list* :class-name class-name
 	   :table-name table-name
-;;	   :columns (remove-duplicates
-;;		     (append primary-key
-;;			     foreign-key
-;;			     (reduce #'append superclass-mappings
-;;				     :key #'foreign-key-of
-;;				     :initial-value nil)
-;;			     (reduce #'list* properties
-;;				     :key #'column-of :from-end t
-;;				     :initial-value nil)
-;;			     (reduce #'append inverted-one-to-many
-;;				     :key #'foreign-key-of
-;;				     :initial-value nil))
-;;		     :test #'string=)
+	   :columns (remove-duplicates
+		     (append primary-key
+			     foreign-key
+			     (reduce #'append superclass-mappings
+				     :key #'foreign-key-of
+				     :initial-value nil)
+			     (reduce #'list* properties
+				     :key #'column-of :from-end t
+				     :initial-value nil)
+			     (reduce #'append inverted-one-to-many
+				     :key #'foreign-key-of
+				     :initial-value nil))
+		     :test #'string=)
 	   :primary-key primary-key
 	   :properties properties
 	   :many-to-one-mappings many-to-one-mappings

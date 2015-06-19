@@ -18,9 +18,9 @@
 ;;	       (:file "expressions")
 	       (:file "writers")
 	       (:file "query-plan")
-	       (:file "query")
-	       (:file "db-read")))
-
+	       ;;(:file "query")
+	       ;;(:file "db-read")))
+))
 (asdf:defsystem #:cl-db.tests
   :serial t
   :description "Describe cl-db here"

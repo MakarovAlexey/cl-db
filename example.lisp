@@ -1459,3 +1459,606 @@ WITH RECURSIVE parent (pid, id, node_value, left_node_id, right_node_id) AS (
 					   (expression
 					     (:eq (id-of right-node)
 						  (id-of node))))))))
+
+
+
+
+
+(defun fetch-many-to-one (query loader fetch join-path root-class-name
+			  many-to-one-mapping foreign-key-columns 
+			  &key class-name table-name primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings inverted-one-to-many
+			    superclass-mappings subclass-mappings)
+  (let ((alias (make-alias "fetch")))
+    (multiple-value-bind (primary-key pk-loader)
+	(apply #'plan-key alias primary-key)
+      (let ((table-join
+	     (list #'write-left-join table-name alias
+		   (mapcar #'(lambda (fk-column pk-column)
+			       (list (first fk-column)
+				     (first pk-column)))
+			   foreign-key-columns
+			   primary-key))))
+	(multiple-value-bind (columns
+			      from-clause
+			      reference-loader
+			      fetch-references)
+	    (fetch-object class-name alias table-join join-path
+			  primary-key pk-loader properties
+			  one-to-many-mappings many-to-one-mappings
+			  inverted-one-to-many superclass-mappings
+			  subclass-mappings)
+	  (apply #'compute-fetch
+		 (query-append query
+			       :select-list columns
+			       :from-clause from-clause
+			       :group-by-clause columns)
+		 (loader-append loader
+				#'(lambda (commited-state object-rows
+					   fetched-references)
+				    (when (typep (object-of commited-state)
+						 root-class-name)
+				      (setf
+				       (many-to-one-value commited-state
+							  many-to-one-mapping)
+				       (funcall reference-loader
+						(first object-rows)
+						object-rows
+						fetched-references)))))
+		 (when (functionp fetch)
+		   (mapcar #'funcall
+			   (multiple-value-list
+			    (funcall fetch fetch-references))))))))))
+
+(defun fetch-many-to-one-mappings (join-path class-name alias
+				   &optional many-to-one-mapping
+				   &rest many-to-one-mappings)
+  (when (not (null many-to-one-mapping))
+    (multiple-value-bind (references columns key-loaders)
+	(apply #'fetch-many-to-one-mappings
+	       join-path class-name alias many-to-one-mappings)
+      (destructuring-bind (slot-name
+			   &key reference-class-name foreign-key)
+	  many-to-one-mapping
+	(multiple-value-bind (foreign-key-columns foreign-key-loader)
+	    (apply #'plan-key alias foreign-key)
+	  (values
+	   (acons slot-name
+		  #'(lambda (query loader fetch)
+		      (apply #'fetch-many-to-one
+			     query loader fetch join-path class-name
+			     many-to-one-mapping foreign-key-columns
+			     (get-class-mapping reference-class-name)))
+		  references)
+	   (append foreign-key-columns columns)
+	   (list* #'(lambda (commited-state &rest args)
+		      (setf (many-to-one-key commited-state
+					     many-to-one-mapping)
+			    (apply foreign-key-loader
+				   commited-state args)))
+		  key-loaders)))))))
+
+(defun alias (expression)
+  (rest expression))
+
+(defun fetch-one-to-many (query loader fetch join-path root-class-name
+			  slot-name root-primary-key foreign-key
+			  serializer
+			  &key class-name table-name primary-key
+			    properties one-to-many-mappings
+			    many-to-one-mappings inverted-one-to-many
+			    superclass-mappings subclass-mappings)
+  (let* ((root-primary-key
+	  (reduce #'(lambda (primary-key alias)
+		      (list* (funcall query alias) primary-key))
+		  root-primary-key :key #'alias :initial-value nil))
+	 (alias (make-alias "fetch"))
+	 (table-join
+	  (list #'write-left-join table-name alias
+		(mapcar #'(lambda (pk-column fk-column)
+			    (list (first pk-column)
+				  (first fk-column)))
+			root-primary-key
+			(apply #'plan-key alias foreign-key)))))
+    (multiple-value-bind (primary-key pk-loader)
+	(apply #'plan-key alias primary-key)
+      (multiple-value-bind (columns
+			    from-clause
+			    reference-loader
+			    fetch-references)
+	  (fetch-object class-name alias table-join join-path
+			primary-key pk-loader properties
+			one-to-many-mappings many-to-one-mappings
+			inverted-one-to-many superclass-mappings
+			subclass-mappings)
+	(apply #'compute-fetch
+	       (query-append query
+			     :select-list columns
+			     :from-clause from-clause
+			     :group-by-clause columns)
+	       (loader-append loader
+			      #'(lambda (commited-state object-rows
+					 fetched-references)
+				  (when (typep (object-of commited-state)
+					       root-class-name)
+				    (setf
+				     (one-to-many-value commited-state slot-name)
+				     (apply serializer
+					    (remove-duplicates
+					     (mapcar #'(lambda (row)
+							 (funcall reference-loader
+								  row
+								  object-rows
+								  fetched-references))
+						     object-rows)))))))
+	       (when (functionp fetch)
+		 (mapcar #'funcall
+			 (multiple-value-list
+			  (funcall fetch fetch-references)))))))))
+
+(defun fetch-one-to-many-mappings (join-path class-name primary-key
+				   &optional mapping &rest mappings)
+  (when (not (null mapping))
+    (destructuring-bind (slot-name &key reference-class-name
+				   foreign-key serializer
+				   deserializer)
+	mapping
+      (declare (ignore deserializer))
+      (acons slot-name
+	     #'(lambda (query loader fetch)
+		 (apply #'fetch-one-to-many query loader fetch join-path
+			class-name slot-name primary-key foreign-key
+			serializer
+			(get-class-mapping reference-class-name)))
+	     (apply #'fetch-one-to-many-mappings
+		    join-path class-name primary-key mappings)))))
+
+(defun fetch-slots (class-name alias table-join join-path
+		    primary-key-columns primary-key-loader properties
+		    one-to-many-mappings many-to-one-mappings
+		    inverted-one-to-many superclass-mappings)
+  (multiple-value-bind (superclasses-fetched-references
+			superclasses-columns
+			superclasses-from-clause
+			superclasses-loaders)
+      (apply #'fetch-superclasses join-path alias superclass-mappings)
+    (multiple-value-bind (property-columns property-loaders)
+	(apply #'plan-properties alias properties)
+      (multiple-value-bind (many-to-one-fetched-references
+			    foreign-key-columns foreign-key-loaders)
+	  (apply #'fetch-many-to-one-mappings
+		 join-path class-name alias many-to-one-mappings)
+	(multiple-value-bind (inverted-one-to-many-columns
+			      inverted-one-to-many-loaders)
+	    (apply #'compute-inverted-one-to-many-keys
+		   alias inverted-one-to-many)
+	  (values
+	   (append many-to-one-fetched-references
+		   (apply #'fetch-one-to-many-mappings
+			  join-path class-name primary-key-columns
+			  one-to-many-mappings)
+		   superclasses-fetched-references)
+	   (append primary-key-columns
+		   property-columns
+		   foreign-key-columns
+		   inverted-one-to-many-columns
+		   superclasses-columns)
+	   (append table-join superclasses-from-clause)
+	   (list* #'(lambda (commited-state row)
+		      (register-object commited-state
+				       class-name
+				       (funcall primary-key-loader row))
+		      (dolist (loader inverted-one-to-many-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader foreign-key-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader property-loaders commited-state)
+			(funcall loader commited-state row)))
+		  superclasses-loaders)))))))
+
+(defun fetch-superclass (join-path subclass-alias
+			 &key class-name table-name primary-key
+			   foreign-key properties one-to-many-mappings
+			   many-to-one-mappings inverted-one-to-many
+			   superclass-mappings)
+  (let* ((alias
+	  (make-alias "fetch"))
+	 (foreign-key
+	  (apply #'plan-key subclass-alias foreign-key)))
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(apply #'plan-key alias primary-key)
+      (let ((table-join
+	     (list #'write-inner-join table-name alias
+		   (mapcar #'(lambda (pk-column fk-column)
+			       (list (first pk-column)
+				     (first fk-column)))
+			   primary-key-columns
+			   foreign-key))))
+	(fetch-slots class-name alias table-join
+		     (list* table-join join-path) primary-key-columns
+		     primary-key-loader properties
+		     one-to-many-mappings many-to-one-mappings
+		     inverted-one-to-many superclass-mappings)))))
+
+(defun fetch-superclasses (join-path alias
+			   &optional superclass-mapping
+			   &rest superclass-mappings)
+  (when (not (null superclass-mapping))
+    (multiple-value-bind (superclass-fetched-references
+			  superclass-columns
+			  superclass-from-clause
+			  superclass-loaders)
+	(apply #'fetch-superclass
+	       join-path alias superclass-mapping)
+      (multiple-value-bind (superclasses-fetched-references
+			    superclasses-columns
+			    superclasses-from-clause
+			    superclasses-loaders)
+	  (apply #'fetch-superclasses
+		 join-path alias superclass-mappings)
+	(values
+	 (append superclass-fetched-references
+		 superclasses-fetched-references)
+	 (append superclass-columns
+		 superclasses-columns)
+	 (append superclass-from-clause
+		 superclasses-from-clause)
+	 (append superclass-loaders
+		 superclasses-loaders))))))
+
+;; Carefully implement subclass dynamic association fetching (with
+;; class specification)
+(defun load-object (class primary-key row
+		    superclass-loaders subclass-loaders)
+  (let ((commited-state
+	 (make-instance 'commited-state
+			:object (or (some #'(lambda (loader)
+					      (funcall loader row))
+					  subclass-loaders)
+				    (allocate-instance class)))))
+    (dolist (superclass-loader superclass-loaders commited-state)
+      (funcall superclass-loader commited-state primary-key row))))
+
+(defun fetch-class (class-name alias table-join join-path
+		    primary-key-columns primary-key-loader properties
+		    one-to-many-mappings many-to-one-mappings
+		    inverted-one-to-many superclass-mappings
+		    subclass-mappings)
+  (let ((class (find-class class-name)))
+    (multiple-value-bind (fetched-references
+			  columns from-clause superclass-loaders)
+	(fetch-slots class-name alias table-join (list* table-join join-path)
+		     primary-key-columns primary-key-loader properties
+		     one-to-many-mappings many-to-one-mappings
+		     inverted-one-to-many superclass-mappings)
+      (multiple-value-bind (subclasses-fetched-references
+			    subclasses-columns
+			    subclasses-from-clause subclass-loaders)
+	  (apply #'fetch-subclasses
+		 join-path primary-key-columns subclass-mappings)
+	  (values
+	   (append fetched-references
+		   subclasses-fetched-references)
+	   (append columns subclasses-columns)
+	   (append from-clause subclasses-from-clause)
+	   #'(lambda (row)
+	       (load-object class
+			    (funcall primary-key-loader row)
+			    row
+			    superclass-loaders
+			    subclass-loaders)))))))
+
+(defun join-path-append (join-path from-clause)
+  (reduce #'(lambda (from-clause table-join)
+	      (append table-join (list from-clause)))
+	  join-path :from-end nil
+	  :initial-value from-clause))
+
+(defun fetch-object (class-name alias table-join join-path primary-key
+		     primary-key-loader properties
+		     one-to-many-mappings many-to-one-mappings
+		     commited-state superclass-mappings subclass-mappings)
+  (multiple-value-bind (fetched-references
+			fetched-columns
+			fetched-from-clause class-loader)
+      (fetch-class class-name alias table-join join-path
+		   primary-key primary-key-loader
+		   properties one-to-many-mappings
+		   many-to-one-mappings commited-state
+		   superclass-mappings subclass-mappings)
+    (let ((class-loader
+	   #'(lambda (row result-set reference-loaders)
+	       (let ((primary-key
+		      (funcall primary-key-loader row)))
+		 (or
+		  (get-object class-name primary-key)
+		  (let ((commited-state
+			 (funcall class-loader row)))
+		    (dolist (loader reference-loaders
+			     (object-of commited-state))
+		      (funcall loader
+			       commited-state
+			       (remove primary-key result-set
+				       :key primary-key-loader
+				       :test-not #'equal))))))))
+	  (path (join-path-append join-path fetched-from-clause)))
+      (values fetched-columns
+	      path
+	      class-loader
+	      #'(lambda (reader)
+		  (values (rest
+			   (assoc (get-slot-name (find-class class-name)
+						 reader)
+				  fetched-references))
+			  class-loader))))))
+
+(defun fetch-subclass (join-path superclass-primary-key 
+		       &key class-name primary-key table-name
+			 foreign-key properties one-to-many-mappings
+			 many-to-one-mappings inverted-one-to-many
+			 superclass-mappings subclass-mappings)
+  (let* ((alias (make-alias "fetch"))
+	 (foreign-key (apply #'plan-key alias foreign-key))
+	 (table-join
+	  (list #'write-left-join table-name alias
+		(mapcar #'(lambda (pk-column fk-column)
+			    (list (first pk-column)
+				  (first fk-column)))
+			superclass-primary-key
+			foreign-key))))
+    (multiple-value-bind (primary-key-columns primary-key-loader)
+	(apply #'plan-key alias primary-key)
+      (multiple-value-bind (class-fetched-references
+			    class-columns
+			    class-from-clause
+			    class-loader)
+	  (fetch-class class-name alias table-join join-path
+		       primary-key-columns primary-key-loader
+		       properties one-to-many-mappings
+		       many-to-one-mappings inverted-one-to-many
+		       superclass-mappings subclass-mappings)
+	(values class-fetched-references
+		class-columns
+		class-from-clause
+		#'(lambda (row)
+		    (let ((primary-key
+			   (funcall primary-key-loader row)))
+		      (when (notevery #'null primary-key)
+			(funcall class-loader primary-key row)))))))))
+
+(defun fetch-subclasses (join-path superclass-primary-key
+			 &optional subclass-mapping
+			 &rest subclass-mappings)
+  (when (not (null subclass-mapping))
+    (multiple-value-bind (subclass-fetched-references
+			  subclass-columns
+			  subclass-from-clause
+			  subclass-loader)
+	(apply #'fetch-subclass
+	       join-path superclass-primary-key subclass-mapping)
+      (multiple-value-bind (subclasses-fetched-references
+			    subclasses-columns
+			    subclasses-from-clause
+			    subclasses-loaders)
+	  (apply #'fetch-subclasses
+		 join-path superclass-primary-key subclass-mappings)
+	(values
+	 (append subclass-fetched-references
+		 subclasses-fetched-references)
+	 (append subclass-columns
+		 subclasses-columns)
+	 (list* subclass-from-clause
+		subclasses-from-clause)
+	 (list* subclass-loader
+		subclasses-loaders))))))
+
+(defun join-superclass (subclass-alias join-path
+			&key class-name table-name primary-key
+			  foreign-key properties one-to-many-mappings
+			  many-to-one-mappings inverted-one-to-many
+			  superclass-mappings)
+  (let ((alias
+	 (make-alias "join"))
+	(foreign-key
+	 (apply #'plan-key subclass-alias foreign-key)))
+    (multiple-value-bind (primary-key primary-key-loader)
+	(apply #'plan-key alias primary-key)
+      (let ((table-join
+	     (list #'write-inner-join table-name alias
+		   (mapcar #'(lambda (pk-column fk-column)
+			       (list
+				(first pk-column)
+				(first fk-column)))
+			   primary-key
+			   foreign-key))))
+	(join-class alias table-join (list* table-join join-path)
+		    class-name primary-key primary-key-loader
+		    properties one-to-many-mappings
+		    many-to-one-mappings inverted-one-to-many
+		    superclass-mappings)))))
+
+(defun join-superclasses (alias join-path
+			  &optional superclass-mapping
+			  &rest superclass-mappings)
+  (when (not (null superclass-mapping))
+    (multiple-value-bind (superclasses-properties
+			  superclasses-joined-references
+			  superclasses-fetched-references
+			  superclasses-columns
+			  superclasses-from-clause
+			  superclasses-loaders)
+	(apply #'join-superclasses alias
+	       join-path superclass-mappings)
+      (multiple-value-bind (superclass-properties
+			    superclass-joined-references
+			    superclass-fetched-references
+			    superclass-columns
+			    superclass-from-clause
+			    superclass-loaders)
+	  (apply #'join-superclass alias
+		 join-path superclass-mapping)
+	(values
+	 (append superclass-properties
+		 superclasses-properties)
+	 (append superclass-joined-references
+		 superclasses-joined-references)
+	 (append superclass-fetched-references
+		 superclasses-fetched-references)
+	 (append superclass-columns
+		 superclasses-columns)
+	 (list* superclass-from-clause
+		superclasses-from-clause)
+	 (append superclass-loaders
+		 superclasses-loaders))))))
+
+(defun join-class (alias table-join join-path class-name
+		   primary-key-columns primary-key-loader properties
+		   one-to-many-mappings many-to-one-mappings
+		   inverted-one-to-many superclass-mappings)
+  (multiple-value-bind (superclasses-properties
+			superclasses-joined-references
+			superclasses-fetched-references
+			superclasses-columns
+			superclasses-from-clause
+			superclasses-loaders)
+      (apply #'join-superclasses alias join-path superclass-mappings)
+    (multiple-value-bind (properties property-columns property-loaders)
+	(apply #'join-properties join-path alias properties)
+      (multiple-value-bind (many-to-one-fetched-references
+			    foreign-key-columns
+			    foreign-key-loaders)
+	  (apply #'fetch-many-to-one-mappings
+		 join-path class-name alias many-to-one-mappings)
+	(multiple-value-bind (inverted-one-to-many-columns
+			      inverted-one-to-many-loaders)
+	    (apply #'compute-inverted-one-to-many-keys
+		   alias inverted-one-to-many)
+	  (values
+	   (append properties
+		   superclasses-properties)
+	   (append (apply #'join-many-to-one-mappings
+			  join-path alias many-to-one-mappings)
+		   (apply #'join-one-to-many-mappings join-path
+			  primary-key-columns one-to-many-mappings)
+		   superclasses-joined-references)
+	   (append many-to-one-fetched-references
+		   (apply #'fetch-one-to-many-mappings
+			  join-path class-name primary-key-columns
+			  one-to-many-mappings)
+		   superclasses-fetched-references)
+	   (append primary-key-columns
+		   property-columns
+		   foreign-key-columns
+		   inverted-one-to-many-columns
+		   superclasses-columns)
+	   (append table-join superclasses-from-clause)
+	   (list* #'(lambda (commited-state row)
+		      (register-object commited-state
+				       class-name
+				       (funcall primary-key-loader row))
+		      (dolist (loader inverted-one-to-many-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader foreign-key-loaders)
+			(funcall loader commited-state row))
+		      (dolist (loader property-loaders commited-state)
+			(funcall loader commited-state row)))
+		  superclasses-loaders)))))))
+
+(defun plan-class (alias class-name table-join join-path primary-key
+		   properties one-to-many-mappings
+		   many-to-one-mappings inverted-one-to-many
+		   superclass-mappings subclass-mappings)
+  (multiple-value-bind (primary-key primary-key-loader)
+      (apply #'plan-key alias primary-key)
+    (multiple-value-bind (joined-properties
+			  joined-references
+			  fetched-references
+			  fetched-columns
+			  fetched-from-clause
+			  superclasses-loaders)
+	(join-class alias table-join (list* table-join join-path)
+		    class-name primary-key primary-key-loader
+		    properties one-to-many-mappings
+		    many-to-one-mappings inverted-one-to-many
+		    superclass-mappings)
+      (multiple-value-bind (subclasses-fetch-references
+			    subclasses-columns
+			    subclasses-from-clause
+			    subclasses-loaders)
+	  (apply #'fetch-subclasses (list* table-join join-path)
+		 primary-key subclass-mappings)
+	(let* ((class (find-class class-name))
+	       (class-loader
+		#'(lambda (row result-set reference-loaders)
+		    (let ((primary-key
+			   (funcall primary-key-loader row)))
+		      (or
+		       (get-object class-name primary-key)
+		       (let ((commited-state
+			      (load-object class primary-key row
+					   superclasses-loaders
+					   subclasses-loaders)))
+			 (dolist (loader reference-loaders
+				  (object-of commited-state))
+			   (funcall loader
+				    commited-state
+				    (remove primary-key result-set
+					    :key primary-key-loader
+					    :test-not #'equal))))))))
+	       (columns (append fetched-columns
+				subclasses-columns))
+	       (path (join-path-append join-path table-join))
+	       (from-clause
+		(join-path-append join-path
+				  (append fetched-from-clause
+					  subclasses-from-clause)))
+	       (fetch-references
+		(append fetched-references
+			subclasses-fetch-references)))
+	  (values (make-expression :properties
+				   #'(lambda (reader)
+				       (rest
+					(assoc (get-slot-name class reader)
+					       joined-properties)))
+				   :select-list columns
+				   :count (mapcar #'first primary-key)
+				   :count-from-clause path
+				   :from-clause from-clause
+				   :group-by-clause (mapcar #'first columns)
+				   :loader class-loader
+				   :fetch
+				   #'(lambda (reader)
+				       (values (rest
+						(assoc
+						 (get-slot-name (find-class class-name)
+								reader)
+						 fetch-references))
+					       class-loader))
+				   :join #'(lambda (reader)
+					     (funcall
+					      (rest
+					       (assoc (get-slot-name class reader)
+						      joined-references)))))))))))
+
+(defun plan-root-class-mapping (&key class-name table-name primary-key
+				properties one-to-many-mappings
+				many-to-one-mappings inverted-one-to-many
+				superclass-mappings subclass-mappings)
+  (let ((alias (make-alias "root")))
+    (plan-class alias class-name
+		(list #'write-table-reference table-name alias)
+		nil primary-key properties one-to-many-mappings
+		many-to-one-mappings inverted-one-to-many
+		superclass-mappings subclass-mappings)))
+
+(defun make-join-plan (mapping-schema class-name &rest class-names)
+  (list* (apply #'plan-root-class-mapping
+		(get-class-mapping class-name mapping-schema))
+	 (reduce #'(lambda (class-name result)
+		     (list* (apply #'plan-root-class-mapping
+				   (get-class-mapping class-name mapping-schema))
+			    result))
+		 class-names
+		 :from-end t
+		 :initial-value nil)))
