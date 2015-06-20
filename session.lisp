@@ -154,6 +154,12 @@
 						   one-to-many-mapping)
 				 one-to-many-mapping)))
 
+(defun get-subclass-mapping (object class-mapping)
+  (find-if #'(lambda (class-name)
+	       (typep object class-name))
+	   (subclass-mappings-of class-mapping)
+	   :key #'class-name-of))
+
 (defun compute-subclass-dependencies (flush-state class-mapping)
   (let* ((object
 	  (object-of flush-state))
