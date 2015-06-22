@@ -339,11 +339,17 @@
 
 (defvar *common-table-expression*)
 
-(defclass recursive-class-node (recursive-element)
+(defclass recursive-class-node ()
   ((common-table-expression :initarg :common-table-expression
 			    :reader common-table-expression-of)
    (class-node :initarg :class-node
 	       :reader class-node-of)))
+
+(defmethod references-of ((node recursive-class-node))
+  (mapcar #'(lambda (reference)
+	      (cons (first reference) node))
+	  (references-of
+	   (class-node-of node))))
 
 (defmethod class-mapping-of ((class-node recursive-class-node))
   (class-mapping-of (class-node-of class-node)))
@@ -368,7 +374,9 @@
 
 ;;; Property
 
-(defun property (root-node reader)
+(defgeneric property (node reader))
+
+(defmethod property ((root-node root-node) reader)
   (let* ((class-name
 	  (class-name-of (class-mapping-of root-node)))
 	 (slot-name
@@ -379,6 +387,11 @@
 	    :key #'slot-name-of)
      (error "Property mapping for slot-name ~a of class mapping ~a not found"
 	    slot-name class-name))))
+
+(defmethod property ((recursive-node recursive-class-node) reader)
+  (let ((property-node
+	 (property (class-node-of recursive-node) reader)))
+    (cons (first property-node) recursive-node)))
 
 (defclass expression-selection ()
   ((alias :initarg :alias
@@ -397,11 +410,15 @@
    (fetched-references :initform (list)
 		       :accessor fetched-references-of)))
 
+;; subclass-selection (class-node)
+
 (defclass subclass-node (class-node)
   ((columns :initarg :columns
 	    :reader columns-of)
    (parent-node :initarg :parent-node
-		:reader parent-node-of)))
+		:reader parent-node-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key)))
 
 (defclass fetched-reference (class-selection)
   ((reference :initarg :reference
@@ -412,33 +429,34 @@
 (defun make-subclass-node (subclass-mapping parent-node)
   (let ((class-mapping
 	 (get-class-mapping
-	  (class-name-of subclass-mapping))))
+	  (reference-class-of subclass-mapping))))
     (make-instance 'subclass-node
 		   :class-mapping class-mapping
 		   :superclass-mappings (remove
 					 (class-name-of class-mapping)
-					 (superclass-mappings-of class-mapping))
+					 (superclass-mappings-of class-mapping)
+					 :key #'reference-class-of)
 		   :foreign-key (foreign-key-of subclass-mapping)
 		   :parent-node parent-node)))
 
-(defun plan-fetch-references (class-node)
+(defun plan-fetch-references (class-selection)
   (reduce #'append
-	  (subclass-nodes-of class-node)
+	  (subclass-nodes-of class-selection)
 	  :key #'plan-subclass-references
 	  :from-end t))
 
-(defun plan-subclass-references (class-node)
+(defun plan-subclass-references (class-selection)
   (let ((class-mapping
-	 (class-mapping-of class-node)))
+	 (class-mapping-of class-selection)))
     (reduce #'(lambda (reference result)
-		(acons reference class-node result))
+		(acons reference class-selection result))
 	    (append
 	     (many-to-one-mappings-of class-mapping)
 	     (one-to-many-mappings-of class-mapping))
 	    :from-end t
-	    :initial-value (plan-fetch-references class-node))))
+	    :initial-value (plan-fetch-references class-selection))))
 
-(defmethod initialize-instance ((instance class-selection) &key root-node)
+(defmethod initialize-instance :after ((instance class-selection) &key root-node)
   (with-slots (columns subclass-nodes references)
       instance
     (setf columns
@@ -456,7 +474,7 @@
 		   (class-mapping-of root-node))))
     (setf references (append
 		      (references-of root-node)
-		      (plan-fetch-references root-node)))))
+		      (plan-fetch-references instance)))))
 
 (defmethod initialize-instance :after ((instance subclass-node)
 				       &key class-mapping)
@@ -501,18 +519,18 @@
 	     (funcall fetch instance))))))
 
 (defun fetch (class-selection reader &key fetch recursive)
-  (destructuring-bind (class-node reference)
-      (assoc (get-slot-name
-	      (find-class
-	       (class-name-of
-		(class-mapping-of (root-node-of class-selection)))) reader)
-	     (references-of class-selection)
-	     :key #'slot-name-of)
+  (let ((reference
+	 (assoc (get-slot-name
+		 (find-class
+		  (class-name-of
+		   (class-mapping-of (root-node-of class-selection)))) reader)
+		(references-of class-selection)
+		:key #'slot-name-of)))
     (make-instance 'fetched-reference
 		   :root-node (make-instance 'concrete-class-node
 					     :class-mapping (get-class-mapping
-							     (reference-class-of reference)))
-		   :parent-node class-node
+							     (reference-class-of
+							      (first reference))))
 		   :class-selection class-selection
 		   :reference reference
 		   :recursive recursive

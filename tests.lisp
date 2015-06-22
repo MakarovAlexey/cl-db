@@ -490,3 +490,25 @@
 
 (defun test ()
   (describe (lift:run-tests)))
+
+(with-session (projects-managment (make-instance 'test-connection))
+	 (describe
+	  (db-read 'project :join #'(lambda (project)
+				      (join project #'project-members-of :alias :member))
+		   :aux #'(lambda (project &key member)
+			    (declare (ignore member))
+			    (restrict (property project #'id-of) :equal 1))
+		   :recursive #'(lambda (project &key member)
+				  (declare (ignore member))
+				  (restrict
+				   (property (recursive project) #'id-of) :equal 1))
+		   :where #'(lambda (project &key member)
+			      (declare (ignore member))
+			      (restrict (property project #'id-of) :equal 1))
+		   :having #'(lambda (project &key member)
+			       (declare (ignore member))
+			       (restrict (property project #'id-of) :equal 1))
+		   :limit 100
+		   :offset 10
+		   :fetch #'(lambda (project)
+			      (fetch project #'project-members-of)))))

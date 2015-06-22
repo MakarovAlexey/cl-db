@@ -193,14 +193,11 @@
 					       (class-mappings
 						*class-mappings*))
   (mapcar #'(lambda (class-mapping)
-	      (destructuring-bind
-		    (&key superclass-mappings &allow-other-keys)
-		  class-mapping
-		(destructuring-bind
-		      (superclass-name &rest foreign-key)
-		    (find class-name superclass-mappings :key #'first)
-		  (list :reference-class-name superclass-name
-			:foreign-key foreign-key))))
+		(list :reference-class-name (class-name-of class-mapping)
+		      :foreign-key (rest
+				    (find class-name
+					  (superclass-mappings-of class-mapping)
+					  :key #'first))))
 	  (remove-if-not #'(lambda (class-mapping)
 			     (destructuring-bind
 				   (&key superclass-mappings
