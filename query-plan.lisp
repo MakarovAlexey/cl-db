@@ -401,30 +401,31 @@
 
 ;;; Class selection
 
-(defclass class-selection ()
+(defclass select-item () ; i.e. for sql expressions, property selection, columns etc.
+  ((expressions :initarg :expressions
+		:reader expressions-of)
+   (from-clause :initarg :from-clause
+		:reader from-clause-of)))
+
+(defclass cte-select-item (select-item)
+  ((select-item :initarg :select-item
+		:reader select-item-of)))
+
+(defclass class-selection (select-item)
   ((root-node :initarg :root-node
 	      :reader root-node-of)
    (references :reader references-of)
-   (columns :reader columns-of)
-   (subclass-nodes :reader subclass-nodes-of)
-   (fetched-references :initform (list)
-		       :accessor fetched-references-of)))
+   (subclass-nodes :reader subclass-nodes-of)))
+
+(defclass reference-fetching (class-select-item)
+  ((reference)
+   (class-selection)
 
 ;; subclass-selection (class-node)
 
 (defclass subclass-node (class-node)
-  ((columns :initarg :columns
-	    :reader columns-of)
-   (parent-node :initarg :parent-node
-		:reader parent-node-of)
-   (foreign-key :initarg :foreign-key
+  ((foreign-key :initarg :foreign-key
 		:reader foreign-key)))
-
-(defclass fetched-reference (class-selection)
-  ((reference :initarg :reference
-	      :reader reference-of)
-   (class-selection :initarg :class-selection
-		    :reader class-selection-of)))
 
 (defun make-subclass-node (subclass-mapping parent-node)
   (let ((class-mapping
