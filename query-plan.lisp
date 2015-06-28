@@ -407,25 +407,21 @@
    (from-clause :initarg :from-clause
 		:reader from-clause-of)))
 
-(defclass cte-select-item (select-item)
-  ((select-item :initarg :select-item
-		:reader select-item-of)))
-
-(defclass class-selection (select-item)
+(defclass root-node-selection (select-item)
   ((root-node :initarg :root-node
-	      :reader root-node-of)
-   (references :reader references-of)
-   (subclass-nodes :reader subclass-nodes-of)))
+	      :reader root-node-of)))
+
+(defclass class-selection (root-node-selection)
+  ((references :reader references-of)
+   (subclass-selections :reader subclass-selections-of)))
 
 (defclass reference-fetching (class-select-item)
-  ((reference)
-   (class-selection)
+  ((reference :initarg :reference :reader reference-of)
+   (class-selection :initarg :class-selection)))
 
-;; subclass-selection (class-node)
-
-(defclass subclass-node (class-node)
-  ((foreign-key :initarg :foreign-key
-		:reader foreign-key)))
+(defclass cte-select-item (select-item) 
+  ((select-item :initarg :select-item ;;proxied select-item
+		:reader select-item-of)))
 
 (defun make-subclass-node (subclass-mapping parent-node)
   (let ((class-mapping
@@ -460,7 +456,7 @@
 (defmethod initialize-instance :after ((instance class-selection) &key root-node)
   (with-slots (columns subclass-nodes references)
       instance
-    (setf columns
+    (setf expressions ;; columns
 	  (reduce #'(lambda (column-name result)
 		      (acons column-name
 			     (make-alias column-name)
