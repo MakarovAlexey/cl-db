@@ -10,6 +10,7 @@
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
    (superclass-nodes :reader superclass-nodes-of)
+   (direct-references :reader direct-references-of)
    (alias :initarg :alias
 	  :reader table-alias-of) ; возможно его нужно определить в элементе select-list
    (path :initarg :path
@@ -20,10 +21,11 @@
 		:reader foreign-key-of)))
 
 (defclass concrete-class-node (class-node)
-  ((references :reader references-of)))
+  ((inheritance-nodes :reader inheritance-nodes-of)))
 
 (defclass root-node (concrete-class-node)
-  ((properties :reader properties-of)))
+  ((properties :reader properties-of)
+   (effective-references :reader effective-references-of)))
 
 (defclass reference-node (root-node) ;; for joins
   ((reference :initarg :reference
@@ -34,41 +36,41 @@
 (defun make-alias (&rest name-parts)
   (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
 
-(defun add-class-node (class-node)
+(defun call-with-inheritance-nodes (inheritance-nodes thunk)
+  (let ((*inheritance-nodes* (if (not (null inheritance-nodes))
+				 inheritance-nodes
+				 (make-hash-table))))
+    (funcall thunk)))
+
+(defmacro with-inheritance-nodes ((&optional inheritance-nodes) &body body)
+  `(call-with-inheritance-nodes ,inheritance-nodes
+				#'(lambda () ,@body)))
+  
+(defun add-class-node (class-node &optional (inheritance-nodes *inheritance-nodes*))
   (let ((class-name
 	 (class-name-of
-	  (class-mapping-of class-mapping))))
-    (if (not
-	 (null
-	  (find class-name inheritance-nodes)))
-	(error "node for class ~a already added" class-name)
-	(push instance *inheritance-nodes*))))
+	  (class-mapping-of class-node))))
+    (multiple-value-bind (class-node presentp)
+	(gethash class-name inheritance-nodes)
+      (when presentp
+	(error "node for class ~a already added" class-name))
+      (setf (gethash class-name inheritance-nodes) class-node))))
 
-(defmethod initialize-instance :after ((instance class-node)
-				       &key class-mapping path
-					 (superclass-mappings
-					  (superclass-mappings-of class-mappingP))
-					 (inheritance-nodes *inheritance-nodes*))
-  (add-class-node instance)
-  (with-slots (superclass-nodes)
-      instance
-    (setf superclass-nodes
-	  (mapcar #'(lambda (superclass-mapping)
-		      (make-instance 'superclass-node
-				     :alias (make-alias)
-				     :class-mapping (get-class-mapping
-						     (reference-class-of superclass-mapping))
-				     :foreign-key (foreign-key-of superclass-mapping)
-				     :path (list* instance path)))
-		  superclass-mappings))))
+;; TODO, path сделать динамической переменной и использовать при инициализации свойств и ссылок
+(defun ensure-superclass-node (superclass-mapping path
+			       &optional (inheritance-nodes *inheritance-nodes*))
+  (multiple-value-bind (class-node presentp)
+      (gethash (reference-class-of superclass-mapping) inheritance-nodes)
+    (if (not presentp)
+	(make-instance 'superclass-node
+		       :alias (make-alias)
+		       :class-mapping (get-class-mapping
+				       (reference-class-of superclass-mapping))
+		       :foreign-key (foreign-key-of superclass-mapping)
+		       :path path)
+	class-node)))
 
-(defun plan-superclasses-references (class-node)
-  (reduce #'append
-	  (superclass-nodes-of class-node)
-	  :key #'plan-references
-	  :from-end t))
-
-(defun plan-references (class-node)
+(defun plan-direct-references (class-node)
   (let ((class-mapping
 	 (class-mapping-of class-node)))
     (reduce #'(lambda (reference result)
@@ -77,18 +79,40 @@
 	     (many-to-one-mappings-of class-mapping)
 	     (one-to-many-mappings-of class-mapping))
 	    :from-end t
-	    :initial-value (plan-superclasses-references class-node))))
+	    :initial-value nil)))
+
+(defmethod initialize-instance :after ((instance class-node)
+				       &key class-mapping path
+					 (superclass-mappings
+					  (superclass-mappings-of class-mapping)))
+  (add-class-node instance)
+  (with-slots (superclass-nodes direct-references)
+      instance
+    (let ((path (list* instance path)))
+      (setf superclass-nodes
+	    (mapcar #'(lambda (superclass-mapping)
+			(ensure-superclass-node superclass-mapping path))
+		    superclass-mappings)))
+    (setf direct-references (plan-direct-references instance))))
 
 (defmethod initialize-instance :after ((instance concrete-class-node)
 				       &key &allow-other-keys)
-  (setf (slot-value instance 'references)
-	(plan-references instance)))
+  (with-slots (inheritance-nodes)
+      instance
+    (setf inheritance-nodes *inheritance-nodes*)))
+
+(defun plan-effective-references (class-node)
+  (reduce #'append (superclass-nodes-of class-node)
+	  :key #'plan-effective-references
+	  :from-end t
+	  :initial-value (direct-references-of class-node)))
 
 (defun plan-superclasses-properties (class-node)
   (reduce #'append
 	  (superclass-nodes-of class-node)
 	  :key #'plan-properties
-	  :from-end t))
+	  :from-end t
+	  :initial-value nil))
 
 (defun plan-properties (class-node)
   (reduce #'(lambda (property result)
@@ -100,8 +124,10 @@
 
 (defmethod initialize-instance :after ((instance root-node)
 				       &key &allow-other-keys)
-  (setf (slot-value instance 'properties)
-	(plan-properties instance)))
+  (with-slots (properties effective-references)
+      instance
+    (setf properties (plan-properties instance))
+    (setf effective-references (plan-effective-references instance))))
 
 (defun find-slot-name (class reader-name)
   (or
@@ -124,27 +150,28 @@
 
 ;;; Joins
 
-(defun join (concrete-class-node reader &key alias join)
+(defun join (root-class-node reader &key alias join)
   (destructuring-bind (reference . class-node)
       (assoc (get-slot-name
 	      (find-class
 	       (class-name-of
-		(class-mapping-of concrete-class-node))) reader)
-	     (references-of concrete-class-node)
+		(class-mapping-of root-class-node))) reader)
+	     (effective-references-of root-class-node)
 	     :key #'slot-name-of)
-    (let* ((reference-node
-	    (make-instance 'reference-node
-			   :class-mapping (get-class-mapping
-					   (reference-class-of reference))
-			   :class-node class-node
-			   :reference reference))
-	   (args
-	    (when (not (null join))
-	      (multiple-value-call #'append
-		(funcall join reference-node)))))
-      (if (not (null alias))
-	  (list* alias reference-node args)
-	  args))))
+    (with-inheritance-nodes ()
+      (let* ((reference-node
+	      (make-instance 'reference-node
+			     :class-mapping (get-class-mapping
+					     (reference-class-of reference))
+			     :class-node class-node
+			     :reference reference))
+	     (args
+	      (when (not (null join))
+		(multiple-value-call #'append
+		  (funcall join reference-node)))))
+	(if (not (null alias))
+	    (list* alias reference-node args)
+	    args)))))
 
 ;; WHERE clause, WITH-statent clauses (WHERE and RECURSIVE WHERE)
 
@@ -285,7 +312,7 @@
 
 (define-aggregate-function sql-sum)
 
-(make-rootdefun disjunction (restriction &rest more-restrictions)
+(defun disjunction (restriction &rest more-restrictions)
   (make-instance 'disjunction
 		 :args (list* restriction more-restrictions)))
 
@@ -316,7 +343,6 @@
 
 (defgeneric projection (descriptor &rest args))
 
-;;; заменить всю диспечеризацию на методы (eql symbol)
 (let ((projections
        (list #'+ 'addition
 	     #'- 'subtracion
@@ -374,9 +400,8 @@
 	      (cons (car property) class-node))
 	  (properties-of (class-node-of class-node))))
 
-(defun recursive (class-node &optional (common-table-expression *common-table-expression*))
-  (make-instance 'recursive-class-node :class-node class-node
-		 :common-table-expression common-table-expression))
+(defun recursive (class-node) ;; CTE name ?
+  (make-instance 'recursive-class-node :class-node class-node))
 
 (defun ascending (arg)
   (make-instance 'ascending :arg arg))
@@ -407,6 +432,9 @@
 	 (property (class-node-of recursive-node) reader)))
     (cons (first property-node) recursive-node)))
 
+(defmethod property ((class-selection root-class-selection) reader)
+  (property (concrete-class-node-of class-selection) reader))
+
 (defclass expression-selection ()
   ((alias :initarg :alias
 	  :reader alias-of)
@@ -426,51 +454,35 @@
 ;;	      :reader root-node-of)))
 
 (defclass class-selection () ;; (root-node-selection)
-  ((root-node :initarg :root-node
-	      :reader root-node-of)
-   (references :reader references-of) ;; alist of references by class (subclass)
-   (subclass-selections :reader subclass-selections-of)))
+  ((subclass-selections :reader subclass-selections-of)
+   (concrete-class-node :initarg :concrete-class-node
+			:reader concrete-class-node-of)))
 
-(defclass reference-fetching (class-select-item)
-  ((reference :initarg :reference :reader reference-of)
-   (class-selection :initarg :class-selection)))
+(defclass root-class-selection (class-selection)
+  ((references :reader references-of))) ;; references with superclass references
 
-;;(defclass cte-select-item (select-item) 
-;;  ((select-item :initarg :select-item ;;proxied select-item
-;;		:reader select-item-of)))
+(defclass subclass-selection (class-selection)
+  ())
 
-(defun make-subclass-node (subclass-mapping parent-node)
-  (let ((class-mapping
-	 (get-class-mapping
-	  (reference-class-of subclass-mapping))))
-    (make-instance 'subclass-node
-		   :class-mapping class-mapping
-		   :superclass-mappings (remove
-					 (class-name-of class-mapping)
-					 (superclass-mappings-of class-mapping)
-					 :key #'reference-class-of)
-		   :foreign-key (foreign-key-of subclass-mapping)
-		   :parent-node parent-node)))
+(defclass reference-fetching (class-selection)
+  ((reference :initarg :reference
+	      :reader reference-of)
+   (recursive :initarg :recursive
+	      :reader recursive-of)
+   (fetched-references :reader fetched-references-of)
+   (class-selection :initarg :class-selection
+		    :reader class-selection-of)))
 
-(defun plan-fetch-references (class-selection)
-  (reduce #'append
-	  (subclass-nodes-of class-selection)
-	  :key #'plan-subclass-references
-	  :from-end t))
+(defun select-subclass (subclass-mapping &optional path)
+  (make-instance 'subclass-selection :concrete-class-node
+		 (make-instance 'concrete-class-node :path path
+				:class-mapping
+				(get-class-mapping
+				 (reference-class-of subclass-mapping)))))
 
-(defun plan-subclass-references (class-selection)
-  (let ((class-mapping
-	 (class-mapping-of class-selection)))
-    (reduce #'(lambda (reference result)
-		(acons reference class-selection result))
-	    (append
-	     (many-to-one-mappings-of class-mapping)
-	     (one-to-many-mappings-of class-mapping))
-	    :from-end t
-	    :initial-value (plan-fetch-references class-selection))))
-
-(defmethod initialize-instance :after ((instance class-selection) &key root-node)
-  (with-slots (columns subclass-nodes references)
+(defmethod initialize-instance :after ((instance root-class-selection)
+				       &key concrete-class-node)
+  (with-slots (subclass-selections) ;; references) ;;(columns 
       instance
 ;;    (setf expressions ;; columns
 ;;	  (reduce #'(lambda (column-name result)
@@ -480,21 +492,43 @@
 ;;		  (columns-of
 ;;		   (class-mapping-of root-node))
 ;;		  :initial-value nil))
-    (setf subclass-selections
-	  (mapcar #'(lambda (subclass-mapping)
-		      (make-subclass-node subclass-mapping root-node))
-		  (subclass-mappings-of
-		   (class-mapping-of root-node))))
-    (setf references (append
-		      (references-of root-node)
-		      (plan-fetch-references instance)))))
+    (with-inheritance-nodes ((inheritance-nodes-of concrete-class-node))
+      (setf subclass-selections
+	    (mapcar #'(lambda (subclass-mapping)
+			(select-subclass subclass-mapping))
+		    (subclass-mappings-of
+		     (class-mapping-of concrete-class-node)))))))
 
-(defmethod initialize-instance :after ((instance subclass-node)
-				       &key class-mapping)
-  (setf (slot-value instance 'subclass-nodes)
-	(mapcar #'(lambda (subclass-mapping)
-		    (make-subclass-node subclass-mapping instance))
-		(subclass-mappings-of class-mapping))))
+(defmethod initialize-instance :after ((instance subclass-selection)
+				       &key concrete-class-node)
+  (with-slots (subclass-selections) ;; references) ;;(columns 
+      instance
+    (setf subclass-selections
+	    (mapcar #'(lambda (subclass-mapping)
+			(select-subclass subclass-mapping))
+		    (subclass-mappings-of
+		     (class-mapping-of concrete-class-node))))))
+
+;;    (setf recursive
+;;	  (when (not (null recursive))
+;;	    (restrict
+;;	     (recursive (root-node-of instance)) :equal recursive)))
+
+(defmethod initialize-instance :after ((instance reference-fetching)
+				       &key fetch)
+  (with-slots (fetched-references)
+      instance
+    (setf fetched-references
+	  (when (not (null fetch))
+	    (multiple-value-list
+	     (funcall fetch instance))))))
+
+;;(defmethod initialize-instance :after ((instance subclass-node)
+;;				       &key class-mapping)
+;;  (setf (slot-value instance 'subclass-nodes)
+;;	(mapcar #'(lambda (subclass-mapping)
+;;		    (make-subclass-node subclass-mapping instance))
+;;		(subclass-mappings-of class-mapping))))
 
 (defgeneric select-item (expression))
 
@@ -513,233 +547,267 @@
 			  (class-name-of expression)))))
 
 (defmethod select-item ((expression root-node))
+  (make-instance 'root-class-selection :concrete-class-node expression))
+
+(defmethod select-item ((expression recursive-class-node)) ;; ?
   (make-instance 'class-selection :root-node expression))
 
-(defmethod select-item ((expression recursive-class-node))
-  (make-instance 'class-selection :root-node expression))
-
-(defmethod initialize-instance :after ((instance fetched-reference)
-				       &key recursive fetch)
-  (with-slots (recursive-clause fetched-references)
-      instance
-    (setf recursive-clause
-	  (when (not (null recursive))
-	    (restrict
-	     (recursive (root-node-of instance)) :equal recursive)))
-    (setf fetched-references
-	  (when (not (null fetch))
-	    (multiple-value-list
-	     (funcall fetch instance))))))
-
-(defun fetch (class-selection reader &key fetch recursive)
-  (let ((reference
-	 (assoc (get-slot-name
-		 (find-class
-		  (class-name-of
-		   (class-mapping-of (root-node-of class-selection)))) reader)
-		(references-of class-selection)
-		:key #'slot-name-of)))
-    (make-instance 'fetched-reference
-		   :root-node (make-instance 'concrete-class-node
-					     :class-mapping (get-class-mapping
-							     (reference-class-of
-							      (first reference))))
-		   :class-selection class-selection
-		   :reference reference
-		   :recursive recursive
-		   :fetch fetch)))
+(defun fetch (class-selection reader &key class-name fetch recursive)
+  (let* ((class-node (concrete-class-node-of class-selection))
+	 (reference
+	  (assoc (get-slot-name
+		  (find-class
+		   (if (not (null class-name))
+		       class-name
+		       (class-name-of
+			(class-mapping-of class-node)))) reader)
+		 (if (not (null class-name))
+		     (direct-references-of
+		      (gethash class-name
+			       (inheritance-nodes-of class-node)))
+		     (effective-references-of class-node))
+		 :key #'slot-name-of)))
+    (with-inheritance-nodes ()
+      (make-instance 'reference-fetching
+		     :concrete-class-node
+		     (make-instance 'concrete-class-node
+				    :class-mapping (get-class-mapping
+						    (reference-class-of
+						     (first reference))))
+		     :class-selection class-selection
+		     :reference reference
+		     :recursive recursive
+		     :fetch fetch))))
 
 (defclass query ()
-  ((select-list :initarg :select-list
-		:accessor select-list-of)
-   (from-clause :initarg :from-clause
-		:reader from-clause-of)
+  ((roots :initarg :roots
+	  :reader roots-of)
+   (join-list :initarg :join-list
+	      :reader join-list-of)
+   (aux-clause :initarg :aux-clause
+	       :reader aux-clause)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause)
    (where-clause :initarg :where-clause
-		 :initform nil
 		 :reader where-clause-of)
    (having-clause :initarg :having-clause
 		  :reader having-clause-of)
    (order-by-clause :initarg :order-by-clause
 		    :accessor order-by-clause-of)
+   (select-list :initarg :select-list
+		:accessor select-list-of)
+   (fetch-clause :initarg :fetch-clause
+		 :reader fetch-clause-of)
    (limit :initarg :limit
 	  :accessor limit-of)
    (offset :initarg :offset
 	   :accessor offset-of)))
 
-(defclass common-table-expression ()
-  ((name :initarg :name
-	 :reader name-of)
-   (query :initarg :query
-	  :reader query-of)
-   (recursive-clause :initarg :recursive-clause
-		     :reader recursive-clause-of)))
+;;(defclass common-table-expression ()
+;;  ((name :initarg :name
+;;	 :reader name-of)
+;;   (query :initarg :query
+;;	  :reader query-of)
+;;   (recursive-clause :initarg :recursive-clause
+;;		     :reader recursive-clause-of)))
 
-(defclass sql-expression (query)
-  ((common-table-expressions :initform (list)
-			     :initarg :common-table-expressions
-			     :reader common-table-expressions-of)))
+;;(defclass sql-expression (query)
+;;  ((common-table-expressions :initform (list)
+;;			     :initarg :common-table-expressions
+;;			     :reader common-table-expressions-of)))
 
-(defun make-root (class-name &optional (inheritance-nodes (list)))
-  (let ((*inheritance-nodes* inheritance-nodes))
+(defun make-root (class-name)
+  (with-inheritance-nodes ()
     (make-instance 'root-node :class-mapping (get-class-mapping class-name))))
 
-(defun compute-joined-list (selectors join &key aux &allow-other-keys)
-  (let ((from-clause
-	 (multiple-value-call #'append selectors
-			      (when (not (null join))
-				(apply join selectors)))))
-    (make-instance 'sql-expression
-		   :from-clause from-clause
-		   :where-clause (when (not (null aux))
-			    (multiple-value-list
-			     (apply aux from-clause))))))
+;;(defun compute-joined-list (selectors join &key aux &allow-other-keys)
+;;  (let ((from-clause
+;;	 (multiple-value-call #'append selectors
+;;			      (when (not (null join))
+;;				(apply join selectors)))))
+;;    (make-instance 'sql-expression
+;;		   :from-clause from-clause
+;;		   :where-clause (when (not (null aux))
+;;			    (multiple-value-list
+;;			     (apply aux from-clause))))))
 
-(defun make-joined-list (joined-list cte)
-  (reduce #'(lambda (joined-list class-node)
-	      (substitute
-	       (recursive class-node cte) class-node joined-list))
-	  (remove-if #'keywordp joined-list)
-	  :initial-value joined-list))
+;;(defun make-joined-list (joined-list cte)
+;;  (reduce #'(lambda (joined-list class-node)
+;;	      (substitute
+;;	       (recursive class-node cte) class-node joined-list))
+;;	  (remove-if #'keywordp joined-list)
+;;	  :initial-value joined-list))
 
-(defmethod initialize-instance :after ((instance common-table-expression)
-				       &key recursive query)
-  (let ((*common-table-expression* instance))
-    (with-slots (recursive-clause)
-	instance
-      (setf recursive-clause
-	    (when (not (null recursive))
-	      (multiple-value-list
-		(apply recursive (from-clause-of query))))))))
+;;(defmethod initialize-instance :after ((instance common-table-expression)
+;;				       &key recursive query)
+;;  (let ((*common-table-expression* instance))
+;;    (with-slots (recursive-clause)
+;;	instance
+;;      (setf recursive-clause
+;;	    (when (not (null recursive))
+;;	      (multiple-value-list
+;;		(apply recursive (from-clause-of query))))))))
 
-(defun wrap-query (sql-expression name &optional recursive-clause)
-  (let ((cte
-	 (make-instance 'common-table-expression
-			:name name
-			:query sql-expression
-			:recursive recursive-clause)))
-    (make-instance 'sql-expression :common-table-expressions
-		   (list* cte (common-table-expressions-of sql-expression))
-		   :from-clause (make-joined-list
-				 (from-clause-of sql-expression) cte))))
+;;(defun wrap-query (sql-expression name &optional recursive-clause)
+;;  (let ((cte
+;;	 (make-instance 'common-table-expression
+;;			:name name
+;;			:query sql-expression
+;;			:recursive recursive-clause)))
+;;    (make-instance 'sql-expression :common-table-expressions
+;;		   (list* cte (common-table-expressions-of sql-expression))
+;;		   :from-clause (make-joined-list
+;;				 (from-clause-of sql-expression) cte))))
 
-(defun ensure-aux-clause (sql-expression &key aux &allow-other-keys)
-  (when (not (null aux))
-    (with-slots (where-clause)
-	sql-expression
-      (setf where-clause
-	    (append where-clause
-		    (multiple-value-list 
-		     (apply aux (from-clause-of sql-expression)))))))
-  sql-expression)
+;;(defun ensure-aux-clause (sql-expression &key aux &allow-other-keys)
+;;  (when (not (null aux))
+;;    (with-slots (where-clause)
+;;	sql-expression
+;;      (setf where-clause
+;;	    (append where-clause
+;;		    (multiple-value-list 
+;;		     (apply aux (from-clause-of sql-expression)))))))
+;;  sql-expression)
 
-(defun ensure-recursive-join (sql-expression &key recursive &allow-other-keys)
-  (if (not (null recursive))
-      (wrap-query sql-expression "recursive_join" recursive)
-      sql-expression))
+;; (defun ensure-recursive-join (sql-expression &key recursive &allow-other-keys)
+;;   (if (not (null recursive))
+;;       (wrap-query sql-expression "recursive_join" recursive)
+;;       sql-expression))
 
-(defun ensure-where-clause (sql-expression &key where &allow-other-keys)
-  (when (not (null where))
-    (with-slots (where-clause)
-	sql-expression
-      (setf where-clause
-	    (append where-clause
-		    (multiple-value-list 
-		     (apply where (from-clause-of sql-expression)))))))
-  sql-expression)
+;; (defun ensure-where-clause (sql-expression &key where &allow-other-keys)
+;;   (when (not (null where))
+;;     (with-slots (where-clause)
+;; 	sql-expression
+;;       (setf where-clause
+;; 	    (append where-clause
+;; 		    (multiple-value-list 
+;; 		     (apply where (from-clause-of sql-expression)))))))
+;;   sql-expression)
 
-(defun ensure-having-clause (sql-expression &key having &allow-other-keys)
-  (with-slots (having-clause)
-      sql-expression
-    (setf having-clause
-	  (when (not (null having))
-	    (multiple-value-list
-	     (apply having (from-clause-of sql-expression))))))
-  sql-expression)
+;; (defun ensure-having-clause (sql-expression &key having &allow-other-keys)
+;;   (with-slots (having-clause)
+;;       sql-expression
+;;     (setf having-clause
+;; 	  (when (not (null having))
+;; 	    (multiple-value-list
+;; 	     (apply having (from-clause-of sql-expression))))))
+;;   sql-expression)
 
-(defun ensure-limit (sql-expression &key limit &allow-other-keys)
-  (when (not (null limit))
-    (setf (limit-of sql-expression) limit))
-  sql-expression)
+;; (defun ensure-limit (sql-expression &key limit &allow-other-keys)
+;;   (when (not (null limit))
+;;     (setf (limit-of sql-expression) limit))
+;;   sql-expression)
 
-(defun ensure-offset (sql-expression &key offset &allow-other-keys)
-  (when (not (null offset))
-    (setf (offset-of sql-expression) offset))
-  sql-expression)
+;; (defun ensure-offset (sql-expression &key offset &allow-other-keys)
+;;   (when (not (null offset))
+;;     (setf (offset-of sql-expression) offset))
+;;   sql-expression)
 
-(defun ensure-selection (sql-expression &key select &allow-other-keys)
-  (let ((joined-list
-	 (from-clause-of sql-expression)))
-    (setf (select-list-of sql-expression)
-	  (mapcar #'select-item
-		  (if (not (null select))
-		      (multiple-value-list
-		       (apply select joined-list))
-		      (subseq joined-list 0 (position-if #'keywordp joined-list)))))) ; roots
-  sql-expression)
+;; (defun ensure-selection (sql-expression &key select &allow-other-keys)
+;;   (let ((joined-list
+;; 	 (from-clause-of sql-expression)))
+;;     (setf (select-list-of sql-expression)
+;; 	  (mapcar #'select-item
+;; 		  (if (not (null select))
+;; 		      (multiple-value-list
+;; 		       (apply select joined-list))
+;; 		      (subseq joined-list 0 (position-if #'keywordp joined-list)))))) ; roots
+;;   sql-expression)
 
-(defun make-recursive-clause (fetch-references)
-  (reduce #'append fetch-references
-	  :key #'(lambda (fetch-reference)
-		   (let ((clause
-			  (make-recursive-clause
-			   (fetched-references-of fetch-reference)))
-			 (recursive-clause
-			  (recursive-clause-of fetch-reference)))
-		     (if (not (null recursive-clause))
-			 (list* recursive-clause clause)
-			 clause)))
-	  :from-end t
-	  :initial-value nil))
+;; (defun make-recursive-clause (fetch-references)
+;;   (reduce #'append fetch-references
+;; 	  :key #'(lambda (fetch-reference)
+;; 		   (let ((clause
+;; 			  (make-recursive-clause
+;; 			   (fetched-references-of fetch-reference)))
+;; 			 (recursive-clause
+;; 			  (recursive-clause-of fetch-reference)))
+;; 		     (if (not (null recursive-clause))
+;; 			 (list* recursive-clause clause)
+;; 			 clause)))
+;; 	  :from-end t
+;; 	  :initial-value nil))
 
-(defun ensure-recursive-fetch (sql-expression fetch-clause)
-  (let ((recursive-clause
-	 (make-recursive-clause fetch-clause)))
-    (if (not (null recursive-clause))
-	(wrap-query sql-expression "recursive_fetching" recursive-clause)
-	sql-expression)))
+;; (defun ensure-recursive-fetch (sql-expression fetch-clause)
+;;   (let ((recursive-clause
+;; 	 (make-recursive-clause fetch-clause)))
+;;     (if (not (null recursive-clause))
+;; 	(wrap-query sql-expression "recursive_fetching" recursive-clause)
+;; 	sql-expression)))
 
-(defun ensure-fetch (sql-expression &key fetch limit offset &allow-other-keys)
-  (if (not (null fetch))
-      (let ((fetch-clause
-	     (multiple-value-list
-	      (apply fetch (select-list-of sql-expression)))))
-	(dolist (fetched-reference fetch-clause)
-	  (push fetched-reference
-		(fetched-references-of
-		 (class-selection-of fetched-reference))))
-	(ensure-recursive-fetch
-	 (if (not (null (or limit offset)))
-	     (wrap-query sql-expression "before_fetch")
-	     sql-expression)
-	 fetch-clause))
-      sql-expression))
+;; (defun ensure-fetch (sql-expression &key fetch limit offset &allow-other-keys)
+;;   (if (not (null fetch))
+;;       (let ((fetch-clause
+;; 	     (multiple-value-list
+;; 	      (apply fetch (select-list-of sql-expression)))))
+;; 	(dolist (fetched-reference fetch-clause)
+;; 	  (push fetched-reference
+;; 		(fetched-references-of
+;; 		 (class-selection-of fetched-reference))))
+;; 	(ensure-recursive-fetch
+;; 	 (if (not (null (or limit offset)))
+;; 	     (wrap-query sql-expression "before_fetch")
+;; 	     sql-expression)
+;; 	 fetch-clause))
+;;       sql-expression))
 
-(defun ensure-order-by (sql-expression &key order-by &allow-other-keys)
-  (when (not (null order-by))
-    (setf (order-by-clause-of sql-expression)
-	  (apply order-by (from-clause-of sql-expression))))
-  sql-expression)
+;; (defun ensure-order-by (sql-expression &key order-by &allow-other-keys)
+;;   (when (not (null order-by))
+;;     (setf (order-by-clause-of sql-expression)
+;; 	  (apply order-by (from-clause-of sql-expression))))
+;;   sql-expression)
 
-(defun make-query (roots join &rest args)
+(defun make-query (roots join &key select aux recursive where order-by
+				having fetch limit offset)
   (let* ((*table-index* 0)
-	 (selectors
-	  (if (listp roots)
-	      (mapcar #'(lambda (root)
-			  (make-root root))
-		      roots)
-	      (list (make-root roots)))))
-    (reduce #'(lambda (sql-expression function)
-		(apply function sql-expression args))
-	    (list #'ensure-aux-clause
-		  #'ensure-recursive-join
-		  #'ensure-where-clause
-		  #'ensure-having-clause
-		  #'ensure-limit
-		  #'ensure-offset
-		  #'ensure-selection
-		  #'ensure-fetch
-		  #'ensure-order-by)
-	    :initial-value (compute-joined-list selectors join))))
+	 (selectors (if (listp roots)
+			(mapcar #'(lambda (root)
+				    (make-root root))
+				roots)
+			(list (make-root roots))))
+	 (join-list (multiple-value-call #'append selectors
+					 (when (not (null join))
+					   (apply join selectors))))
+	 (select-list  (mapcar #'select-item
+			       (if (not (null select))
+				   (multiple-value-list
+				    (apply select join-list))
+				   selectors))))
+    (make-instance 'query :roots selectors
+		   :join-list join-list
+		   :aux-clause (when (not (null aux))
+				 (multiple-value-list
+				  (apply aux join-list)))
+		   :recursive-clause (when (not (null recursive))
+				       (multiple-value-list
+					(apply recursive join-list)))
+		   :where-clause (when (not (null where))
+				   (multiple-value-list
+				    (apply where join-list)))
+		   :order-by-clause (when (not (null order-by))
+				      (multiple-value-list
+				       (apply order-by join-list)))
+		   :select-list select-list
+		   :having-clause (when (not (null having))
+				    (multiple-value-list
+				     (apply having select-list)))
+		   :fetch-clause (when (not (null fetch))
+				   (multiple-value-list
+				    (apply fetch select-list)))
+		   :limit limit
+		   :offset offset)))
+    ;; (reduce #'(lambda (sql-expression function)
+    ;; 		(apply function sql-expression args))
+    ;; 	    (list #'ensure-aux-clause
+    ;; 		  #'ensure-recursive-join
+    ;; 		  #'ensure-where-clause
+    ;; 		  #'ensure-having-clause
+    ;; 		  #'ensure-limit
+    ;; 		  #'ensure-offset
+    ;; 		  #'ensure-selection
+    ;; 		  #'ensure-fetch
+    ;; 		  #'ensure-order-by)
+    ;; 	    :initial-value (compute-joined-list selectors join))))
 
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform)
