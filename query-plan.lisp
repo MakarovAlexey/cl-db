@@ -2,6 +2,8 @@
 
 (defvar *table-index*)
 
+(defvar *inheritance-nodes*)
+
 ;; Query root
 
 (defclass class-node ()
@@ -30,12 +32,24 @@
 		:reader parent-node-of)))
 
 (defun make-alias (&rest name-parts)
-  (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))	  
+  (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
+
+(defun add-class-node (class-node)
+  (let ((class-name
+	 (class-name-of
+	  (class-mapping-of class-mapping))))
+    (if (not
+	 (null
+	  (find class-name inheritance-nodes)))
+	(error "node for class ~a already added" class-name)
+	(push instance *inheritance-nodes*))))
 
 (defmethod initialize-instance :after ((instance class-node)
 				       &key class-mapping path
 					 (superclass-mappings
-					  (superclass-mappings-of class-mapping)))
+					  (superclass-mappings-of class-mappingP))
+					 (inheritance-nodes *inheritance-nodes*))
+  (add-class-node instance)
   (with-slots (superclass-nodes)
       instance
     (setf superclass-nodes
@@ -271,7 +285,7 @@
 
 (define-aggregate-function sql-sum)
 
-(defun disjunction (restriction &rest more-restrictions)
+(make-rootdefun disjunction (restriction &rest more-restrictions)
   (make-instance 'disjunction
 		 :args (list* restriction more-restrictions)))
 
@@ -401,27 +415,29 @@
 
 ;;; Class selection
 
-(defclass select-item () ; i.e. for sql expressions, property selection, columns etc.
-  ((expressions :initarg :expressions
-		:reader expressions-of)
-   (from-clause :initarg :from-clause
-		:reader from-clause-of)))
+;;(defclass select-item () ; i.e. for sql expressions, property selection, columns etc.
+;;  ((expressions :initarg :expressions
+;;		:reader expressions-of)
+;;   (from-clause :initarg :from-clause
+;;		:reader from-clause-of)))
 
-(defclass root-node-selection (select-item)
+;;(defclass root-node-selection (select-item)
+;;  ((root-node :initarg :root-node
+;;	      :reader root-node-of)))
+
+(defclass class-selection () ;; (root-node-selection)
   ((root-node :initarg :root-node
-	      :reader root-node-of)))
-
-(defclass class-selection (root-node-selection)
-  ((references :reader references-of)
+	      :reader root-node-of)
+   (references :reader references-of) ;; alist of references by class (subclass)
    (subclass-selections :reader subclass-selections-of)))
 
 (defclass reference-fetching (class-select-item)
   ((reference :initarg :reference :reader reference-of)
    (class-selection :initarg :class-selection)))
 
-(defclass cte-select-item (select-item) 
-  ((select-item :initarg :select-item ;;proxied select-item
-		:reader select-item-of)))
+;;(defclass cte-select-item (select-item) 
+;;  ((select-item :initarg :select-item ;;proxied select-item
+;;		:reader select-item-of)))
 
 (defun make-subclass-node (subclass-mapping parent-node)
   (let ((class-mapping
@@ -456,15 +472,15 @@
 (defmethod initialize-instance :after ((instance class-selection) &key root-node)
   (with-slots (columns subclass-nodes references)
       instance
-    (setf expressions ;; columns
-	  (reduce #'(lambda (column-name result)
-		      (acons column-name
-			     (make-alias column-name)
-			     result))
-		  (columns-of
-		   (class-mapping-of root-node))
-		  :initial-value nil))
-    (setf subclass-nodes
+;;    (setf expressions ;; columns
+;;	  (reduce #'(lambda (column-name result)
+;;		      (acons column-name
+;;			     (make-alias column-name)
+;;			     result))
+;;		  (columns-of
+;;		   (class-mapping-of root-node))
+;;		  :initial-value nil))
+    (setf subclass-selections
 	  (mapcar #'(lambda (subclass-mapping)
 		      (make-subclass-node subclass-mapping root-node))
 		  (subclass-mappings-of
@@ -563,8 +579,9 @@
 			     :initarg :common-table-expressions
 			     :reader common-table-expressions-of)))
 
-(defun make-root (class-name)
-  (make-instance 'root-node :class-mapping (get-class-mapping class-name)))
+(defun make-root (class-name &optional (inheritance-nodes (list)))
+  (let ((*inheritance-nodes* inheritance-nodes))
+    (make-instance 'root-node :class-mapping (get-class-mapping class-name))))
 
 (defun compute-joined-list (selectors join &key aux &allow-other-keys)
   (let ((from-clause
