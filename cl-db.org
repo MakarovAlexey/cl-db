@@ -509,6 +509,13 @@
        FROM children;
      
    #+END_SRC
+   
+   |           | limit | offset | join | recursive | roots |
+   |-----------+-------+--------+------+-----------+-------|
+   | fetch     | x     | x      | -    | x         | -     |
+   | r. fetch  | x     | x      | x    | x         | x     |
+   | recursive | -     | -      | -    | x         | -     |
+   
 ** SQL-операторы и функции
 ** Переделать функцит для select-list
    - class-mapping (columns, from-clause, group-by-clause, properties, references)

@@ -33,6 +33,28 @@
    (parent-node :initarg :parent-node
 		:reader parent-node-of)))
 
+
+
+(defclass class-selection () ;; (root-node-selection)
+  ((subclass-selections :reader subclass-selections-of)
+   (concrete-class-node :initarg :concrete-class-node
+			:reader concrete-class-node-of)))
+
+(defclass root-class-selection (class-selection)
+  ((references :reader references-of))) ;; references with superclass references
+
+(defclass subclass-selection (class-selection)
+  ())
+
+(defclass reference-fetching (class-selection)
+  ((reference :initarg :reference
+	      :reader reference-of)
+   (recursive :initarg :recursive
+	      :reader recursive-of)
+   (fetched-references :reader fetched-references-of)
+   (class-selection :initarg :class-selection
+		    :reader class-selection-of)))
+
 (defun make-alias (&rest name-parts)
   (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
 
@@ -452,26 +474,6 @@
 ;;(defclass root-node-selection (select-item)
 ;;  ((root-node :initarg :root-node
 ;;	      :reader root-node-of)))
-
-(defclass class-selection () ;; (root-node-selection)
-  ((subclass-selections :reader subclass-selections-of)
-   (concrete-class-node :initarg :concrete-class-node
-			:reader concrete-class-node-of)))
-
-(defclass root-class-selection (class-selection)
-  ((references :reader references-of))) ;; references with superclass references
-
-(defclass subclass-selection (class-selection)
-  ())
-
-(defclass reference-fetching (class-selection)
-  ((reference :initarg :reference
-	      :reader reference-of)
-   (recursive :initarg :recursive
-	      :reader recursive-of)
-   (fetched-references :reader fetched-references-of)
-   (class-selection :initarg :class-selection
-		    :reader class-selection-of)))
 
 (defun select-subclass (subclass-mapping &optional path)
   (make-instance 'subclass-selection :concrete-class-node
