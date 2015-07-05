@@ -581,6 +581,34 @@
 		     :recursive recursive
 		     :fetch fetch))))
 
+(defclass joining ()
+  ())
+
+;; recursive-joining
+
+(defclass filering ()
+  ())
+
+(defclass selection ()
+  ())
+
+(defclass result-filtering ()
+  ())
+
+(defclass result-limit ()
+  ())
+
+(defclass result-offset ()
+  ())
+
+(defclass fetching ()
+  ())
+
+;; recursive-fetching
+
+(defclass sorting ()
+  ())
+
 (defclass query ()
   ((roots :initarg :roots
 	  :reader roots-of)
@@ -592,12 +620,12 @@
 		     :reader recursive-clause)
    (where-clause :initarg :where-clause
 		 :reader where-clause-of)
-   (having-clause :initarg :having-clause
-		  :reader having-clause-of)
    (order-by-clause :initarg :order-by-clause
 		    :accessor order-by-clause-of)
    (select-list :initarg :select-list
 		:accessor select-list-of)
+   (having-clause :initarg :having-clause
+		  :reader having-clause-of)
    (fetch-clause :initarg :fetch-clause
 		 :reader fetch-clause-of)
    (limit :initarg :limit
@@ -605,18 +633,23 @@
    (offset :initarg :offset
 	   :accessor offset-of)))
 
-;;(defclass common-table-expression ()
-;;  ((name :initarg :name
-;;	 :reader name-of)
-;;   (query :initarg :query
-;;	  :reader query-of)
-;;   (recursive-clause :initarg :recursive-clause
-;;		     :reader recursive-clause-of)))
+(defclass sql-query ()
+  ((select-list)
+   (from-clause)
+   (where-clause)
+   (group-by-clause)
+   (having-clause)
+   (order-by)
+   (limit)
+   (offset)))
 
-;;(defclass sql-expression (query)
-;;  ((common-table-expressions :initform (list)
-;;			     :initarg :common-table-expressions
-;;			     :reader common-table-expressions-of)))
+(defclass common-table-expression ()
+  ((name :initarg :name
+	 :reader name-of)
+   (query :initarg :query
+	  :reader query-of)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause-of)))
 
 (defun make-root (class-name)
   (with-inheritance-nodes ()
