@@ -581,33 +581,51 @@
 		     :recursive recursive
 		     :fetch fetch))))
 
+(defclass db-read-operation ()
+  ((previous-operation :initarg :previous-operation
+		       :reader previous-operation)))
+
 (defclass joining ()
-  ())
+  ((roots :initarg :roots :reader roots-of)
+   (join-list :initarg :join-list :reader join-list-of)))
 
-;; recursive-joining
+(defclass recursive-joining (joining)
+  ((aux-clause :initarg :aux-clause
+	       :reader aux-clause)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause)))
 
-(defclass filering ()
-  ())
+(defclass filering (db-read-operation)
+  ((where-clause :initarg :where-clause
+		 :reader where-clause-of)))
 
-(defclass selection ()
-  ())
+(defclass selection (db-read-operation)
+  ((select-list :initarg :select-list
+		:accessor select-list-of)))
 
-(defclass result-filtering ()
-  ())
+(defclass result-filtering (db-read-operation)
+  ((having-clause :initarg :having-clause
+		  :reader having-clause-of)))
 
-(defclass result-limit ()
-  ())
+(defclass result-limit-offset (db-read-operation)
+  ((limit :initarg :limit
+	  :accessor limit-of)
+   (offset :initarg :offset
+	   :accessor offset-of)
+   (order-by-clause :initarg :order-by-clause
+		    :accessor order-by-clause-of)))
 
-(defclass result-offset ()
-  ())
+(defclass fetching (db-read-operation)
+  ((fetch-clause :initarg :fetch-clause
+		 :reader fetch-clause-of)))
 
-(defclass fetching ()
-  ())
+(defclass recursive-fetching (fetching)
+  ((recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause-of)))
 
-;; recursive-fetching
-
-(defclass sorting ()
-  ())
+(defclass sorting (db-read-operation)
+  ((order-by-clause :initarg :order-by-clause
+		    :accessor order-by-clause-of)))
 
 (defclass query ()
   ((roots :initarg :roots
