@@ -407,32 +407,6 @@
 
 (defun compute-root-node-columns (root-node)
   
-	
-
-(defun compute-join-select-list (join-list)
-  (reduce #'(lambda (root-node result)
-	      (acons root-node
-		     (compute-join-select-item root-node)
-		     result))
-	  :key #'compute-join-select-item
-	  :from-end t))
-
-(defun compute-joining (join-list)
-  (make-instance 'query
-		 :select-list (compute-join-select-list join-list);; ассоциативный список ((назнаие колонки + узел) . sql-выражение) 
-		 :from-clause ;; дерево объединения))
-		 
-
-(defun compute-join-list (select-items aux recursive)
-  (if (not (null recursive))
-      (compute-recursive-joining join-list
-				 (when (not (null aux))
-				   (multiple-value-list
-				    (apply aux join-list)))
-				 (multiple-value-list
-				  (apply recursive join-list)))
-      (compute-joining join-list)))
-
 (defun plan-column (column-name class-node)
   (make-instance 'column-plan
 		 :column-name column-name
@@ -463,11 +437,78 @@
 ;;	  :key #'plan-columns
 ;;	  :initial-value nil))
 
-(defmethod plan-columns ((select-item expression-selection)))
+;;(defmethod plan-columns ((select-item expression-selection)))
 
 ;; планирование по select 1item
 
+	
 
+(defun compute-join-select-list (expressions)
+  (reduce #'(lambda (root-node result)
+	      (acons root-node
+		     (compute-join-select-item root-node)
+		     result))
+	  :key #'compute-join-select-item
+	  :from-end t))
+
+		 :select-list (compute-join-select-list expressions) ;; ассоциативный список ((назнаие колонки + узел) . sql-выражение) 
+
+(defgeneric compute-joining-from-clause (expression))
+
+(defmethod compute-joining-from-clause ((expression expression))
+  (mapcar #'compute-joining-from-clause
+	  (arguments-of expression)))
+
+(defmethod compute-joining-from-clause ((expression property-node))
+  (let ((path (path-of expression)))
+    (reduce #'(lambda (result node)
+		(list node result))
+	    (rest path)
+	    :from-end t
+	    :initial-value (list (first path)))))
+
+(defun compute-concrete-class-from-clause (concrete-class-node)
+  (list* expression
+	 (mapcar #'compute-joining-from-clause
+		 (superclass-nodes-of expression))))
+
+(defmethod compute-joining-from-clause ((expression concrete-class-node))
+  (compute-concrete-class-from-clause expression))
+
+(defun compute-recursive-joining (expressions from-clause table-aliases)
+  (make-instance 'recursive-joining
+		 :query (make-query (plan-columns expression) ;;!!!
+				    from-clause table-aliases
+		 :from-clause
+		 (reduce #'merge-trees expressions
+			 :key #'compute-joining-from-clause
+			 :initial-value nil)
+		 :column-aliases))
+		 :common-table-expression (make-joining-cte expressions)))
+
+(defun compute-joining (expressions from-clause table-aliases)
+  (make-instance 'joining
+		 :from-clause from-clause
+		 :table-aliases table-aliases)
+
+(defun compute-table-aliases
+
+(defun compute-join-list (select-items aux recursive)
+  (let ((from-clause
+	 (reduce #'merge-trees expressions
+		 :key #'compute-joining-from-clause
+		 :initial-value nil))
+	(table-aliases
+	 (compute-table-aliases from-clause)))
+    (if (not (null recursive))
+	(compute-recursive-joining join-list
+				   from-clause
+				   (when (not (null aux))
+				     (multiple-value-list
+				      (apply aux join-list)))
+				   (multiple-value-list
+				    (apply recursive join-list)))
+	(compute-joining join-list from-clause))))
 
 (defun compute-selection (roots join aux recursive select where having
 			  order-by limit offset)
@@ -567,13 +608,13 @@
 	      :limit limit
 	      :fetch fetch))
 
-(defun append-children (appended-joins join-fn table-name alias on-clause &rest joins)
+(defun append-children (appended-joins table-name alias on-clause &rest joins)
   (list* join-fn table-name alias on-clause
 	 (reduce #'(lambda (result appended-join)
 		     (apply #'join-append result appended-join))
 		 appended-joins :initial-value joins)))
 
-(defun join-append (joins join-fn table-name alias on-clause &rest appended-joins)
+(defun join-append (joins table-name alias on-clause &rest appended-joins)
   (let ((join (find alias joins :key #'third)))
     (if (not (null join))
 	(list*
@@ -582,13 +623,13 @@
 	(list* (list* join-fn table-name alias on-clause appended-joins)
 	       joins))))
 
-(defun root-append (appended-joins table-reference-fn table-name alias &rest joins)
+(defun root-append (appended-joins table-name alias &rest joins)
   (list* table-reference-fn table-name alias
 	 (reduce #'(lambda (result join)
 		     (apply #'join-append result join))
 		 appended-joins :initial-value joins)))
 
-(defun from-clause-append (from-clause table-reference-fn table-name alias &rest joins)
+(defun from-clause-append (from-clause table-name alias &rest joins)
   (let ((root
 	 (or
 	  (find alias from-clause :key #'third)
