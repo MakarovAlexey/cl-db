@@ -486,16 +486,38 @@
 		 :column-aliases))
 		 :common-table-expression (make-joining-cte expressions)))
 
+(defun root (tree)
+  (first tree))
+
+(defun children (tree)
+  (rest tree))
+
+(defun merge-join-tree (from-clause tree-root &rest children)
+  (let ((tree
+	 (find tree-root from-clause :key #'root)))
+    (list* tree-root
+	   (if (not (null tree))
+	       (merge-from-clause (children tree) children)
+	       children))))
+
+(defun merge-from-clause (from-clause-1 from-clause-2)
+  (reduce #'(lambda (tree result)
+	      (apply #'merge-join-tree result tree))
+	  from-clause-2
+	  :initial-value from-clause-1))
+
+(defun compute-table-aliases (from-clause)
+  (reduce #'(lambda (tree result)
+	      (acons (root tree) (make-alias 
+
 (defun compute-joining (expressions from-clause table-aliases)
   (make-instance 'joining
 		 :from-clause from-clause
 		 :table-aliases table-aliases)
 
-(defun compute-table-aliases
-
 (defun compute-join-list (select-items aux recursive)
   (let ((from-clause
-	 (reduce #'merge-trees expressions
+	 (reduce #'merge-from-clause expressions
 		 :key #'compute-joining-from-clause
 		 :initial-value nil))
 	(table-aliases
@@ -607,36 +629,3 @@
 	      :offset offset
 	      :limit limit
 	      :fetch fetch))
-
-(defun append-children (appended-joins table-name alias on-clause &rest joins)
-  (list* join-fn table-name alias on-clause
-	 (reduce #'(lambda (result appended-join)
-		     (apply #'join-append result appended-join))
-		 appended-joins :initial-value joins)))
-
-(defun join-append (joins table-name alias on-clause &rest appended-joins)
-  (let ((join (find alias joins :key #'third)))
-    (if (not (null join))
-	(list*
-	 (apply #'append-children appended-joins join)
-	 (remove alias joins :key #'third))
-	(list* (list* join-fn table-name alias on-clause appended-joins)
-	       joins))))
-
-(defun root-append (appended-joins table-name alias &rest joins)
-  (list* table-reference-fn table-name alias
-	 (reduce #'(lambda (result join)
-		     (apply #'join-append result join))
-		 appended-joins :initial-value joins)))
-
-(defun from-clause-append (from-clause table-name alias &rest joins)
-  (let ((root
-	 (or
-	  (find alias from-clause :key #'third)
-	  (find #'write-subquery from-clause :key #'first))))
-    (if (not (null root))
-	(list*
-	 (apply #'root-append joins root)
-	 (remove (third root) from-clause :key #'third))
-	(list* (list* table-reference-fn table-name alias joins)
-	       from-clause))))
