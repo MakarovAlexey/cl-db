@@ -6,6 +6,10 @@
 
 (defvar *session*)
 
+(defclass column ()
+  ((name :initarg :name
+	 :reader name-of)))
+
 (defun parse-slot-mappings (&rest slot-mappings)
   (loop for slot-mapping in slot-mappings collect
        (destructuring-bind
@@ -164,8 +168,8 @@
 		    (append primary-key
 			    foreign-key
 			    (reduce #'append superclass-mappings
-				    :key #'foreign-key-of
-				    :initial-value nil)
+					    :key #'foreign-key-of
+					    :initial-value nil)
 			    (reduce #'list* properties
 				    :key #'column-of :from-end t
 				    :initial-value nil)
