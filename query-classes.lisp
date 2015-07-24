@@ -29,7 +29,7 @@
    (parent-node :initarg :parent-node
 		:reader parent-node-of)))
 
-(defclass property-selection ()
+(defclass property-node ()
   ((property-mapping :initarg :property-mapping
 		     :reader property-mapping-of)
    (class-node :initarg :class-node

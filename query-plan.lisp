@@ -86,10 +86,13 @@
 	  :initial-value nil))
 
 (defun plan-properties (class-node)
-  (reduce #'(lambda (property result)
-	      (acons property class-node result))
+  (reduce #'list*
 	  (property-mappings-of
 	   (class-mapping-of class-node))
+	  :key #'(lambda (property-mapping)
+		   (make-instance 'property-node
+				  :class-node class-node
+				  :mapping property-mapping))
 	  :from-end t
 	  :initial-value (plan-superclasses-properties class-node)))
 
@@ -247,9 +250,11 @@
 	 (slot-name
 	  (get-slot-name (find-class class-name) reader)))
     (or
-     (assoc slot-name
-	    (properties-of root-node)
-	    :key #'slot-name-of)
+     (find slot-name
+	   (properties-of root-node)
+	   :key #'(lambda (property-node)
+		    (slot-name-of
+		     (mapping-of property-node))))
      (error "Property mapping for slot-name ~a of class mapping ~a not found"
 	    slot-name class-name))))
 
@@ -322,25 +327,6 @@
 ;; сосопставление выражений и колонок по псевдонимам происходит при
 ;; планировании запроса
 
-(defgeneric select-item (expression))
-
-(defmethod select-item ((expression list)) ;;property
-  (make-instance 'property-selection
-		 :mapping (first expression)
-		 :class-node (rest expression)))
-
-(defmethod select-item ((expression expression))
-  (make-instance 'expression-selection
-		 :expression expression))
-
-(defmethod select-item ((expression root-node))
-  (make-instance 'root-class-selection
-		 :concrete-class-node expression))
-
-(defmethod select-item ((expression recursive-class-node)) ;; ?
-  (make-instance 'class-selection
-		 :root-node expression))
-
 (defun fetch (class-selection reader &key class-name fetch recursive)
   (let* ((class-node (concrete-class-node-of class-selection))
 	 (reference
@@ -393,9 +379,9 @@
 	    :initial-value (list (first path)))))
 
 (defun compute-concrete-class-from-clause (concrete-class-node)
-  (list* expression
+  (list* concrete-class-node
 	 (mapcar #'compute-joining-from-clause
-		 (superclass-nodes-of expression))))
+		 (superclass-nodes-of concrete-class-node))))
 
 (defmethod compute-joining-from-clause ((expression concrete-class-node))
   (compute-concrete-class-from-clause expression))
@@ -420,18 +406,20 @@
 	  from-clause-2
 	  :initial-value from-clause-1))
 
+(defun table-alias (class-node table-aliases)
+  (rest (assoc class-node table-aliases)))
+
 (defun compute-table-aliases (from-clause)
   (reduce #'append from-clause
 	  :key (lambda (tree)
-		 (let ((root (root tree)))
-		   (acons root (make-alias
-				(class-name-of
-				 (class-mapping-of root)))
+		 (let ((class-node (root tree)))
+		   (acons class-node
+			  (make-alias
+			   (class-name-of
+			    (class-mapping-of class-node)))
 			  (compute-table-aliases
 			   (children tree)))))))
 
-(defun compute-root-node-columns (root-node)
-  
 (defun plan-column (column-name class-node)
   (make-instance 'column-plan
 		 :column-name column-name
@@ -446,33 +434,33 @@
 				 (columns-of
 				  (class-mapping-of class-node)))))
 
-(defgeneric plan-columns (expression))
+(defgeneric get-columns (expression))
 
-(defmethod plan-columns ((expression expression))
+(defmethod get-columns ((expression expression))
   (reduce #'append (arguments-of expression) :key #'plan-columns))
 
-(defun plan-column (column-name class-node)
-  (make-instance 'column-plan
-		 :class-node class-node
-		 :column-name column-name))
+(defun get-column (column-name class-node)
+  (list class-node column-name))
+;;  (make-instance 'column-expression
+;;		 :class-node class-node
+;;		 :alias (make-alias column-name)
+;;		 :table-alias (rest (assoc class-node table-aliases))
+;;		 :column-name column-name))
 
-(defmethod plan-columns ((expression property-node))
+(defmethod get-columns ((expression property-node))
   (list
    (plan-column (column-of
 		 (mapping-of expression))
-		(class-node-of property-node))))
+		(class-node-of expression))))
 
-(defmethod plan-columns ((expression class-node))
+(defmethod get-columns ((expression class-node))
   (reduce #'append (superclass-nodes-of expression)
-	  :key #'plan-columns
-	  :initial-value (mapcar #'(lambda (column-name)
-				     (plan-column column-name
-						  expression))
-				 (columns-of
-				  (mapping-of class-node)))))
-
-(defmethod compute-joining-from-clause 
-  (compute-concrete-class-from-clause expression))
+	  :key #'get-columns
+	  :initial-value
+	  (mapcar #'(lambda (column-name)
+		      (plan-column column-name expression))
+		  (columns-of
+		   (mapping-of expression)))))
 
 (defun make-common-table-expression (name columns from-clause
 				     table-aliases aux-clause
@@ -485,37 +473,115 @@
 		 :aux-clause aux-clause
 		 :recursive-clause recursive-clause))
 
+(defun column-name (node-column)
+  (second node-column))
+
+(defun select-columns (column-plans table-aliases)
+  (reduce #'append
+	  column-plans
+	  :key (lambda (column-plan)
+		 (destructuring-bind ((class-node column-name) . alias)
+		     column-plan
+		   (list :select-item
+			 :column column-name
+			 (gethash class-node table-aliases)
+			 :as alias)))
+	  :from-end t))
+
+(defun join-superclass (tree subclass-table-alias table-aliases)
+  (let* ((superclass-node (root tree))
+	(superclass-mapping
+	 (class-mapping-of superclass-node))
+	(superclass-table-alias
+	 (table-alias superclass-node table-aliases)))
+    (list*
+     (list* :left-join (table-name-of superclass-mapping)
+	    :as (table-alias superclass-node table-aliases)
+	    :on (reduce #'append
+			(mapcar #'(lambda (pk-column fk-column)
+				    (let ((lhs
+					   (cons pk-column superclass-table-alias))
+					  (rhs
+					   (cons fk-column subclass-table-alias)))
+				      (list lhs := rhs)))
+				(foreign-key-of superclass-node)
+				(primary-key-of superclass-mapping))))
+     (join-superclasses (children tree)
+			superclass-table-alias
+			table-aliases))))
+
+(defun join-superclasses (children alias table-aliases)
+  (reduce #'append children
+	  :key #'(lambda (tree)
+		   (join-superclass tree alias table-aliases))))
+
+(defun join-root (tree table-aliases)
+  (let* ((root-node (root tree))
+	 (alias (table-alias root-node table-aliases))
+	 (children (children tree)))
+    (list*
+     (table-name-of (class-mapping-of root-node)) :as alias
+     (join-superclasses children alias table-aliases))))
+
+(defun make-from-clause (from-clause table-aliases)
+  (reduce #'append from-clause
+	  :key #'(lambda (tree)
+		   (join-root tree table-aliases))))
+
 (defun compute-recursive-joining (expressions from-clause
 				  table-aliases aux-clause recursive)
-  (let ((columns
-	 (plan-columns expression table-aliases))
-	(name "joining"))
+  (let ((name "joining")
+	(column-plans
+	 (reduce #'(lambda (result node-column)
+		     (acons node-column
+			    (make-alias
+			     (column-name node-column))
+			    result))
+		 (remove-duplicates
+		  (get-columns expressions) :test #'equal) ;; list of (list class-node oplumn-name)
+		 :from-end t
+		 :initial-value nil)))
     (make-instance 'recursive-joining
+		   :name name
+		   :columns column-plans
 		   :from-clause from-clause
-		   :columns columns
 		   :common-table-expression
-		   (make-common-table-expression name columns
-						 from-clause
+		   (make-common-table-expression name
+						 (select-columns column-plans table-aliases)
+						 (make-from-clause from-clause table-aliases)
 						 table-aliases
 						 aux-clause
 						 recursive))))
 
-(defun compute-joining (expressions from-clause table-aliases)
+(defun compute-joining (from-clause table-aliases)
   (make-instance 'joining
 		 :from-clause from-clause
-		 :table-aliases table-aliases)
+		 :table-aliases table-aliases))
 
 (defun compute-join-list (expressions aux-clause recursive-clause)
-  (let ((from-clause
-	 (reduce #'merge-from-clause expressions
-		 :key #'compute-joining-from-clause
-		 :initial-value nil))
-	(table-aliases
-	 (compute-table-aliases from-clause)))
+  (let* ((from-clause
+	  (reduce #'merge-from-clause expressions
+		  :key #'compute-joining-from-clause
+		  :initial-value nil))
+	 (table-aliases
+	  (compute-table-aliases from-clause)))
     (if (not (null recursive-clause))
-	(compute-recursive-joining join-list from-clause
-				   aux-clause recursive-clause)
-	(compute-joining join-list from-clause))))
+	(compute-recursive-joining expressions from-clause
+				   table-aliases aux-clause
+				   recursive-clause)
+	(compute-joining from-clause table-aliases))))
+
+(defgeneric select-item (expression))
+
+(defmethod select-item ((expression property-node))
+  expression)
+
+(defmethod select-item ((expression expression))
+  expression)
+
+(defmethod select-item ((expression root-node))
+  (make-instance 'root-class-selection
+		 :concrete-class-node expression))
 
 (defun compute-selection (roots join aux recursive select where having
 			  order-by limit offset)
@@ -536,7 +602,7 @@
 	 (select-list (if (not (null select))
 			  (multiple-value-list
 			   (apply select join-list))
-			  (roots-of joining)))
+			  roots))
 	 (where-clause (when (not (null where))
 			 (multiple-value-list
 			  (apply where join-list))))
@@ -555,7 +621,7 @@
     (make-instance 'selection
 		   :joining joining
 		   :select-list (mapcar #'(lambda (select-item)
-					    (select-item joining select-item))
+					    (select-item select-item))
 					select-list)
 		   :where-clause where-clause
 		   :having-clause having-clause
@@ -569,7 +635,8 @@
 			:fetch-clause fetch-clause
 			:selection (if (not (null (or
 						   (limit-of selection)
-						   (offset-of selection))))
+						   (offset-of selection)
+						   recursive-clause)))
 				       (make-cte "selection" selection)
 				       selection))))
     (if (not (null recursive-clause))
@@ -606,8 +673,8 @@
 				having fetch limit offset)
   (let ((*table-index* 0))
     (ensure-fetch
-     (compute-selectionroots join aux recursive select where having
-			     order-by limit offset) fetch)))
+     (compute-selection roots join aux recursive select where having
+			order-by limit offset) fetch)))
 
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform)

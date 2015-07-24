@@ -17,6 +17,7 @@
 	       (:file "persistence")
 ;;	       (:file "expressions")
 	       (:file "writers")
+	       (:file "query-classes")
 	       (:file "query-plan")
 	       ;;(:file "query")
 	       ;;(:file "db-read")))
