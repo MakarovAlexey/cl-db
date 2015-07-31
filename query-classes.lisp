@@ -17,11 +17,12 @@
 		:reader foreign-key-of)))
 
 (defclass concrete-class-node (class-node)
-  ((inheritance-nodes :reader inheritance-nodes-of)))
+  ((effective-references :reader effective-references-of)))
 
 (defclass root-node (concrete-class-node)
   ((properties :reader properties-of)
-   (effective-references :reader effective-references-of)))
+   (precedence-list  :initarg :precedence-list
+		     :reader precedence-list-of)))
 
 (defclass reference-node (root-node) ;; for joins
   ((reference :initarg :reference
@@ -35,15 +36,14 @@
    (class-node :initarg :class-node
 	       :reader class-node-of)))
 
-(defclass class-selection () ;; (root-node-selection)
-  ((subclass-selections :reader subclass-selections-of)
-   (concrete-class-node :initarg :concrete-class-node
-			:reader concrete-class-node-of)))
+(defclass class-selection ()
+  ((subclass-nodes :reader subclass-nodes-of)))
 
 (defclass root-class-selection (class-selection)
-  ((references :reader references-of))) ;; references with superclass references
+  ((concrete-class-node :initarg :concrete-class-node
+			:reader concrete-class-node-of)))
 
-(defclass subclass-selection (class-selection)
+(defclass subclass-node (class-selection concrete-class-node)
   ())
 
 (defclass reference-fetching (class-selection)
@@ -223,8 +223,22 @@
 	  :reader roots-of)
    (join-list :initarg :join-list
 	      :reader join-list-of)
+   (from-clause :initarg :from-clause
+		:reader from-clause-of)
    (aux-clause :initarg :aux-clause
-	       :reader aux-clause)))
+	       :reader aux-clause)
+   (table-alaises :initarg :table-aliases
+		  :reader table-aliases-of)))
+
+(defclass recursive-joining ()
+  ((name :initarg :name
+	 :reader name-of)
+   (columns :initarg :columns
+	    :reader column-plans-of)
+   (from-clause :initarg :from-clause
+		:reader from-clause-of)
+   (common-table-expression :initarg :common-table-expression
+			    :reader common-table-expression-of)))
 
 (defclass selection ()
   ((joining :initarg :joining

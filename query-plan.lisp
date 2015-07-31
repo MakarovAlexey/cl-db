@@ -7,39 +7,14 @@
 (defun make-alias (&rest name-parts)
   (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
 
-(defun call-with-inheritance-nodes (inheritance-nodes thunk)
-  (let ((*inheritance-nodes* (if (not (null inheritance-nodes))
-				 inheritance-nodes
-				 (make-hash-table))))
-    (funcall thunk)))
-
-(defmacro with-inheritance-nodes ((&optional inheritance-nodes) &body body)
-  `(call-with-inheritance-nodes ,inheritance-nodes
-				#'(lambda () ,@body)))
-  
-(defun add-class-node (class-node &optional (inheritance-nodes *inheritance-nodes*))
+(defun make-superclass-node (superclass-mapping path)
   (let ((class-name
-	 (class-name-of
-	  (class-mapping-of class-node))))
-    (multiple-value-bind (class-node presentp)
-	(gethash class-name inheritance-nodes)
-      (when presentp
-	(error "node for class ~a already added" class-name))
-      (setf (gethash class-name inheritance-nodes) class-node))))
-
-;; TODO, path сделать динамической переменной и использовать при инициализации свойств и ссылок
-(defun ensure-superclass-node (superclass-mapping path
-			       &optional (inheritance-nodes *inheritance-nodes*))
-  (multiple-value-bind (class-node presentp)
-      (gethash (reference-class-of superclass-mapping) inheritance-nodes)
-    (if (not presentp)
-	(make-instance 'superclass-node
-		       :alias (make-alias)
-		       :class-mapping (get-class-mapping
-				       (reference-class-of superclass-mapping))
-		       :foreign-key (foreign-key-of superclass-mapping)
-		       :path path)
-	class-node)))
+	 (reference-class-of superclass-mapping)))
+    (make-instance 'superclass-node
+		   :alias (make-alias class-name)
+		   :class-mapping (get-class-mapping class-name)
+		   :foreign-key (foreign-key-of superclass-mapping)
+		   :path path)))
 
 (defun plan-direct-references (class-node)
   (let ((class-mapping
@@ -56,21 +31,14 @@
 				       &key class-mapping path
 					 (superclass-mappings
 					  (superclass-mappings-of class-mapping)))
-  (add-class-node instance)
   (with-slots (superclass-nodes direct-references)
       instance
     (let ((path (list* instance path)))
       (setf superclass-nodes
 	    (mapcar #'(lambda (superclass-mapping)
-			(ensure-superclass-node superclass-mapping path))
+			(make-superclass-node superclass-mapping path))
 		    superclass-mappings)))
     (setf direct-references (plan-direct-references instance))))
-
-(defmethod initialize-instance :after ((instance concrete-class-node)
-				       &key &allow-other-keys)
-  (with-slots (inheritance-nodes)
-      instance
-    (setf inheritance-nodes *inheritance-nodes*)))
 
 (defun plan-effective-references (class-node)
   (reduce #'append (superclass-nodes-of class-node)
@@ -98,9 +66,14 @@
 
 (defmethod initialize-instance :after ((instance root-node)
 				       &key &allow-other-keys)
-  (with-slots (properties effective-references)
+  (with-slots (properties)
       instance
-    (setf properties (plan-properties instance))
+    (setf properties (plan-properties instance))))
+
+(defmethod initialize-instance :after ((instance concrete-class-node)
+				       &key &allow-other-keys)
+  (with-slots (effective-references)
+      instance
     (setf effective-references (plan-effective-references instance))))
 
 (defun find-slot-name (class reader-name)
@@ -132,20 +105,19 @@
 		(class-mapping-of root-class-node))) reader)
 	     (effective-references-of root-class-node)
 	     :key #'slot-name-of)
-    (with-inheritance-nodes ()
-      (let* ((reference-node
-	      (make-instance 'reference-node
-			     :class-mapping (get-class-mapping
-					     (reference-class-of reference))
-			     :class-node class-node
-			     :reference reference))
-	     (args
-	      (when (not (null join))
-		(multiple-value-call #'append
-		  (funcall join reference-node)))))
-	(if (not (null alias))
-	    (list* alias reference-node args)
-	    args)))))
+    (let* ((reference-node
+	    (make-instance 'reference-node
+			   :class-mapping (get-class-mapping
+					   (reference-class-of reference))
+			   :class-node class-node
+			   :reference reference))
+	   (args
+	    (when (not (null join))
+	      (multiple-value-call #'append
+		(funcall join reference-node)))))
+      (if (not (null alias))
+	  (list* alias reference-node args)
+	  args))))
 
 (defun disjunction (restriction &rest more-restrictions)
   (make-instance 'disjunction
@@ -266,50 +238,25 @@
 (defmethod property ((class-selection root-class-selection) reader)
   (property (concrete-class-node-of class-selection) reader))
 
-(defun select-subclass (subclass-mapping &optional path)
-  (make-instance 'subclass-selection :concrete-class-node
-		 (make-instance 'concrete-class-node :path path
-				:class-mapping
-				(get-class-mapping
-				 (reference-class-of subclass-mapping)))))
-
-(defmethod initialize-instance :after ((instance root-class-selection)
-				       &key concrete-class-node)
-  (with-slots (subclass-selections) ;; references) ;;(columns 
+(defmethod initialize-instance :after ((instance class-selection)
+				       &key class-mapping &allow-other-keys)
+  (with-slots (subclass-nodes)
       instance
-;;    (setf expressions ;; columns
-;;	  (reduce #'(lambda (column-name result)
-;;		      (acons column-name
-;;			     (make-alias column-name)
-;;			     result))
-;;		  (columns-of
-;;		   (class-mapping-of root-node))
-;;		  :initial-value nil))
-    ;; Добавить присвоение inheritance-nodes
-    (with-inheritance-nodes ((inheritance-nodes-of concrete-class-node))
-      (setf subclass-selections
-	    (mapcar #'(lambda (subclass-mapping)
-			(select-subclass subclass-mapping))
-		    (subclass-mappings-of
-		     (class-mapping-of concrete-class-node)))))))
+    (setf subclass-nodes
+	  (mapcar #'(lambda (subclass-mapping)
+		      (make-instance 'subclass-node :class-mapping
+				     (get-class-mapping
+				      (reference-class-of subclass-mapping))))
+		  (subclass-mappings-of class-mapping)))))
 
-(defmethod initialize-instance :after ((instance subclass-selection)
-				       &key concrete-class-node)
-  (with-slots (subclass-selections) ;; references) ;;(columns 
+(defmethod initialize-instance :after ((instance subclass-node)
+				       &key class-mapping &allow-other-keys)
+  (with-slots (alias)
       instance
-    (setf subclass-selections
-	    (mapcar #'(lambda (subclass-mapping)
-			(select-subclass subclass-mapping))
-		    (subclass-mappings-of
-		     (class-mapping-of concrete-class-node))))))
-
-;;    (setf recursive
-;;	  (when (not (null recursive))
-;;	    (restrict
-;;	     (recursive (root-node-of instance)) :equal recursive)))
+    (setf alias (make-alias (class-name-of class-mapping)))))
 
 (defmethod initialize-instance :after ((instance reference-fetching)
-				       &key fetch)
+				       &key fetch &allow-other-keys)
   (with-slots (fetched-references)
       instance
     (setf fetched-references
@@ -317,42 +264,25 @@
 	    (multiple-value-list
 	     (funcall fetch instance))))))
 
-;;(defmethod initialize-instance :after ((instance subclass-node)
-;;				       &key class-mapping)
-;;  (setf (slot-value instance 'subclass-nodes)
-;;	(mapcar #'(lambda (subclass-mapping)
-;;		    (make-subclass-node subclass-mapping instance))
-;;		(subclass-mappings-of class-mapping))))
-
-;; сосопставление выражений и колонок по псевдонимам происходит при
-;; планировании запроса
-
 (defun fetch (class-selection reader &key class-name fetch recursive)
-  (let* ((class-node (concrete-class-node-of class-selection))
-	 (reference
+  (let* ((class-node
+	  (if (not (null class-name))
+	      (concrete-class-node-of class-selection)
+	      (get-subclass-node class-selection class-name)))
+	 (reference ;; (cons reference-mapping class-node)
 	  (assoc (get-slot-name
-		  (find-class
-		   (if (not (null class-name))
-		       class-name
-		       (class-name-of
-			(class-mapping-of class-node)))) reader)
-		 (if (not (null class-name))
-		     (direct-references-of
-		      (gethash class-name
-			       (inheritance-nodes-of class-node)))
-		     (effective-references-of class-node))
+		  (find-class (class-mapping-of class-node)) reader)
+		 (effective-references-of class-node)
 		 :key #'slot-name-of)))
-    (with-inheritance-nodes ()
-      (make-instance 'reference-fetching
-		     :concrete-class-node
-		     (make-instance 'concrete-class-node
-				    :class-mapping (get-class-mapping
-						    (reference-class-of
-						     (first reference))))
-		     :class-selection class-selection
-		     :reference reference
-		     :recursive-selection recursive
-		     :fetch fetch))))
+    (make-instance 'reference-fetching ;; one-to-many/many-to-one?
+		   :class-mapping (get-class-mapping
+				   (reference-class-of
+				    (first reference)))
+		   :class-selection class-selection
+		   :class-node (rest reference)
+		   :reference reference
+		   :recursive-selection recursive
+		   :fetch fetch)))
 
 (defmethod join-list-of ((cte common-table-expression))
   (join-list-of (query-of cte)))
@@ -361,8 +291,7 @@
   (roots-of (query-of cte)))
 
 (defun make-root (class-name)
-  (with-inheritance-nodes ()
-    (make-instance 'root-node :class-mapping (get-class-mapping class-name))))
+  (make-instance 'root-node :class-mapping (get-class-mapping class-name)))
 
 (defgeneric compute-joining-from-clause (expression))
 
@@ -437,15 +366,7 @@
 (defgeneric get-columns (expression))
 
 (defmethod get-columns ((expression expression))
-  (reduce #'append (arguments-of expression) :key #'plan-columns))
-
-(defun get-column (column-name class-node)
-  (list class-node column-name))
-;;  (make-instance 'column-expression
-;;		 :class-node class-node
-;;		 :alias (make-alias column-name)
-;;		 :table-alias (rest (assoc class-node table-aliases))
-;;		 :column-name column-name))
+  (reduce #'append (arguments-of expression) :key #'get-columns))
 
 (defmethod get-columns ((expression property-node))
   (list
@@ -553,6 +474,30 @@
 						 aux-clause
 						 recursive))))
 
+(defgeneric get-joining-column (joining class-node column-name))
+
+(defmethod get-joining-column ((joining recursive-joining) class-node column-name)
+  (cons (name-of joining)
+	(rest (find-if #'(lambda (column-plan)
+			   (and (eq (class-node-of column-plan) class-node)
+				(eq (column-name-of column-plan) column-name)))
+		       (columns-of joining)
+		       :key #'first))))
+
+(defmethod get-joining-column ((joining joining) class-node column-name)
+  (cons (table-alias class-node (table-aliases-of joining))
+	column-name))
+
+(defgeneric get-column (query-object column-name))
+
+(defmethod get-column ((class-selection root-class-selection) column-name)
+  (get-joining-column (joining-of class-selection)
+		     (concrete-class-node-of class-selection)
+		     column-name))
+
+(defmethod get-column ((subclass-node subclass-node) column-name)
+  (cons (alias-of subclass-node) column-name))
+
 (defun compute-joining (from-clause table-aliases)
   (make-instance 'joining
 		 :from-clause from-clause
@@ -571,20 +516,65 @@
 				   recursive-clause)
 	(compute-joining from-clause table-aliases))))
 
-(defgeneric select-item (expression))
+(defgeneric select-item (expression joining))
 
-(defmethod select-item ((expression property-node))
-  expression)
+(defmethod select-item ((expression property-node) joining)
+  (make-instance 'simple-selection
+		 :joining joining
+		 :expression expression
+		 :alias (make-alias (slot-name-of
+				     (mapping-of expression)))))
 
-(defmethod select-item ((expression expression))
-  expression)
+(defmethod select-item ((expression expression) joining)
+  (make-instance 'simple-selection
+		 :joining joining
+		 :expression expression
+		 :alias (make-alias "expr")))
 
-(defmethod select-item ((expression root-node))
+(defmethod select-item ((expression root-node) joining)
   (make-instance 'root-class-selection
-		 :concrete-class-node expression))
+		 :joining joining
+		 :concrete-class-node expression
+		 :class-mapping (class-mapping-of expression)))
+
+(defun compute-from-clause (query-object)
+  (reduce #'append (subclass-nodes-of query-object)
+	  :key #'(lambda (subclass-node)
+		   (let ((subclass-mapping
+			  (class-mapping-of subclass-node))
+			 (alias
+			  (alias-of subclass-node)))
+		     (list* :left-join (table-name-of
+					(class-mapping-of subclass-node))
+			    :as alias
+			    :on (mapcar #'(lambda (pk-column fk-column)
+					      (list
+					       (get-column pk-column subclass-node)
+					       (get-column fk-column query-object)))
+					(primary-key-of subclass-mapping)
+					(foreign-key-of subclass-mapping))
+			    (compute-from-clause subclass-node))))
+	    :initial-value nil))
+
+(defun make-selection (joining select-list where-clause having-clause
+		       order-by-clause limit offset)
+  (make-instance 'selection
+		 :joining joining
+		 :select-list select-list
+		 :from-clause (reduce #'append select-list
+				      :key #'compute-from-clause
+				      :initial-value (from-clause-of joining))
+		 :where-clause where-clause
+		 :having-clause having-clause
+		 :order-by-clause order-by-clause
+		 :limit limit
+		 :offset offset))
+
+(defun make-auxullary-selection (selection)
+  (make-instance 'auxullary-selection :selection selection))
 
 (defun compute-selection (roots join aux recursive select where having
-			  order-by limit offset)
+			  order-by limit offset fetch)
   (let* ((selectors (if (listp roots)
 			(mapcar #'(lambda (root)
 				    (make-root root))
@@ -617,17 +607,19 @@
 			   select-list where-clause having-clause
 			   order-by-clause)
 		   aux-clause
-		   recursive-clause)))
-    (make-instance 'selection
-		   :joining joining
-		   :select-list (mapcar #'(lambda (select-item)
-					    (select-item select-item))
-					select-list)
-		   :where-clause where-clause
-		   :having-clause having-clause
-		   :order-by-clause order-by-clause
-		   :limit limit
-		   :offset offset)))
+		   recursive-clause))
+	 (selection
+	  (make-selection joining (mapcar #'(lambda (select-item)					      (select-item select-item joining))
+					  select-list)
+			  where-clause having-clause order-by-clause
+			  limit offset))
+	 (fetch-clauses (when (not (null fetch))
+			  (multiple-value-list
+			   (apply fetch (select-list-of selection))))))
+    (if (not (or (and (or limit offset) fetch-clauses)
+		 (some #'recursive-selection-of fetch-clauses)))
+	selection
+	(make-auxullary-selection selection))))
 
 (defun make-fetching (selection fetch-clause recursive-clause)
   (let ((fetching
@@ -674,7 +666,7 @@
   (let ((*table-index* 0))
     (ensure-fetch
      (compute-selection roots join aux recursive select where having
-			order-by limit offset) fetch)))
+			order-by limit offset fetch) fetch)))
 
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform)
