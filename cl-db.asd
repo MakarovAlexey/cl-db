@@ -15,13 +15,13 @@
 ;;	       (:file "mapping-schema")
 	       (:file "session")
 	       (:file "persistence")
-;;	       (:file "expressions")
-	       (:file "writers")
-	       (:file "query-classes")
+	       (:file "expressions")
+;;	       (:file "writers")
+;;	       (:file "query-classes")
 	       (:file "query-plan")
-	       ;;(:file "query")
+	       (:file "query-building")
 	       ;;(:file "db-read")))
-))
+	       ))
 (asdf:defsystem #:cl-db.tests
   :serial t
   :description "Describe cl-db here"

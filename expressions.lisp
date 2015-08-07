@@ -1,147 +1,135 @@
 (in-package #:cl-db)
 
-(defparameter *sql-expression-types* (make-hash-table))
-
-(defclass sql-expression-type ()
-  ((sql-string :initarg :sql-string
-	       :reader sql-string-of)))
-
-(defclass sql-operator (sql-expression-type)
+(defclass expression ()
   ())
 
-(defclass sql-function (sql-expression-type)
+(defclass sql-function (expression)
+  ((arguments :initarg :arguments
+	      :reader arguments-of)))
+
+(defclass rdbms-function-call (sql-function) ;; call by name
+  ((function-name :initarg :function-name
+		  :reader function-name-of)))
+
+(defclass aggregation (sql-function)
   ())
 
-(defun expression (name &rest args)
-  (multiple-value-bind (expression-type presentp)
-      (gethash name *sql-expression-types*)
-    (if (not presentp)
-	(error "Expression type ~a not found" name)
-	(list* expression-type args))))
+(defclass rdbms-aggregation (aggregation) ;; call by name
+  ((function-name :initarg :function-name
+		  :reader function-name-of)))
 
-;;(defmacro define-sql-operator (name sql-name)
-;;  `(setf (gethash (quote ,name) *sql-expression-types*)
-;;	 (make-instance 'sql-operator :sql-string ,sql-name)))
+(defclass operation (expression)
+  ((operator :initarg :operator :reader operator-of)))
 
-;;(defmacro define-sql-function (name sql-name)
-;;  `(setf (gethash (quote ,name) *sql-expression-types*)
-;;	 (make-instance 'sql-function :sql-string ,sql-name)))
+(defclass binary-operation (operation)
+  ((lhs-expression :initarg :lhs :reader lhs-expression-of)
+   (rhs-expression :initarg :rhs :reader rhs-expression-of)))
 
-;;(define-binary-operator (:eq :=) "=")
+(defclass binary-operator-extended (operation)
+  ((args :initarg :args
+	 :reader args-of)))
 
-;;(define-binary-operator :or "OR")
+(defclass sort-direction (operation)
+  ())
 
-;;(define-binary-operator :and "AND")
+(defclass ascending (sort-direction)
+  ())
 
-;;(define-operator :not "NOT")
+(defclass descending (sort-direction)
+  ())
 
-;;(define-operator :in "IN")
+(defmacro define-binary-operation (name)
+  `(defclass ,name (binary-operation)
+     ()))
 
-;;(define-operator :like "LIKE")
+(defmacro define-binary-operator-extended (name)
+  `(defclass ,name (binary-operator-extended)
+     ()))
 
-;;(define-operator :ilike "ILIKE")
+(defmacro define-sql-function (name)
+  `(defclass ,name (sql-function)
+     ()))
 
-;;(define-operator :similar "SIMILAR")
+(defmacro define-aggregate-function (name)
+  `(defclass ,name (aggregation)
+     ()))
 
-;;(define-operator :< "<")
+(define-binary-operation less-than)
 
-;;(define-operator :> ">")
+(define-binary-operation greater-than)
 
-;;(define-operator :<= "<=")
+(define-binary-operation less-than-or-equal)
 
-;;(define-operator :>= ">=")
+(define-binary-operation greater-than-or-equal)
 
-;;(define-operator :<> "<>")
+(define-binary-operation equality)
 
-;;(define-operator :!= "!=")
+(define-binary-operation not-equal)
 
-;;(define-operator :between "BETWEEN")
+(define-binary-operation like)
 
-;;(define-operator :+ "+")
+(define-binary-operation is-null)
 
-;;(define-operator :- "-")
+(define-binary-operation is-not-null)
 
-;;(define-operator :* "*")
+(define-binary-operation is-true)
 
-;;(define-operator :/ "/")
+(define-binary-operation is-not-true)
 
-;;(define-operator :% "%")
+(define-binary-operation is-false)
 
-;;(define-operator :expt "^")
+(define-binary-operation is-not-false)
 
-;; (define-aggregate-function :count "count")
+(define-binary-operator-extended conjunction)
 
-;; Logical operators
+(define-binary-operator-extended disjunction)
 
-(defun db-operator (operator expression &rest rest-expressions)
-  (list* 
-  (multiple-value-bind (expression from-clause group-by-clause)
-      (funcall expression)
-    (multiple-value-bind (rest-expressions
-			  rest-from-clause rest-group-by-clause)
-	(when (not (null rest-expressions))
-	  (apply #'db-and rest-expressions))
-      (let ((alias (make-alias "expr")))
-	#'(lambda ()
-	    (values
-	     (list* operator expression rest-expressions)
-	     (append from-clause rest-from-clause)
-	     (list* group-by-clause 
-	     (make-simple-value-loader alias)
-	     (list alias)))))))
+(define-binary-operator-extended addition)
 
-(defmacro define-binary-operator (function-name operator)
-  `(defun ,fucntion-name (lhs-expression rhs-expression &rest expressions)
-     (list* ,operator lhs-expression rhs-expression &rest expressions)))
+(define-binary-operator-extended subtraction)
 
-(defun db-and (expression &rest rest-expressions)
-  (:documentation "Logical AND operator")
-  (apply #'db-operator :and expression rest-expressions))
+(define-binary-operator-extended multiplication)
 
-(defun db-or (expression &rest rest-expressions)
-  (:documentation "Logical OR operator")
-  (apply #'db-operator :or expression rest-expressions))
+(define-binary-operator-extended division)
 
-(defun db-not (expression &rest rest-expressions)
-  (:documentation "Logical NOT operator")
-  (apply #'db-operator :not expression rest-expressions))
+(define-sql-function sql-abs)
 
-;; Comparison operators
+(define-sql-function sql-exp)
 
-(defun db-less-than (first-expression second-expression
-		     &rest rest-expressions)
-  (:documentation "Less than")
-  (let ((expression
-	 (apply #'db-expression :< first-expression second-expression)))
-    (reduce #'(lambda (result expression)
-		(
-;;    (if (not (null rest-expressions))
-    (db-and expression (db-less-than second-expression
-				      rest-expressions))
-	expression)))
-	(db-expression :< 
+(define-sql-function sql-floor)
 
-< 	less than
-> 	greater than
-<= 	less than or equal to
->= 	greater than or equal to
-= 	equal
-<> or != 	not equal
+(define-sql-function sql-log)
 
-(defun db-eq (value-1 value-2)
-  (multiple-value-bind (column-1 from-clause-1 loader-1)
-      (funcall value-1)
-    (multiple-value-bind (column-2 from-clause-2 loader-3)
-	(funcall value-2)
-      (values (list := 
-      
+(define-sql-function sql-mod)
 
+(define-sql-function sql-power)
 
-  (let ((property (funcall object accesor)))
-    #'(lambda ()
-	(multiple-value-bind (column from-clause loader)
-	    (funcall property)
-	  (values (list '= column '$?)
-		  from-clause
-		  loader
-		  value)))))
+(define-sql-function sql-round)
+
+(define-sql-function sql-sqrt)
+
+(define-sql-function sql-trunc)
+
+(define-sql-function sql-acos)
+
+(define-sql-function sql-asin)
+
+(define-sql-function sql-atan)
+
+(define-sql-function sql-cos)
+
+(define-sql-function sql-sin)
+
+(define-sql-function sql-tan)
+
+(define-aggregate-function avg)
+
+(define-aggregate-function sql-count)
+
+(define-aggregate-function sql-every)
+
+(define-aggregate-function sql-max)
+
+(define-aggregate-function sql-min)
+
+(define-aggregate-function sql-sum)
