@@ -48,12 +48,11 @@
   ((reference-mapping :initarg :reference-mapping
 		      :reader reference-mapping-of)))
 
-(defun compute-precedence-list (class-node precedence-list)
+(defun compute-precedence-list (precedence-list class-node)
   (let ((superclass-nodes
 	 (set-difference
 	  (superclass-nodes-of class-node) precedence-list)))
     (reduce #'compute-precedence-list superclass-nodes
-	    :from-end t
 	    :initial-value (append superclass-nodes
 				   precedence-list))))
 
@@ -195,7 +194,7 @@
 (defclass root-class-selection (class-selection)
   ((concrete-class-node :initarg :concrete-class-node
 			:reader concrete-class-node-of)
-   (subclass-list :reader subclass-list-of)ы
+   (subclass-list :reader subclass-list-of)
    (class-nodes :reader class-nodes-of)))
 
 (defun get-subclass-node (root-class-selection class-name)
@@ -210,43 +209,52 @@
 	    :from-end t
 	    :initial-value (append class-nodes subclass-list))))
 
-(defun ensure-class-nodes (subclass-node precedence-list)
-  (let ((subclass-nodes
-	 (append
-	  (reduce #'(lambda (class-node class-nodes)
-		      (if (not (find class-node precedence-list :key #'class-mapping))
-			  (list* class-node class-nodes)
-			  class-nodes))
-		  (precedence-list-of subclass-node)
-		  :from-end t
-		  :initial-value nil))))
-    (append (reduce #'(lambda (result subclass-node)
-			(
-    precedence-list
+(defun ensure-superclass-nodes (class-node precedence-list)
+  (reduce #'(lambda (superclass-node result)
+	      (if (not
+		   (find superclass-node
+			 precedence-list
+			 :key #'class-mapping-of))
+		  (list* superclass-node result)
+		  result))
+	  (precedence-list-of class-node)
+	  :from-end t
+	  :initial-value (list* class-node precedence-list)))
 
-class-nodes))
+(defun ensure-class-nodes (class-node precedence-list)
+  (if (not (find class-node precedence-list :key #'class-mapping))
+      (reduce #'ensure-class-nodes (subclass-nodes-of class-node)
+	      :from-end t
+	      :initial-value (ensure-superclass-nodes class-node precedence-list))
+      precedence-list))
+
+(defun compute-node-columns (class-node)
+  (reduce #'(lambda (column-name result)
+	      (acons column-name (make-alias column-name) result))
+	  (columns-of (class-mapping-of class-node))
+	  :from-end t
+	  :initial-value nil))
 
 (defmethod initialize-instance :after ((instance root-class-selection)
 				       &key concrete-class-node
 					 &allow-other-keys)
-  (let ((precedence-list
-	 (precedence-list-of concrete-class-node)))
-    (with-slots (subclass-list class-nodes subclass-node-columns)
-	instance
-      (setf subclass-list
-	    (compute-subclass-list
-	     (subclass-nodes-of instance)
-	     (list* concrete-class-node)))
-      (setf class-nodes
-	    (reduce #'(lambda (result subclass-node)
-			(ensure-class-nodes result subclass-node precedence-list))
-		    :initial-value nil))
-      (setf subclass-node-columns
-	    (reduce #'(lambda (result class-node)
-			(acons class-node
-			       (compute-node-columns class-node)
-			       result))
-		    (set-difference class-nodes precedence-list))
+  (with-slots (subclass-list class-nodes subclass-node-columns)
+      instance
+    (setf subclass-list
+	  (compute-subclass-list
+	   (subclass-nodes-of instance)
+	   (list* concrete-class-node)))
+    (setf class-nodes
+	  (compute-class-nodes
+	   (subclass-nodes-of instance)
+	   (precedence-list-of concrete-class-node)))
+    (setf class-node-columns ;; alist by class-node (for loading)
+	  (reduce #'(lambda (result class-node)
+		      (acons class-node
+			     (compute-node-columns class-node)
+			     result))
+		  (set-difference class-nodes precedence-list)
+		  :initial-value nil))))
 
 ;;; Fetching
 
@@ -257,14 +265,6 @@ class-nodes))
 		   :reader recursive-node-of)
    (class-selection :initarg :class-selection
 		    :reader class-selection-of)))
-
-(defmethod initialize-instance :after ((instance reference-selection)
-				       &key class-mapping &allow-other-keys)
-  (with-slots (concrete-class-node)
-      instance
-    (setf concrete-class-node
-	  (make-instance 'concrete-class-node
-			 :class-mapping class-mapping))))
 
 (defun get-reference-slot (concrete-class-node reader)
   (let* ((class-mapping
@@ -290,6 +290,8 @@ class-nodes))
 	  (get-reference-slot class-node reader))
 	 (reference-selection
 	  (make-instance 'reference-selection ;; one-to-many/many-to-one?
+			 :concrete-class-node  (make-instance 'concrete-class-node
+							      :class-mapping class-mapping)
 			 :class-mapping (get-class-mapping
 					 (reference-class-of
 					  (reference-mapping-of reference-slot)))
