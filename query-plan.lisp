@@ -169,6 +169,12 @@
 
 ;; Selection
 
+(defclass expression-selection ()
+  ((alias :initarg :alias
+	  :reader alias-of)
+   (expression :initarg :expression
+	       :reader expression-of)))
+
 (defclass class-selection ()
   ((subclass-nodes :reader subclass-nodes-of)))
 
@@ -209,24 +215,24 @@
 	    :from-end t
 	    :initial-value (append class-nodes subclass-list))))
 
-(defun ensure-superclass-nodes (class-node precedence-list)
-  (reduce #'(lambda (superclass-node result)
-	      (if (not
-		   (find superclass-node
-			 precedence-list
-			 :key #'class-mapping-of))
-		  (list* superclass-node result)
-		  result))
-	  (precedence-list-of class-node)
-	  :from-end t
-	  :initial-value (list* class-node precedence-list)))
+(defun compute-class-nodes (subclass-selection ignored-class-mappings)
+  (let ((subclass-nodes
+	 (remove-if #'(lambda (subclass-node)
+			(find (class-mapping-of class-node)
+			      ignored-class-mappings))
+		    (subclass-nodes-of class-node))))
+    (append
+     (compute-subclass-nodes (reduce #'list* subclass-nodes
+				     :key #'class-mapping-of
+				     :initial-value ignored-class-mappings)
+			     subclass-nodes)
+     (precedence-list-of subclass-selection))))
 
-(defun ensure-class-nodes (class-node precedence-list)
-  (if (not (find class-node precedence-list :key #'class-mapping))
-      (reduce #'ensure-class-nodes (subclass-nodes-of class-node)
-	      :from-end t
-	      :initial-value (ensure-superclass-nodes class-node precedence-list))
-      precedence-list))
+(defun compute-subclass-nodes (subclass-nodes ignored-class-mappings)
+  (reduce #'append subclass-nodes
+	  :key #'(lambda (class-node)
+		   (ensure-class-nodes class-node
+				       ignored-subclass-mappings))))
 
 (defun compute-node-columns (class-node)
   (reduce #'(lambda (column-name result)
@@ -238,23 +244,24 @@
 (defmethod initialize-instance :after ((instance root-class-selection)
 				       &key concrete-class-node
 					 &allow-other-keys)
-  (with-slots (subclass-list class-nodes subclass-node-columns)
-      instance
-    (setf subclass-list
-	  (compute-subclass-list
-	   (subclass-nodes-of instance)
-	   (list* concrete-class-node)))
-    (setf class-nodes
-	  (compute-class-nodes
-	   (subclass-nodes-of instance)
-	   (precedence-list-of concrete-class-node)))
-    (setf class-node-columns ;; alist by class-node (for loading)
-	  (reduce #'(lambda (result class-node)
-		      (acons class-node
-			     (compute-node-columns class-node)
-			     result))
-		  (set-difference class-nodes precedence-list)
-		  :initial-value nil))))
+  (let ((precedence-list
+	 (precedence-list-of concrete-class-node)))
+    (with-slots (subclass-list class-nodes subclass-node-columns)
+	instance
+      (setf subclass-list
+	    (compute-subclass-list
+	     (subclass-nodes-of instance)
+	     (list* concrete-class-node)))
+      (setf class-nodes
+	    (compute-class-nodes
+	     (subclass-nodes-of instance) precedence-list))
+      (setf class-node-columns ;; alist by class-node (for loading)
+	    (reduce #'(lambda (result class-node)
+			(acons class-node
+			       (compute-node-columns class-node)
+			       result))
+		    (append class-nodes precedence-list)
+		    :initial-value nil)))))
 
 ;;; Fetching
 
