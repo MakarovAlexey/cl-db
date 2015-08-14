@@ -5,7 +5,7 @@
 (defclass class-node ()
   ((class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
-   (superclass-nodes :reader superclass-nodes)))
+   (superclass-nodes :reader superclass-nodes-of)))
 
 (defmethod initialize-instance :after ((instance class-node)
 				       &key class-mapping
@@ -101,14 +101,14 @@
 	      (make-instance 'property-slot
 			     :property-mapping property-mapping
 			     :class-node class-node))
-	  (property-mapping-of
+	  (property-mappings-of
 	   (class-mapping-of class-node))))
 
 (defmethod initialize-instance :after ((instance root-node)
 				       &key &allow-other-keys)
-  (with-slots (properties)
+  (with-slots (property-slots)
       instance
-    (setf properties
+    (setf property-slots
 	  (reduce #'append (precedence-list-of instance)
 		  :key #'compute-property-slots))))
 
@@ -169,13 +169,23 @@
 
 ;; Selection
 
-(defclass expression-selection ()
+(defclass selection ()
+  ((joining :initarg :joining
+	    :reader joining-of)))
+
+(defclass simple-selection (selection)
   ((alias :initarg :alias
-	  :reader alias-of)
-   (expression :initarg :expression
+	  :reader alias-of)))
+
+(defclass expression-selection (simple-selection)
+  ((expression :initarg :expression
 	       :reader expression-of)))
 
-(defclass class-selection ()
+(defclass property-selection (simple-selection)
+  ((property-slot :initarg :property-slot
+		  :reader property-slot-of)))
+
+(defclass class-selection (selection)
   ((subclass-nodes :reader subclass-nodes-of)))
 
 (defmethod initialize-instance :after ((instance class-selection)
@@ -198,7 +208,8 @@
 		    :reader class-selection-of)))
 
 (defclass root-class-selection (class-selection)
-  ((concrete-class-node :initarg :concrete-class-node
+  ((subclass-node-columns :reader subclass-node-columns-of)
+   (concrete-class-node :initarg :concrete-class-node
 			:reader concrete-class-node-of)
    (subclass-list :reader subclass-list-of)
    (class-nodes :reader class-nodes-of)))
@@ -251,11 +262,11 @@
       (setf subclass-list
 	    (compute-subclass-list
 	     (subclass-nodes-of instance)
-	     (list* concrete-class-node)))
+	     (list concrete-class-node)))
       (setf class-nodes
-	    (compute-class-nodes
+	    (compute-subclass-nodes
 	     (subclass-nodes-of instance) precedence-list))
-      (setf class-node-columns ;; alist by class-node (for loading)
+      (setf subclass-node-columns ;; alist by class-node (for loading)
 	    (reduce #'(lambda (result class-node)
 			(acons class-node
 			       (compute-node-columns class-node)

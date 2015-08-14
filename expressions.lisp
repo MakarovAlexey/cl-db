@@ -133,3 +133,107 @@
 (define-aggregate-function sql-min)
 
 (define-aggregate-function sql-sum)
+
+(defclass recursive-class-node ()
+  ((common-table-expression :initarg :common-table-expression
+			    :reader common-table-expression-of)
+   (class-node :initarg :class-node
+	       :reader class-node-of)))
+
+(defun disjunction (restriction &rest more-restrictions)
+  (make-instance 'disjunction
+		 :args (list* restriction more-restrictions)))
+
+(defun conjunction (restriction &rest more-restrictions)
+  (make-instance 'conjunction
+		 :args (list* restriction more-restrictions)))
+
+(defun restrict (property &key equal not-equal not is like not-like
+			    less-than less-than-or-equal
+			    more-than more-than-or-equal)
+  (let ((operations
+	 (list (cons 'equality equal)
+	       (cons 'not-equal not-equal)
+	       (cons 'not not)
+	       (cons 'is is)
+	       (cons 'like like)
+	       (cons 'not-like not-like)
+	       (cons 'less-than less-than)
+	       (cons 'less-than-or-equal less-than-or-equal)
+	       (cons 'more-than more-than)
+	       (cons 'more-than-or-equal more-than-or-equal))))
+  (make-instance 'conjunction :args 
+		 (loop for (class-name . parameter) in operations
+		    when (not (null parameter))
+		    collect (make-instance class-name
+					   :lhs property
+					   :rhs parameter)))))
+
+(defgeneric projection (descriptor &rest args))
+
+(let ((projections
+       (list #'+ 'addition
+	     #'- 'subtracion
+	     #'* 'multiplication
+	     #'/ 'division
+	     #'member 'memeber)))
+  (defmethod projection ((descriptor function) &rest args)
+    (let ((projection-name (getf projections descriptor)))
+      (apply #'projection projection-name args))))
+
+(defmethod projection ((descriptor symbol) &rest args)
+  (make-instance descriptor :arguments args))
+
+(defmethod projection ((descriptor string) &rest args)
+  (make-instance 'rdbms-function :name descriptor :args args))
+
+(defgeneric aggregation (descriptor &rest args))
+
+(let ((aggregations
+       (list #'+ 'sql-sum
+	     #'min 'sql-min
+	     #'max 'sql-max
+	     #'every 'sql-every
+	     #'count 'sql-count)))
+  (defmethod aggregation ((descriptor function) &rest args)
+    (let ((class-name (getf aggregations descriptor)))
+      (apply #'aggregation class-name args))))
+
+(defmethod aggregation ((descriptor symbol) &rest args)
+  (make-instance descriptor :arguments args))
+
+(defmethod aggregation ((descriptor string) &rest args)
+  (make-instance 'rdbms-aggregation :name descriptor :args args))
+
+(defun recursive (class-node) ;; CTE name ?
+  (make-instance 'recursive-class-node :class-node class-node))
+
+(defun ascending (arg)
+  (make-instance 'ascending :arg arg))
+
+(defun descending (arg)
+  (make-instance 'descending :arg arg))
+
+(defgeneric property (node reader))
+
+(defmethod property ((root-node root-node) reader)
+  (let* ((class-name
+	  (class-name-of (class-mapping-of root-node)))
+	 (slot-name
+	  (get-slot-name (find-class class-name) reader)))
+    (or
+     (find slot-name
+	   (properties-of root-node)
+	   :key #'(lambda (property-node)
+		    (slot-name-of
+		     (mapping-of property-node))))
+     (error "Property mapping for slot-name ~a of class mapping ~a not found"
+	    slot-name class-name))))
+
+(defmethod property ((recursive-node recursive-class-node) reader)
+  (let ((property-node
+	 (property (class-node-of recursive-node) reader)))
+    (cons (first property-node) recursive-node)))
+
+(defmethod property ((class-selection root-class-selection) reader)
+  (property (concrete-class-node-of class-selection) reader))
