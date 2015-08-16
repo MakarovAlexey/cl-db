@@ -99,11 +99,14 @@
 	  (reduce #'append-joining-nodes
 		  expressions :initial-value nil))
     (setf table-aliases
-	  (mapcar #'(lambda (class-node)
-		      (make-alias
-		       (class-name-of
-			(class-mapping-of class-node))))
-		  (from-clause-of instance)))))
+	  (reduce #'(lambda (result class-node)
+		      (acons class-node
+			     (make-alias
+			      (class-name-of
+			       (class-mapping-of class-node)))
+			     result))
+		  (from-clause-of instance)
+		  :initial-value nil))))
 
 (defclass column-selection ()
   ((column-name :initarg :column-name
@@ -127,7 +130,7 @@
    (aux-clause :initarg :aux-clause
 	       :reader aux-clause)))
 
-(defun compute-node-columns (class-node)
+(defun compute-joining-node-columns (class-node)
   (mapcar #'(lambda (column-name)
 	      (select-column column-name class-node
 			     (make-alias column-name)))
@@ -139,7 +142,7 @@
 (defmethod compute-joining-column-aliases ((root-node root-node))
   (reduce #'(lambda (class-node result)
 	      (acons class-node
-		     (compute-node-columns class-node)
+		     (compute-joining-node-columns class-node)
 		     result))
 	  (precedence-list-of root-node)
 	  :from-end t
@@ -211,12 +214,12 @@
 
 (defgeneric compute-selection-table-aliases (select-item))
 
-(defmethod compute-selection-table-aliases ((select-item class-selection))
+(defmethod compute-selection-table-aliases ((select-item root-class-selection))
   (reduce #'(lambda (result class-node)
 	      (acons class-node
 		     (make-alias
 		      (class-name-of
-		       (class-mapping-of select-item)))
+		       (class-mapping-of class-node)))
 		     result))
 	  (class-nodes-of select-item)
 	  :initial-value nil))
@@ -282,21 +285,21 @@
 
 (defun make-selection (joining auxiliaryp select-list where having
 		       order-by limit offset)
-    (if (not (null auxiliaryp))
-	(make-instance 'auxiliary-selection :joining joining
-		       :select-list select-list
-		       :order-by order-by
-		       :having having
-		       :offset offset
-		       :limit limit
-		       :where where)
-	(make-instance 'selection :joining joining
-		       :select-list select-list
-		       :order-by order-by
-		       :having having
-		       :offset offset
-		       :limit limit
-		       :where where)))
+  (if (not (null auxiliaryp))
+      (make-instance 'auxiliary-selection :joining joining
+		     :select-list select-list
+		     :order-by-clause order-by
+		     :having-clause having
+		     :where-clause where
+		     :offset offset
+		     :limit limit)
+      (make-instance 'selection :joining joining
+		     :select-list select-list
+		     :order-by-clause order-by
+		     :having-clause having
+		     :where-clause where
+		     :offset offset
+		     :limit limit)))
 
 (defun make-fetching (selection fetch-references recursive-fetch-references)
   (if (not (null recursive-fetch-references))

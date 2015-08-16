@@ -168,13 +168,16 @@
 		    (append primary-key
 			    foreign-key
 			    (reduce #'append superclass-mappings
-					    :key #'foreign-key-of
-					    :initial-value nil)
+				    :key #'foreign-key-of
+				    :from-end t
+				    :initial-value nil)
 			    (reduce #'list* properties
-				    :key #'column-of :from-end t
+				    :key #'column-of
+				    :from-end t
 				    :initial-value nil)
 			    (reduce #'append inverted-one-to-many
 				    :key #'foreign-key-of
+				    :from-end t
 				    :initial-value nil))
 		    :test #'string=)
 	  :properties properties
@@ -230,12 +233,15 @@
 			     foreign-key
 			     (reduce #'append superclass-mappings
 				     :key #'foreign-key-of
+				     :from-end t
 				     :initial-value nil)
 			     (reduce #'list* properties
-				     :key #'column-of :from-end t
+				     :key #'column-of
+				     :from-end t
 				     :initial-value nil)
 			     (reduce #'append inverted-one-to-many
 				     :key #'foreign-key-of
+				     :from-end t
 				     :initial-value nil))
 		     :test #'string=)
 	   :primary-key primary-key

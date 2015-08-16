@@ -223,7 +223,7 @@
 	  (get-slot-name (find-class class-name) reader)))
     (or
      (find slot-name
-	   (properties-of root-node)
+	   (property-slots-of root-node)
 	   :key #'(lambda (property-node)
 		    (slot-name-of
 		     (mapping-of property-node))))

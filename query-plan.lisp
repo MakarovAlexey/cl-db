@@ -7,6 +7,20 @@
 		  :reader class-mapping-of)
    (superclass-nodes :reader superclass-nodes-of)))
 
+(defclass superclass-node (class-node)
+  ((class-node :initarg :class-node
+	       :reader class-node-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
+
+(defun make-superclass-node (superclass-mapping class-node)
+  (let ((class-mapping (get-class-mapping
+			(reference-class-of superclass-mapping))))
+    (make-instance 'superclass-node
+		   :foreign-key (foreign-key-of superclass-mapping)
+		   :class-mapping class-mapping
+		   :class-node class-node)))
+
 (defmethod initialize-instance :after ((instance class-node)
 				       &key class-mapping
 					 &allow-other-keys)
@@ -16,20 +30,6 @@
 	  (mapcar #'(lambda (superclass-mapping)
 		      (make-superclass-node superclass-mapping instance))
 		  (superclass-mappings-of class-mapping)))))
-
-(defclass superclass-node (class-node)
-  ((class-node :initarg :class-node
-	       :reader class-node-of)
-   (foreign-key :initarg :foreign-key
-		:reader foreign-key-of)))
-
-(defun make-superclass-mapping (superclass-mapping class-node)
-  (let ((class-mapping (get-class-mapping
-			(reference-class-of superclass-mapping))))
-    (make-instance 'superclass-node
-		   :foreign-key (foreign-key-of superclass-mapping)
-		   :class-mapping class-mapping
-		   :class-node class-node)))
 
 (defclass concrete-class-node (class-node)
   ((reference-slots :reader reference-slots-of)
@@ -169,11 +169,7 @@
 
 ;; Selection
 
-(defclass selection ()
-  ((joining :initarg :joining
-	    :reader joining-of)))
-
-(defclass simple-selection (selection)
+(defclass simple-selection ()
   ((alias :initarg :alias
 	  :reader alias-of)))
 
@@ -185,12 +181,12 @@
   ((property-slot :initarg :property-slot
 		  :reader property-slot-of)))
 
-(defclass class-selection (selection)
+(defclass class-selection ()
   ((subclass-nodes :reader subclass-nodes-of)))
 
 (defmethod initialize-instance :after ((instance class-selection)
 				       &key class-mapping &allow-other-keys)
-  (with-slots (subclass-nodes subclass-list)
+  (with-slots (subclass-nodes)
       instance
     (setf subclass-nodes
 	  (mapcar #'(lambda (subclass-mapping)
@@ -219,31 +215,43 @@
 	(subclass-list-of root-class-selection)
 	:key #'class-mapping-of))
 
-(defun compute-subclass-list (subclass-nodes subclass-list)
-  (let ((class-nodes
-	 (set-difference subclass-nodes subclass-list)))
-    (reduce #'compute-subclass-list class-nodes
-	    :from-end t
-	    :initial-value (append class-nodes subclass-list))))
+(defun compute-node-subclass-list (subclass-node ignored-class-mappings)
+  (reduce #'append (subclass-nodes-of subclass-node)
+	  :key #'(lambda (subclass-node)
+		   (compute-subclass-list subclass-node
+					  ignored-class-mappings))))
+
+(defun compute-subclass-list (subclass-nodes ignored-class-mappings)
+  (let ((ignored-subclass-mappings
+	 (append ignored-class-mappings
+		 (mapcar #'class-mapping-of subclass-nodes))))
+    (reduce #'append subclass-nodes
+	    :key #'(lambda (subclass-node)
+		     (compute-node-subclass-list subclass-node
+						 ignored-subclass-mappings))
+	    :initial-value subclass-nodes)))
 
 (defun compute-class-nodes (subclass-selection ignored-class-mappings)
   (let ((subclass-nodes
 	 (remove-if #'(lambda (subclass-node)
-			(find (class-mapping-of class-node)
+			(find (class-mapping-of subclass-node)
 			      ignored-class-mappings))
-		    (subclass-nodes-of class-node))))
+		    (subclass-nodes-of subclass-selection))))
     (append
      (compute-subclass-nodes (reduce #'list* subclass-nodes
 				     :key #'class-mapping-of
 				     :initial-value ignored-class-mappings)
 			     subclass-nodes)
-     (precedence-list-of subclass-selection))))
+     (remove-if #'(lambda (class-node)
+		    (find (class-mapping-of class-node)
+			  ignored-class-mappings))
+		(precedence-list-of subclass-selection)))))
 
-(defun compute-subclass-nodes (subclass-nodes ignored-class-mappings)
+(defun compute-subclass-nodes (ignored-class-mappings subclass-nodes)
   (reduce #'append subclass-nodes
 	  :key #'(lambda (class-node)
-		   (ensure-class-nodes class-node
-				       ignored-subclass-mappings))))
+		   (compute-class-nodes class-node
+					ignored-class-mappings))))
 
 (defun compute-node-columns (class-node)
   (reduce #'(lambda (column-name result)
@@ -265,7 +273,8 @@
 	     (list concrete-class-node)))
       (setf class-nodes
 	    (compute-subclass-nodes
-	     (subclass-nodes-of instance) precedence-list))
+	     (mapcar #'class-mapping-of precedence-list)
+	     (subclass-nodes-of instance)))
       (setf subclass-node-columns ;; alist by class-node (for loading)
 	    (reduce #'(lambda (result class-node)
 			(acons class-node
@@ -306,13 +315,15 @@
 	      (concrete-class-node-of class-selection)))
 	 (reference-slot
 	  (get-reference-slot class-node reader))
+	 (class-mapping
+	  (get-class-mapping
+	   (reference-class-of
+	    (reference-mapping-of reference-slot))))
 	 (reference-selection
 	  (make-instance 'reference-selection ;; one-to-many/many-to-one?
 			 :concrete-class-node  (make-instance 'concrete-class-node
 							      :class-mapping class-mapping)
-			 :class-mapping (get-class-mapping
-					 (reference-class-of
-					  (reference-mapping-of reference-slot)))
+			 :class-mapping class-mapping
 			 :class-selection class-selection
 			 :recursive-selection recursive
 			 :reference-slot reference-slot

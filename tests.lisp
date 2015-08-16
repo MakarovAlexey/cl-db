@@ -496,4 +496,4 @@
 	 (make-instance 'clos-session
 			:mapping-schema (projects-managment)
 			:connection (make-instance 'test-connection))))
-    (db-read 'project)))
+    (db-read 'project-participation)))
