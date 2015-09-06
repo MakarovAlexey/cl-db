@@ -323,12 +323,13 @@
 	  (make-instance 'reference-selection ;; one-to-many/many-to-one?
 			 :concrete-class-node  (make-instance 'concrete-class-node
 							      :class-mapping class-mapping)
-			 :class-mapping class-mapping
 			 :class-selection class-selection
-			 :recursive-selection recursive
 			 :reference-slot reference-slot
+			 :class-mapping class-mapping
+			 :recursive-node recursive
 			 :class-node class-node)))
     (list* reference-selection
 	   (when (not (null fetch))
-	     (multiple-value-list
-	      (funcall fetch reference-selection))))))
+	     (reduce #'append
+		     (multiple-value-list
+		      (funcall fetch reference-selection)))))))

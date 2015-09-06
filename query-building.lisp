@@ -12,9 +12,7 @@
 
 ;; названия колонок известны, но неизвестны псевдонимы таблиц
 (defclass joining ()
-  ((expressions :initarg :expressions
-		:reader expressions-of)
-   (from-clause :reader from-clause-of)
+  ((from-clause :reader from-clause-of)
    (table-aliases :reader table-aliases-of)))
 
 ;;(defun get-table-alias (class-node table-aliases)
@@ -51,7 +49,7 @@
 	  :initial-value from-clause))
 
 (defmethod append-aggregation-nodes (from-clause (expression property-slot))
-  (append-property-nodes expression from-clause))
+  (append-property-nodes from-clause expression))
 
 (defmethod append-aggregation-nodes (from-clause (expression root-class-selection))
   (ensure-class-node
@@ -66,16 +64,25 @@
 
 (defgeneric append-joining-nodes (from-clause expression))
 
-(defmethod append-joining-nodes (from-clause (expression expression))
+(defmethod append-joining-nodes (from-clause (expression n-ary-expression))
   (reduce #'append-joining-nodes (arguments-of expression)
 	  :initial-value from-clause))
+
+(defmethod append-joining-nodes (from-clause (expression binary-operation))
+  (append-joining-nodes
+   (append-joining-nodes from-clause (lhs-expression-of expression))
+   (rhs-expression-of expression)))
 
 (defmethod append-joining-nodes (from-clause (expression aggregation))
   (reduce #'append-aggregation-nodes (arguments-of expression)
 	  :initial-value from-clause))
 
+(defmethod append-joining-nodes (from-clause (value t))
+  (declare (ignore value))
+  from-clause)
+
 (defmethod append-joining-nodes (from-clause (expression property-slot))
-  (append-property-nodes expression from-clause))
+  (append-property-nodes from-clause expression))
 
 (defmethod append-joining-nodes (from-clause (expression root-node))
   (append-class-nodes from-clause expression))
@@ -91,8 +98,8 @@
 (defun make-alias (&rest name-parts)
   (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
 
-(defmethod initialize-instance ((instance joining)
-				&key expressions &allow-other-keys)
+(defmethod initialize-instance :after ((instance joining)
+				       &key expressions &allow-other-keys)
   (with-slots (from-clause table-aliases)
       instance
     (setf from-clause
@@ -112,63 +119,81 @@
   ((column-name :initarg :column-name
 		:reader column-name-of)
    (class-node :initarg :class-node
-	       :reader class-node)
+	       :reader class-node-of)
    (alias :initarg :alias
 	  :reader alias-of)))
 
-(defun select-column (column-name class-node alias)
-  (make-instance 'column-selection
-		 :column-name column-name
-		 :class-node class-node
-		 :alias alias))
+(defun ensure-column (selected-columns column-name class-node)
+  (if (find-if-not #'(lambda (selected-column)
+		       (and (eq (class-node-of selected-column)
+				class-node)
+			    (eq (column-name-of selected-column)
+				column-name)))
+		   selected-columns)
+      (list* (make-instance 'column-selection
+			    :column-name column-name
+			    :class-node class-node
+			    :alias (make-alias column-name))
+	     selected-columns)
+      selected-columns))
 
 ;; известен псевдоним табицы, но неизвестны названия колонок
 (defclass recursive-joining (joining)
-  ((node-columns :reader column-aliases)
-   (recursive-clause :initarg :recursive-clause
+  ((recursive-clause :initarg :recursive-clause
 		     :reader recursive-clause-of)
    (aux-clause :initarg :aux-clause
-	       :reader aux-clause)))
+	       :reader aux-clause)
+   (node-columns :reader column-aliases)))
 
-(defun compute-joining-node-columns (class-node)
-  (mapcar #'(lambda (column-name)
-	      (select-column column-name class-node
-			     (make-alias column-name)))
+(defun compute-class-node-columns (select-columns class-node)
+  (reduce #'(lambda (result column-name)
+	      (ensure-column result column-name class-node))
 	  (columns-of
-	   (class-mapping-of class-node))))
+	   (class-mapping-of class-node))
+	  :initial-value select-columns))
 
-(defgeneric compute-joining-column-aliases (expression))
+(defgeneric compute-joining-column-aliases (expression result))
 
-(defmethod compute-joining-column-aliases ((root-node root-node))
+(defmethod compute-joining-column-aliases ((root-node root-node) result)
   (reduce #'(lambda (class-node result)
 	      (acons class-node
-		     (compute-joining-node-columns class-node)
+		     (compute-class-node-columns result class-node)
 		     result))
 	  (precedence-list-of root-node)
 	  :from-end t
 	  :initial-value nil))
 
-(defmethod compute-joining-column-aliases ((property-slot property-slot))
+(defmethod compute-joining-column-aliases ((property-slot property-slot) result)
   (let ((property-mapping (property-mapping-of property-slot)))
-    (select-column
-     (column-of property-mapping)
-     (class-node-of property-slot)
-     (make-alias
-      (slot-name-of property-mapping)))))
+    (ensure-column result
+		   (column-of property-mapping)
+		   (class-node-of property-slot))))
 
-(defmethod compute-joining-column-aliases ((expression expression))
-  (mapcar #'compute-joining-column-aliases (arguments-of expression)))
+(defmethod compute-joining-column-aliases ((expression n-ary-expression) result)
+  (select-columns (arguments-of expression) result))
+
+(defmethod compute-joining-column-aliases ((expression binary-operation) result)
+  (compute-joining-column-aliases
+   (rhs-expression-of expression)
+   (compute-joining-column-aliases
+    (lhs-expression-of expression) result)))
+
+(defmethod compute-joining-column-aliases ((expression recursive-class-node) result)
+  (compute-joining-column-aliases
+   (rhs-expression-of expression)
+   (compute-joining-column-aliases
+    (lhs-expression-of expression) result)))
+
+(defun select-columns (expressions &optional (selected-columns nil))
+  (reduce #'compute-joining-column-aliases expressions
+	  :initial-value selected-columns
+	  :from-end t))
 
 (defmethod initialize-instance :after ((instance recursive-joining)
 				       &key expressions &allow-other-keys)
   (with-slots (column-aliases)
       instance
-    (setf column-aliases
-	  (reduce #'(lambda (result expression)
-		      (acons expression
-			     (compute-joining-column-aliases expression)
-			     result))
-		  expressions :initial-value nil))))
+    (setf column-aliases (select-columns expressions))))
 
 ;; Selection
 
@@ -286,14 +311,16 @@
 (defun make-selection (joining auxiliaryp select-list where having
 		       order-by limit offset)
   (if (not (null auxiliaryp))
-      (make-instance 'auxiliary-selection :joining joining
+      (make-instance 'auxiliary-selection
+		     :joining joining
 		     :select-list select-list
 		     :order-by-clause order-by
 		     :having-clause having
 		     :where-clause where
 		     :offset offset
 		     :limit limit)
-      (make-instance 'selection :joining joining
+      (make-instance 'selection
+		     :joining joining
 		     :select-list select-list
 		     :order-by-clause order-by
 		     :having-clause having
@@ -308,13 +335,19 @@
 		     :fetch-references fetch-references
 		     :selection selection)
       (make-instance 'fetching
-		     :selection selection
-		     :fetch fetch-references)))
+		     :fetch-references fetch-references
+		     :selection selection)))
 
 (defun ensure-fetching (selection fetch-reference recursive-fetch-references)
   (if (not (null fetch-reference))
       (make-fetching selection fetch-reference recursive-fetch-references)
       selection))
+
+(defun compute-clause (clause args &optional default)
+  (if (not (null clause))
+      (multiple-value-list
+       (apply clause args))
+      default))
 
 (defun make-query (roots join &key select aux recursive where order-by
 				having fetch limit offset)
@@ -324,36 +357,33 @@
 				    (make-root root))
 				roots)
 			(list (make-root roots))))
-	 (join-list (multiple-value-call #'append selectors
-					 (when (not (null join))
-					   (apply join selectors))))
-	 (select-items (if (not (null select))
-			   (multiple-value-list
-			    (apply select join-list))
-			   selectors))
-	 (aux-clause (when (not (null aux))
-		       (multiple-value-list
-			(apply aux join-list))))
-	 (recursive-clause (when (not (null recursive))
-			     (multiple-value-list
-			      (apply recursive join-list))))
-	 (joining (make-joining (append select-items where having
-					order-by aux recursive-clause)
+	 (join-list (reduce #'append (compute-clause join selectors)
+			    :initial-value selectors))
+	 (select-items (compute-clause select join-list selectors))
+	 (recursive-clause (compute-clause recursive join-list))
+	 (order-by-clause (compute-clause order-by join-list))
+	 (having-clause (compute-clause having join-list))
+	 (where-clause (compute-clause where join-list))
+	 (aux-clause (compute-clause aux join-list))
+	 (joining (make-joining (append select-items where-clause
+					having-clause order-by-clause
+					aux-clause recursive-clause)
 				aux-clause recursive-clause))
 	 (select-list (mapcar #'(lambda (select-item)
 				  (select-item select-item joining))
 			      select-items))
 	 (reference-fetchings
 	  (when (not (null fetch))
-	    (multiple-value-list
-	     (apply fetch select-list))))
+	    (reduce #'append (multiple-value-list
+			      (apply fetch select-list)))))
 	 (recursive-fetch-references
 	  (remove-if #'null reference-fetchings
 		     :key #'recursive-node-of))
 	 (selection
 	  (make-selection joining
 			  (or limit offset recursive-fetch-references)
-			  select-list where having order-by limit offset)))
+			  select-list where-clause having-clause
+			  order-by-clause limit offset)))
     (ensure-fetching selection
 		     reference-fetchings
 		     recursive-fetch-references)))

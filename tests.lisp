@@ -496,4 +496,13 @@
 	 (make-instance 'clos-session
 			:mapping-schema (projects-managment)
 			:connection (make-instance 'test-connection))))
-    (db-read 'project-participation)))
+    (db-read 'project-participation
+	     :join #'(lambda (pp)
+		       (join pp #'user-of :alias :user))
+	     :where #'(lambda (pp &key user)
+			(declare (ignore pp))
+			(restrict (property user #'name-of) :equal "Макаров"))
+	     :recursive #'(lambda (pp &key user)
+			    (restrict (property (recursive pp) #'usere-of) :equal user))
+	     :fetch #'(lambda (pp)
+			(fetch pp #'project-of :recursive pp)))))

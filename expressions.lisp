@@ -3,34 +3,32 @@
 (defclass expression ()
   ())
 
-(defclass sql-function (expression)
+(defclass binary-operation (expression)
+  ((lhs-expression :initarg :lhs :reader lhs-expression-of)
+   (rhs-expression :initarg :rhs :reader rhs-expression-of)))
+
+(defclass n-ary-expression (expression)
   ((arguments :initarg :arguments
 	      :reader arguments-of)))
 
-(defclass rdbms-function-call (sql-function) ;; call by name
-  ((function-name :initarg :function-name
-		  :reader function-name-of)))
+(defclass sql-function (n-ary-expression)
+  ())
+
+(defclass rdbms-sql-function (sql-function)
+  ((name :initarg :name :reader name-of)))
 
 (defclass aggregation (sql-function)
   ())
 
-(defclass rdbms-aggregation (aggregation) ;; call by name
-  ((function-name :initarg :function-name
-		  :reader function-name-of)))
+(defclass rdbms-aggeregation (aggregation)
+  ((name :initarg :name :reader name-of)))
 
-(defclass operation (expression)
-  ((operator :initarg :operator :reader operator-of)))
-
-(defclass binary-operation (operation)
-  ((lhs-expression :initarg :lhs :reader lhs-expression-of)
-   (rhs-expression :initarg :rhs :reader rhs-expression-of)))
-
-(defclass binary-operator-extended (operation)
-  ((args :initarg :args
-	 :reader args-of)))
-
-(defclass sort-direction (operation)
+(defclass binary-operator-extended (n-ary-expression)
   ())
+
+(defclass sort-direction (expression)
+  ((expression :initarg :expression
+	       :reader expression-of)))
 
 (defclass ascending (sort-direction)
   ())
@@ -134,19 +132,19 @@
 
 (define-aggregate-function sql-sum)
 
-(defclass recursive-class-node ()
-  ((common-table-expression :initarg :common-table-expression
-			    :reader common-table-expression-of)
-   (class-node :initarg :class-node
-	       :reader class-node-of)))
+;;(defclass recursive-class-node ()
+;;  ((common-table-expression :initarg :common-table-expression
+;;			    :reader common-table-expression-of)
+;;   (class-node :initarg :class-node
+;;	       :reader class-node-of)))
 
 (defun disjunction (restriction &rest more-restrictions)
   (make-instance 'disjunction
-		 :args (list* restriction more-restrictions)))
+		 :arguments (list* restriction more-restrictions)))
 
 (defun conjunction (restriction &rest more-restrictions)
   (make-instance 'conjunction
-		 :args (list* restriction more-restrictions)))
+		 :arguments (list* restriction more-restrictions)))
 
 (defun restrict (property &key equal not-equal not is like not-like
 			    less-than less-than-or-equal
@@ -162,7 +160,7 @@
 	       (cons 'less-than-or-equal less-than-or-equal)
 	       (cons 'more-than more-than)
 	       (cons 'more-than-or-equal more-than-or-equal))))
-  (make-instance 'conjunction :args 
+  (make-instance 'conjunction :arguments 
 		 (loop for (class-name . parameter) in operations
 		    when (not (null parameter))
 		    collect (make-instance class-name
@@ -205,8 +203,8 @@
 (defmethod aggregation ((descriptor string) &rest args)
   (make-instance 'rdbms-aggregation :name descriptor :args args))
 
-(defun recursive (class-node) ;; CTE name ?
-  (make-instance 'recursive-class-node :class-node class-node))
+;;(defun recursive (class-node) ;; CTE name ?
+;;  (make-instance 'recursive-class-node :class-node class-node))
 
 (defun ascending (arg)
   (make-instance 'ascending :arg arg))
@@ -226,7 +224,7 @@
 	   (property-slots-of root-node)
 	   :key #'(lambda (property-node)
 		    (slot-name-of
-		     (mapping-of property-node))))
+		     (property-mapping-of property-node))))
      (error "Property mapping for slot-name ~a of class mapping ~a not found"
 	    slot-name class-name))))
 
