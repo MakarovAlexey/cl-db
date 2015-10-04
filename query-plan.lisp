@@ -215,20 +215,10 @@
 	(subclass-list-of root-class-selection)
 	:key #'class-mapping-of))
 
-(defun compute-node-subclass-list (subclass-node ignored-class-mappings)
-  (reduce #'append (subclass-nodes-of subclass-node)
-	  :key #'(lambda (subclass-node)
-		   (compute-subclass-list subclass-node
-					  ignored-class-mappings))))
-
-(defun compute-subclass-list (subclass-nodes ignored-class-mappings)
-  (let ((ignored-subclass-mappings
-	 (append ignored-class-mappings
-		 (mapcar #'class-mapping-of subclass-nodes))))
+(defun list-subclass-nodes (class-selection)
+  (let ((subclass-nodes (subclass-nodes-of class-selection)))
     (reduce #'append subclass-nodes
-	    :key #'(lambda (subclass-node)
-		     (compute-node-subclass-list subclass-node
-						 ignored-subclass-mappings))
+	    :key #'list-subclass-nodes
 	    :initial-value subclass-nodes)))
 
 (defun compute-class-nodes (subclass-selection ignored-class-mappings)
@@ -268,9 +258,7 @@
     (with-slots (subclass-list class-nodes subclass-node-columns)
 	instance
       (setf subclass-list
-	    (compute-subclass-list
-	     (subclass-nodes-of instance)
-	     (list concrete-class-node)))
+	    (list-subclass-nodes instance))
       (setf class-nodes
 	    (compute-subclass-nodes
 	     (mapcar #'class-mapping-of precedence-list)

@@ -132,11 +132,12 @@
 
 (define-aggregate-function sql-sum)
 
-;;(defclass recursive-class-node ()
-;;  ((common-table-expression :initarg :common-table-expression
-;;			    :reader common-table-expression-of)
-;;   (class-node :initarg :class-node
-;;	       :reader class-node-of)))
+(defclass recursive-class-node ()
+  ((class-node :initarg :class-node
+	       :reader class-node-of)))
+
+(defun recursive (class-node)
+  (make-instance 'recursive-class-node :class-node class-node))
 
 (defun disjunction (restriction &rest more-restrictions)
   (make-instance 'disjunction
@@ -203,9 +204,6 @@
 (defmethod aggregation ((descriptor string) &rest args)
   (make-instance 'rdbms-aggregation :name descriptor :args args))
 
-;;(defun recursive (class-node) ;; CTE name ?
-;;  (make-instance 'recursive-class-node :class-node class-node))
-
 (defun ascending (arg)
   (make-instance 'ascending :arg arg))
 
@@ -229,9 +227,7 @@
 	    slot-name class-name))))
 
 (defmethod property ((recursive-node recursive-class-node) reader)
-  (let ((property-node
-	 (property (class-node-of recursive-node) reader)))
-    (cons (first property-node) recursive-node)))
+  (property (class-node-of recursive-node) reader))
 
 (defmethod property ((class-selection root-class-selection) reader)
   (property (concrete-class-node-of class-selection) reader))

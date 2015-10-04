@@ -2084,3 +2084,20 @@ WITH RECURSIVE parent (pid, id, node_value, left_node_id, right_node_id) AS (
 		   :offset 10
 		   :fetch #'(lambda (project)
 			      (fetch project #'project-members-of)))))
+
+
+
+(defun compile-query (roots join &key select-list aux-clause
+				   recursive-clause where-clause
+				   order-by-clause having-clause
+				   fetch-clause limit offset)
+  (let ((recursive-fetch-references))
+  (case 
+    (print-query query
+		 :recursive-joining (not (null recursive-clause))
+		 :auxiliary-selection (and 
+				       (not (null recursive-fetch-references))
+				       (or (not (null limit))
+					   (not (null offset))))
+		 :recursive-fetching (not (null recursive-fetch-references))))))
+	     

@@ -124,6 +124,41 @@
    (id (:property "id" "uuid"))
    (s1 (:many-to-one cyclic-reference "s1_id"))))
 
+(defclass tree-leaf ()
+  ((id :initarg :id
+       :reader id-of)
+   (name :initarg :name
+	 :reader name-of)))
+
+(defclass left-child-node (leaf-node)
+  ((left-node :initarg :left-node
+	      :reader left-node-of)))
+
+(defclass right-child-node (leaf-node)
+  ((right-node :initarg :right-node
+	       :reader right-node-of)))
+
+(defclass full-node (left-child-node right-child-node)
+  ())
+
+(define-schema trees ()
+  (tree-leaf
+   (("tree_leaf" "id"))
+   (id (:property "id" "uuid"))
+   (name (:property "name" "varchar")))
+  (right-child-node
+   (("right_node" "id")
+    (tree-leaf "id"))
+   (right-node (:many-to-one tree-leaf "right_node_id")))
+  (left-child-node
+   (("left_node" "id")
+    (tree-leaf "id"))
+   (left-node (:many-to-one tree-leaf "left_node_id")))
+  (full-node
+   (("full_node" "id")
+    (left-child-node "id")
+    (right-child-node "id"))))
+
 (lift:deftestsuite query-execute-tests ()
   ()
   (:dynamic-variables
@@ -503,6 +538,28 @@
 			(declare (ignore pp))
 			(restrict (property user #'name-of) :equal "Макаров"))
 	     :recursive #'(lambda (pp &key user)
-			    (restrict (property (recursive pp) #'usere-of) :equal user))
+			    (declare (ignore pp))
+			    (restrict (property
+				       (recursive user) #'id-of)
+				      :equal (property user #'id-of)))
 	     :fetch #'(lambda (pp)
 			(fetch pp #'project-of :recursive pp)))))
+
+(defun select-tree ()
+  (let ((*session*
+	 (make-instance 'clos-session
+			:mapping-schema (trees)
+			:connection (make-instance 'test-connection))))
+    (db-read 'tree-leaf
+	     :where #'(lambda (tree-node)
+			(restrict
+			 (property tree-node #'name-of) :equal 1))
+	     :fetch #'(lambda (tree-node)
+			(values
+			 (fetch tree-node #'left-node-of
+				:subclass-name 'left-child-node
+				:recursive tree-node)
+			 (fetch tree-node #'right-node-of
+				:subclass-name 'right-child-node
+				:recursive tree-node))))))
+
