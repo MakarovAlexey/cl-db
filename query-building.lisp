@@ -349,6 +349,32 @@
        (apply clause args))
       default))
 
+(defclass query ()
+  ((select-list :initarg :select-list
+		:reader select-list-of)
+   (aux-clause :initarg :aux-clause
+	       :reader aux-clause-of)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause-of)
+   (order-by-clause :initarg :order-by-clause
+		    :reader order-by-clause-of)
+   (having-clause :initarg :having-clause
+		  :reader having-clause-of)
+   (where-clause :initarg :where-clause
+		 :reader where-clause-of)
+   (fetch-clause :initarg :fetch-clause
+		 :reader fetch-clause-of)
+   (table-aliases :initform (make-hash-table)
+		  :reader table-aliases-of)
+   (selected-columns :initform (make-hash-table)
+		     :reader selected-columns)
+   (joining-nodes :initarg :joining-nodes
+		  :reader joining-nodes-of)
+   (selection-nodes :initarg :selection-nodes
+		    :reader selection-nodes-of)
+   (fetching-nodes :initarg :fetching-nodes
+		   :reader fetchoing-nodes-of)))
+
 (defun make-query (roots join &key select aux recursive where order-by
 				having fetch limit offset)
   (let* ((*table-index* 0)
