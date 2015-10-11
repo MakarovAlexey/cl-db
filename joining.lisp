@@ -12,7 +12,9 @@
 
 ;;;; path is inverted path, from end to begin (root mapping)
 (defclass mapped-slot ()
-  ((path :initarg :path
+  ((class-mapping :initarg :class-mapping
+		  :reader class-mapping-of)
+   (path :initarg :path
 	 :reader path-of)
    (root :initarg :root
 	 :reader root-of)))
@@ -32,7 +34,7 @@
   ())
 
 (defun compute-precedence-list (class-mapping &optional precedence-list)
-  :documentation "Inherited class-mappings in inversed topological
+  :documentation "Inherited class-mappings in inverse topological
   order (from end to begin)"
   (reduce #'compute-precedence-list
 	  (superclass-mappings-of class-mapping)
@@ -58,6 +60,7 @@
 				   :from-end t
 				   :key #'(lambda (property-mapping)
 					    (make-instance 'property
+							   :class-mapping class-mapping
 							   :property-mapping property-mapping
 							   :path path
 							   :root root))
@@ -69,12 +72,14 @@
 			   (append result
 				   (mapcar #'(lambda (reference-mapping)
 					       (make-instance 'many-to-one
+							      :class-mapping class-mapping
 							      :reference-mapping reference-mapping
 							      :path path
 							      :root root))
 					   (many-to-one-mappings-of class-mapping))
 				   (mapcar #'(lambda (reference-mapping)
 					       (make-instance 'one-to-many
+							      :class-mapping class-mapping
 							      :reference-mapping reference-mapping
 							      :path path
 							      :root root))
@@ -137,18 +142,52 @@
 
 ;;;; joining
 
-(defclass node-context ()
-  ((class-nodes :initform (make-hash-table) ;; class-nodes by root
-		:reader class-nodes-of)))
+(defclass context ()
+  ((query :initarg :query
+	  :reader query-of)
+   (class-nodes :initform (make-hash-table) ;; class-nodes by root
+		:reader class-nodes-of)
+   (select-list :initform (make-hash-table) ;; columns and expressions by aliases
+		:accessor select-list-of)))
 
-(defun ensure-class-node (context root class-mapping)
-  (or
-   (find class-mapping (gethash root (class-nodes-of context))
-	 :key #'class-mapping-of)
-   (make-instance 'class-node
-		  :class-mapping class-mapping
-		  :context context
-		  :root root)))
+(defclass clause ()
+  ((context :initarg :context
+	    :reader context-of)
+   (expressions :initarg :expressions
+		:reader expressions-of)))
+
+(defclass aux-clause (clause)
+  ())
+
+(defclass recursive-clause (clause)
+  ())
+
+(defclass select-list (clause)
+  ())
+
+(defclass where-clause (clause)
+  ())
+
+(defclass order-by-clause (clause)
+  ())
+
+(defclass having-clause (clause)
+  ())
+
+(defclass fetch-clause (clause)
+  ())
+
+(defclass recursive-joining (context)
+  ((aux-clause :initarg :aux-clause
+	       :reader aux-clause)
+   (recursive-clause :initarg :recursive-clause
+		     :reader recursive-clause-of)))
+
+;; context is query or their auxliary part. FROM clause of query is
+;; (list* (previous-context-of context) (class-nodes-of context))
+
+(defun get-column-alias (column-name class-node-select-item)
+  (gethash column-name (columns-of class-node-select-item)))
 
 (defclass class-node ()
   ((root :initarg :root
@@ -162,51 +201,189 @@
    (direct-inheritance :initform (make-hash-table)
 		       :reader direct-inheritance-of)))
 
+(defclass direct-inheritance ()
+  ((superclass-node :initarg :superclass-node
+		    :reader superclass-node-of)
+   (subclass-node :initarg :subclass-node
+		  :reader subclass-node-of)
+   (foreign-key :initarg :foreign-key
+		:reader foreign-key-of)))
+
+(defun get-inheritance (class-mapping class-node)
+  (gethash class-mapping (direct-inheritance-of class-node)))
+
+(defun get-extension (class-mapping class-node)
+  (gethash class-mapping (direct-extension-of class-node)))
+
+(defclass recursive ()
+  ((class-node :initarg :class-node
+	       :reader class-node-of)))
+
+(defun recursive (class-node)
+  (make-instance 'recursive :class-node class-node))
+
 (defmethod initialize-instance :after ((instance class-node)
 				       &key context root class-mapping
 					 &allow-other-keys)
   (setf (gethash class-mapping (class-nodes-of root)) instance)
   (push (gethash root (class-nodes-of context)) instance))
 
-(defclass class-inheritance ()
-  ((foreign-key :initarg :foreign-key
-		:reader foreign-key-of)
-   (superclass-node :initarg :superclass-node
-		    :reader superclass-node-of)
-   (subclass-node :initarg :subclass-node
-		  :reader subclass-node-of)))
+(defun ensure-class-node (context root class-mapping)
+  (or
+   (find class-mapping (gethash root (class-nodes-of context))
+	 :key #'class-mapping-of)
+   (make-instance 'class-node
+		  :class-mapping class-mapping
+		  :context context
+		  :root root)))
 
-(defclass recursive-joining (node-context)
-  ((aux-clause :initarg :aux-clause
-	       :reader aux-clause)
-   (recursive-clause :initarg :recursive-clause
-		     :reader recursive-clause-of)))
+(defclass select-item ()
+  ((alias :initarg :alias
+	  :reader alias-of)))
+
+(defclass column (select-item)
+  ((name :initarg :name :reader name-of)
+   (table-reference :initarg :table-reference
+		    :reader table-reference-of)))
+
+(defun ensure-column-selected (context class-node column-name)
+  (multiple-value-bind (column presentp)
+      (get-column-selection context class-node column-name)
+    (if (not presentp)
+	(push (ensure-column context class-node column-name)
+	      (gethash class-node (select-list-of context)))
+	column)))
+
+(defun ensure-extenal-column-selection (context class-node column-name)
+  (make-instance 'context-column-selection
+		 :column (ensure-column-selected context class-node
+						 column-name)
+		 :context context))
+
+(defun ensure-column (context class-node column-name)
+  (if (not (eq context (context-of class-node)))
+      (ensure-external-column-selection
+       (previous-context context) class-node column-name)
+      (make-instance 'column-expression
+		     :class-node class-node
+		     :column-name column-name)))
+
+(defun ensure-inheritance (context root class-node superclass-mapping)
+  (let ((class-mapping
+	 (get-class-mapping
+	  (reference-class-of superclass-mapping))))
+    (multiple-value-bind (direct-inheritance presentp)
+	(get-inheritance class-mapping class-node)
+      (if (not presentp)
+	  (make-instance 'direct-inheritance
+			 :superclass-node (ensure-class-node context root class-mapping)
+			 :foreign-key (mapcar #'(lambda (column-name)
+						  (ensure-column context class-node column-name))
+					      (foreign-key-of superclass-mapping))
+			 :subclass-node class-node)
+	  direct-inheritance))))
+
+(defun ensure-all-inheritance-class-nodes (context root class-node)
+  (dolist (superclass-mapping
+	    (superclass-mappings-of (class-mapping-of class-node))
+	   class-node)
+    (ensure-all-inheritance-class-nodes context root
+					(superclass-node-of
+					 (ensure-inheritance context
+							     root
+							     class-node
+							     superclass-mapping)))))
+
+(defun ensure-path-class-nodes (context mapped-slot)
+  (let ((root (root-of mapped-slot)))
+    (reduce #'(lambda (superclass-mapping class-node)
+		(superclass-node-of
+		 (ensure-inheritance context root class-node superclass-mapping)))
+	    (path-of mapped-slot)
+	    :from-end t
+	    :initial-value (ensure-class-node context root
+					      (class-mapping-of mapped-slot)))))
+
+(defgeneric ensure-class-nodes (context clause expression))
+
+(defmethod ensure-class-nodes (context clause (expression n-ary-expression))
+  (dolist (argument (arguments-of expression))
+    (ensure-class-nodes context argument))))
+
+(defmethod ensure-class-nodes (context clause (expression binary-operation))
+  (ensure-class-nodes context (lhs-expression-of expression))
+  (ensure-class-nodes context (rhs-expression-of expression)))
+
+(defmethod ensure-class-nodes (context clause (value t))
+  (declare (ignore value))) ;; for parameters (numbers, strings, etc.)
+
+(defmethod ensure-class-nodes (context clause (expression joined-reference))
+  (ensure-path-class-nodes context (reference-slot-of expression)))
+
+(defmethod ensure-class-nodes (context clause (expression property-slot))
+  (ensure-path-class-nodes context expression))
 
 (defmethod initialize-instance :after ((instance recursive-joining)
 				       &key aux-clause recursive-clause)
   (ensure-class-nodes instance aux-clause)
   (ensure-class-nodes instance recursive-clause))
 
-(defun ensure-root-class-nodes (context root)
-  )
+(defun make-recursive-joining (aux-clause recursive-clause)
+  (make-instance 'recursive-joining
+		 :aux-clause aux-clause
+		 :recursive-clause recursive-clause))
 
-(defun ensure-path-class-nodes (context mapped-slot)
-  (let ((root (root-of mapped-slot)))
-    (reduce #'(lambda (superclass-mapping class-node)
-		(let ((class-mapping
-		       (get-class-mapping
-			(reference-class-of superclass-mapping))))
-		  (add-inheritance class-node
-				   (ensure-class-node context root class-mapping)
-				   (foreign-key-of superclass-mapping))))
-	    (path-of mapped-slot)
-	    :from-end t
-	    :initial-value (ensure-class-node context root
-					      (class-mapping-of root)))))
+(defclass selection (context)
+  ((select-list :initarg :select-list
+		:reader select-list-of)
+   (where-clause :initarg :where-clause
+		 :reader where-clause-of)
+   (having-clause :initarg :having-clause
+		  :reader having-clause-of)
+   (order-by-clause :initarg :order-by-clause
+		    :reader order-by-clause-of)
+   (limit :initarg :limit
+	  :reader limit-of)
+   (offset :initarg :offset
+	   :reader offset-of)))
+
+(defmethod initialize-instance :after ((instance selection)
+				       &key select-list where-clause
+					 having-clause order-by-clause
+					 &allow-other-keys)
+  (dolist (expression (expressions-of select-list))
+    (ensure-class-nodes instance select-list expression))
+  (dolist (expression (expressions-of where-clause))
+    (ensure-class-nodes instance where-clause expression))
+  (dolist (expression (expressions-of having-clause))
+    (ensure-class-nodes instance having-clause expression))
+  (dolist (expression (expressions-of order-by-clause))
+    (ensure-class-nodes instance order-by-clause expression)))
+
+;; выбрать колонки по class-nodes (составить sql-select-list)
+(defun make-selection (select-list where-clause having-clause
+		       order-by-clause limit offset)
+  (make-instance 'selection
+		 :select-list select-list
+		 :where-clause where-clause
+		 :having-clause having-clause
+		 :order-by-clause order-by-clause
+		 :offset offset
+		 :limit limit))
+  
+;;;; references and roots
+(defmethod ensure-class-nodes :after (context (clause select-list) (expression root))
+  (ensure-all-inheritance-class-nodes context expression
+				      (ensure-class-node context root
+							 (class-mapping-of root))))
+
+(defmethod ensure-class-nodes (context (clause select-list) (expression aggregation))
+  (dolist (argument (arguments-of expression))
+    (ensure-class-nodes-aggregation context argument)))
 
 (defgeneric ensure-class-nodes-aggregation (context expression))
 
-(defmethod ensure-class-nodes-aggregation (context (expression n-ary-expression)
+(defmethod ensure-class-nodes-aggregation (context (expression aggregate-expression))
   (dolist (argument (arguments-of expression))
     (ensure-class-nodes-aggregation argument)))
 
@@ -220,52 +397,29 @@
 (defmethod ensure-class-nodes-aggregation (context (expression mapped-slot))
   (ensure-path-class-nodes context expression))
 
-(defgeneric ensure-class-nodes (context expression))
+(defclass fetching ()
+  ((fetch-clause :initarg :fetch-clause
+		 :reader fetch-clause-of)
+   (recursive-fetch-clause :reader recursive-fetch-clause-of)))
 
-(defmethod ensure-class-nodes (context (expression n-ary-expression))
-  (dolist (argument (arguments-of expression))
-    (ensure-class-nodes context argument))
-
-(defmethod ensure-class-nodes (context (expression binary-operation))
-  (ensure-class-nodes context (lhs-expression-of expression))
-  (ensure-class-nodes context (rhs-expression-of expression)))
-
-(defmethod ensure-class-nodes (context (expression aggregation))
-  (dolist (argument (arguments-of expression))
-    (ensure-class-nodes-aggregation context argument)))
-
-(defmethod ensure-class-nodes (context (value t))
-  (declare (ignore value))) ;; for parameters (numbers, strings, etc.)
-
-;;;; references and roots
-(defmethod ensure-class-nodes :after (context (expression root))
-  (ensure-root-class-nodes context expression))
-
-(defmethod ensure-class-nodes (context (expression joined-reference))
-  (ensure-path-class-nodes context (reference-slot-of expression)))
-
-(defmethod ensure-class-nodes (context (expression property-slot))
-  (ensure-path-class-nodes context expression))
-
-(defun make-recursive-joining (aux-clause recursive-clause)
-  (let ((recursive-joining
-	 (make-instance 'recursive-joining
-			:aux-clause aux-clause
-			:recursive-clause recursive-clause)))
-    (ensure-class-nodes recursive-joining aux-clause)))
+(defmethod initialize-instance :after ((instance fetching)
+				       &key fetch-clause &allow-other-keys)
+  (setf (slot-value instance 'recursive-fetch-clause)
+	(remove-if #'null reference-fetchings
+		   :key #'recursive-node-of)))
 
 
-    
 
-(defun make-query (roots join &key select aux recursive where order-by
-				having fetch limit offset)
-  (let* ((selectors (if (listp roots)
-			(mapcar #'(lambda (root)
-				    (make-root root))
-				roots)
-			(list (make-root roots))))
+(defun make-query (class-names join &key select aux recursive where
+				      order-by having fetch limit offset)
+  (let* ((selectors (if (listp class-names)
+			(mapcar #'(lambda (class-name)
+				    (make-root class-name))
+				class-names)
+			(list (make-root class-names))))
 	 (join-list (reduce #'append (compute-clause join selectors)
-			    :initial-value selectors))
+			    :initial-value selectors)))
+    (
 	 (recursive-clause (compute-clause recursive join-list))
 	 (aux-clause (compute-clause aux join-list)))
     (make-joining selectors 
@@ -287,9 +441,6 @@
 	  (when (not (null fetch))
 	    (reduce #'append (multiple-value-list
 			      (apply fetch select-list)))))
-	 (recursive-fetch-references
-	  (remove-if #'null reference-fetchings
-		     :key #'recursive-node-of))
 	 (selection
 	  (make-selection joining
 			  (or limit offset recursive-fetch-references)
@@ -314,120 +465,6 @@
 	      :fetch fetch))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-(defclass joining ()
-  ((roots :initarg :roots)))
-
-(defclass recursive-joining (query-context)
-  ((table-aliases :reader table-aliases-of)
-   (recursive-clause :initarg :recursive-clause
-		     :reader recursive-clause-of)
-   (aux-clause :initarg :aux-clause
-	       :reader aux-clause)
-   (node-columns :initform (make-hash-table)
-		 :reader column-aliases)))
-
-(defun make-joining (roots aux-clause recursive-clause)
-  (if (not (null recursive-clause))
-      (make-instance 'recursive-joining
-		     :roots roots
-		     :aux-clause aux-clause
-		     :recursive-clause recursive-clause)
-      (make-instance 'joining :roots roots)))
-
-
-
-
-
-(defun ensure-class-node (class-node from-clause)
-  (if (not (find class-node from-clause))
-      (list* class-node from-clause)
-      from-clause))
-
-(defgeneric append-path-node (from-clause class-node))
-
-(defmethod append-path-node (from-clause (superclass-node superclass-node))
-  (append-path-node
-   (ensure-class-node superclass-node from-clause)
-   (class-node-of superclass-node)))
-
-(defmethod append-path-node (from-clause (root-node root-node))
-  (ensure-class-node root-node from-clause))
-
-(defun append-class-nodes (from-clause class-node)
-  (reduce #'ensure-class-node
-	  (precedence-list-of class-node)
-	  :from-end t
-	  :initial-value (ensure-class-node class-node from-clause)))
-
-(defun append-property-nodes (from-clause property-slot)
-  (append-path-node from-clause (class-node-of property-slot)))
-
-(defgeneric append-aggregation-nodes (from-clause expression))
-
-(defmethod append-aggregation-nodes (from-clause (expression expression))
-  (reduce #'append-aggregation-nodes (arguments-of expression)
-	  :initial-value from-clause))
-
-(defmethod append-aggregation-nodes (from-clause (expression property-slot))
-  (append-property-nodes from-clause expression))
-
-(defmethod append-aggregation-nodes (from-clause (expression root-class-selection))
-  (ensure-class-node
-   (concrete-class-node-of expression) from-clause))
-
-(defmethod append-aggregation-nodes (from-clause (expression reference-node))
-  (ensure-class-node
-   (concrete-class-node-of expression)
-   (append-path-node from-clause
-		     (class-node-of
-		      (reference-slot-of expression)))))
-
-
-
-(defmethod initialize-instance :after ((instance joining)
-				       &key expressions &allow-other-keys)
-  (with-slots (from-clause table-aliases)
-      instance
-    (setf from-clause
-	  (reduce #'append-joining-nodes
-		  expressions :initial-value nil))
-    (setf table-aliases
-	  (reduce #'(lambda (result class-node)
-		      (acons class-node
-			     (make-alias
-			      (class-name-of
-			       (class-mapping-of class-node)))
-			     result))
-		  (from-clause-of instance)
-		  :initial-value nil))))
 
 (defclass column-selection ()
   ((column-name :initarg :column-name
@@ -494,9 +531,3 @@
   (reduce #'compute-joining-column-aliases expressions
 	  :initial-value selected-columns
 	  :from-end t))
-
-(defmethod initialize-instance :after ((instance recursive-joining)
-				       &key expressions &allow-other-keys)
-  (with-slots (column-aliases)
-      instance
-    (setf column-aliases (select-columns expressions))))
