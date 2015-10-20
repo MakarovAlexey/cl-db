@@ -192,6 +192,9 @@
 (defun get-extension (class-mapping class-node)
   (gethash class-mapping (direct-extension-of class-node)))
 
+(defun get-root-class-nodes (root context)
+  (gethash root (class-nodes-of context)))
+
 (defmethod initialize-instance :after ((instance class-node)
 				       &key context root class-mapping
 					 &allow-other-keys)
@@ -219,7 +222,7 @@
    (class-node-columns :initform (make-hash-table)
 		       :reader class-node-columns-of)
    (expression-aliases :initform (make-hash-table) ;; columns and expressions by aliases
-		       :accessor class-node-columns-of) ;; class-node => (list (column . alias)); expression => alias
+		       :accessor expression-aliases-of) ;; class-node => (list (column . alias)); expression => alias
    (aux-clause :initarg :aux-clause
 	       :reader aux-clause-of)
    (recursive-clause :initarg :recursive-clause
@@ -228,6 +231,8 @@
 		:reader select-list-of)
    (where-clause :initarg :where-clause
 		 :reader where-clause-of)
+   (group-by-present-p :initform nil
+		       :accessor group-by-clause-of)
    (order-by-clause :initarg :order-by-clause
 		    :reader order-by-clause-of)
    (having-clause :initarg :having-clause
@@ -335,69 +340,65 @@
 	  :from-end t
 	  :initial-value (ensure-class-node context root class-mapping)))
 
-(defgeneric parse-expression (context clause expression))
+(defun parse-class-equality (context lhs-root rhs-root)
+  (ensure-path-class-nodes context rhs-root
+			   (class-mapping-of rhs-root)
+			   (get-superclass-path rhs-root lhs-root))
+  (ensure-path-class-nodes context lhs-root
+			   (class-mapping-of lhs-root)
+			   (get-superclass-path lhs-root rhs-root)))
 
-(defmethod parse-expression (context clause (expression n-ary-expression))
-  (dolist (argument (arguments-of expression))
-    (parse-expression context argument))))
+(defgeneric parse-expression (context expression))
 
-(defmethod parse-expression (context clause (expression binary-operation))
-  (parse-expression context clause (lhs-expression-of expression))
-  (parse-expression context clause (rhs-expression-of expression)))
+(defmethod parse-expression (context expression))
 
-(defmethod parse-expression (context clause (value t))
-  (declare (ignore value))) ;; for parameters (numbers, strings, etc.)
+(defmethod parse-expression :after (context (expression n-ary-expression))
+  (dolist (expression (arguments-of expression))
+    (parse-expression context expression)))
 
-(defmethod parse-expression :after (context clause (expression joined-reference))
-  (ensure-path-class-nodes context (reference-slot-of expression)))
+(defmethod parse-expression :after (context (expression binary-operation))
+  (parse-expression context (lhs-expression-of expression))
+  (parse-expression context (rhs-expression-of expression)))
 
-(defmethod parse-expression (context clause (expression property-slot))
+(defmethod parse-expression :after (context (expression class-equality))
+  (parse-class-equality context (lhs-root-of expression)
+			(rhs-root-of expression)))
+
+(defmethod parse-expression :after (context (expression root))
+  (ensure-class-node context expression (class-mapping-of expression)))
+
+(defmethod parse-expression :after (context (expression joined-reference))
+  (let ((reference-slot (reference-slot-of expression)))
+    (ensure-path-class-nodes context expression (class-mapping-of expression)
+			     ))
+
+(defmethod parse-expression :after (context (expression property-slot))
   (ensure-path-class-nodes context expression))
-
-;;; references and roots
-(defmethod parse-expression (context (clause select-list) (expression root))
-  (select-class context expression))
-
-(defmethod parse-expression (context (clause select-list) (expression aggregation))
-  (dolist (argument (arguments-of expression))
-    (parse-aggregate-expression context argument)))
-
-(defgeneric parse-binary-operation (context expression lhs-expression rhs-expression))
-
-(defmethod parse-binary-operation (context expression lhs-expression rhs-expression))
-
-(defmethod parse-binary-operation :after (context expression
-					  lhs-expression rhs-expression)
-  (parse-select-item context lhs-expression)
-  (parse-select-item context rhs-expression))
-
-(defmethod parse-binary-operation :after (context expression
-					  (lhs-expression root)
-					  (rhs-expression root))
-  (ensure-path-class-nodes context rhs-expression
-			   (class-mapping-of rhs-expression)
-			   (get-superclass-path rhs-expression
-						lhs-expression))
-  (ensure-path-class-nodes context lhs-expression
-			   (class-mapping-of lhs-expression)
-			   (get-superclass-path lhs-expression
-						rhs-expression)))
 
 (defgeneric parse-aggregate-expression (context expression))
 ;; :after
 (defmethod parse-aggregate-expression (context (expression aggregate-expression))
+  (error "Aggregate expression ~a does not itself contain an aggregate expression" expression))
+
+(defmethod parse-aggregate-expression :after (context (expression n-ary-expression))
   (dolist (argument (arguments-of expression))
     (parse-aggregate-expression argument)))
 
-(defmethod parse-aggregate-expression (context (expression binary-expression))
+(defmethod parse-aggregate-expression :after (context (expression binary-expression))
   (parse-aggregate-expression context (lhs-expression-of expression))
   (parse-aggregate-expression context (rhs-expression-of expression)))
 
-(defmethod parse-aggregate-expression (context (expression root))
+(defmethod parse-aggregate-expression :after (context (expression class-equality))
+  (parse-class-equality context (lhs-root-of expression)
+			(rhs-root-of expression)))
+
+(defmethod parse-aggregate-expression :after (context (expression root))
   (ensure-class-node context expression (class-mapping-of expression)))
 
-(defmethod parse-aggregate-expression (context (expression mapped-slot))
-  (ensure-path-class-nodes context expression))
+(defmethod parse-aggregate-expression :after (context (expression property-slot))
+  (let ((root (root-of mapped-slot)))
+    (ensure-path-class-nodes context root (class-mapping-of root)
+			     (path-of mapped-slot))))
 
 (defgeneric parse-select-item (context expression))
 
@@ -408,9 +409,12 @@
     (parse-select-item context expression)))
 
 (defmethod parse-select-item :after (context (expression binary-operation))
-  (parse-binary-operation context expression
-			  (lhs-expression-of expression)
-			  (rhs-expression-of expression)))
+  (parse-select-item context (lhs-expression-of expression))
+  (parse-select-item context (rhs-expression-of expression)))
+
+(defmethod parse-select-item :after (context (expression class-equality))
+  (parse-class-equality context (lhs-root-of expression)
+			(rhs-root-of expression)))
 
 (defmethod parse-select-item :after (context (expression root))
   (ensure-class-node context expression (class-mapping-of expression)))
@@ -422,21 +426,27 @@
   (ensure-path-class-nodes context expression))
 
 (defmethod parse-select-item :after (context (expression aggregate-expression))
-  (parse-aggregate-expression context expression))
+  (when (not (aggregation-present-p context))
+    (setf (aggregation-present-p context) t))
+  (dolist (expression (arguments-of expression))
+    (parse-aggregate-expression context expression)))
 
 ;;;; use :after
 (defgeneric parse-select-list (context expression))
 
-(defmethod parse-select-list (context expression t))
+(defmethod parse-select-list (context (expression t)))
 
 (defmethod parse-select-list :after (context (expression root))
   (select-root context expression))
 
 (defmethod parse-select-list :after (context (expression joined-reference))
-  (ensure-path-class-nodes context (reference-slot-of expression)))
+  (let ((root (root-of (reference-slot-of expression))))
+    (ensure-path-class-nodes context root (class-mapping-of root) (path-of 
 
 (defmethod parse-select-list :after (context (expression property-slot))
-  (ensure-path-class-nodes context expression))
+  (let ((root (root-of expression)))
+    (ensure-path-class-nodes context root (class-mapping-of root)
+			     (path-of expression))))
 
 (defmethod parse-select-list :after (context (expression expression))
   (parse-select-item context expression)
@@ -453,19 +463,19 @@
     (setf (gethash instance (previous-contexts-of query))
 	  previous-context))
   (dolist (expression aux-clause)
-    (parse-expression instance (make-instance 'aux-clause) expression))
+    (parse-expression instance expression))
   (dolist (expression recursive-clause)
-    (parse-expression instance (make-instance 'recursive-clause) expression))
+    (parse-expression instance expression))
   (dolist (expression select-list)
     (parse-select-list instance expression))
   (dolist (expression where-clause)
-    (parse-expression instance (make-instance 'where-clause) expression))
+    (parse-expression instance expression))
   (dolist (expression order-by-clause)
-    (parse-expression instance (make-instance 'order-by-clause) expression))
+    (parse-order-by-clause instance expression))
   (dolist (expression having-clause)
-    (parse-expression instance (make-instance 'having-clause) expression))
+    (parse-expression instance expression))
   (dolist (expression fetch-clause)
-    (parse-expression instance (make-instance 'fetch-clause) expression)))
+    (parse-fetch-clause instance expression)))
 
 (defun previous-context (context)
   (gethash context (previous-contexts-of (query-of context))))
