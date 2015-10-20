@@ -240,30 +240,6 @@
    (fetch-clause :initarg :fetch-clase
 		 :reader fetch-clause-of)))
 
-(defclass clause ()
-  ())
-
-(defclass aux-clause (clause)
-  ())
-
-(defclass recursive-clause (clause)
-  ())
-
-(defclass select-list (clause)
-  ())
-
-(defclass where-clause (clause)
-  ())
-
-(defclass order-by-clause (clause)
-  ())
-
-(defclass having-clause (clause)
-  ())
-
-(defclass fetch-clause (clause)
-  ())
-
 (defclass column () ;;(select-item)
   ((name :initarg :name
 	 :reader name-of)
@@ -300,7 +276,7 @@
 		    :subclass-node class-node))))
 
 (defun ensure-alias (expression context)
-  (ensure-gethash expression context
+  (ensure-gethash expression (expression-aliases-of context)
 		  (make-alias (name-of expression))))
 
 (defun select-column (context class-node column-name)
@@ -348,6 +324,43 @@
 			   (class-mapping-of lhs-root)
 			   (get-superclass-path lhs-root rhs-root)))
 
+(defun ensure-slot-path (context mapped-slot)
+  (ensure-path-class-nodes context (root-of mapped-slot)
+			   (class-mapping-of mapped-slot)
+			   (path-of mapped-slot)))
+
+(defun select-property (context property-slot)
+  (select-column context (ensure-slot-path context property-slot)
+		 (column-of (slot-mapping-of property-slot))))
+
+(defun ensure-property (context property-slot)
+  (ensure-column context (ensure-slot-path context expression)
+		 (column-of (slot-mapping-of property-slot))))
+
+(defun ensure-root-primary-key (context root)
+  (let ((class-mapping
+	 (class-mapping-of root))
+	(class-node
+	 (ensure-class-node context root class-mapping)))
+    (dolist (column-name (primary-key-of class-mapping))
+      (ensure-column context class-node column-name))))
+
+;; subclasses
+;; ensure-reference-foreign-key
+
+(defgeneric parse-recursive-expression (context expression))
+
+(defmethod parse-recursove-expression (context expression))
+
+(defmethod parse-recursive-expression :after (context (expression property-slot))
+  (select-property context expression))
+
+(defmethod parse-recursive-expression :after (context (expression root))
+  (ensure-root-primary-key context expression))
+
+(defmethod parse-recursive-expression :after (context (expression joined-reference))
+  (ensure-slot-path context (reference-slot-of expression)))
+
 (defgeneric parse-expression (context expression))
 
 (defmethod parse-expression (context expression))
@@ -368,12 +381,10 @@
   (ensure-class-node context expression (class-mapping-of expression)))
 
 (defmethod parse-expression :after (context (expression joined-reference))
-  (let ((reference-slot (reference-slot-of expression)))
-    (ensure-path-class-nodes context expression (class-mapping-of expression)
-			     ))
+  (ensure-slot-path context (reference-slot-of expression)))
 
 (defmethod parse-expression :after (context (expression property-slot))
-  (ensure-path-class-nodes context expression))
+  (ensure-property context expression))
 
 (defgeneric parse-aggregate-expression (context expression))
 ;; :after
@@ -395,10 +406,11 @@
 (defmethod parse-aggregate-expression :after (context (expression root))
   (ensure-class-node context expression (class-mapping-of expression)))
 
+(defmethod parse-aggregate-expression :after (context (expression joined-reference))
+  (ensure-slot-path context (reference-slot-of expression)))
+
 (defmethod parse-aggregate-expression :after (context (expression property-slot))
-  (let ((root (root-of mapped-slot)))
-    (ensure-path-class-nodes context root (class-mapping-of root)
-			     (path-of mapped-slot))))
+  (ensure-property context expression))
 
 (defgeneric parse-select-item (context expression))
 
@@ -420,10 +432,10 @@
   (ensure-class-node context expression (class-mapping-of expression)))
 
 (defmethod parse-select-item :after (context (expression joined-reference))
-  (ensure-path-class-nodes context (reference-slot-of expression)))
+  (ensure-slot-path context (reference-slot-of expression)))
 
 (defmethod parse-select-item :after (context (expression property-slot))
-  (ensure-path-class-nodes context expression))
+  (ensure-property context expression))
 
 (defmethod parse-select-item :after (context (expression aggregate-expression))
   (when (not (aggregation-present-p context))
@@ -431,7 +443,6 @@
   (dolist (expression (arguments-of expression))
     (parse-aggregate-expression context expression)))
 
-;;;; use :after
 (defgeneric parse-select-list (context expression))
 
 (defmethod parse-select-list (context (expression t)))
@@ -440,19 +451,30 @@
   (select-root context expression))
 
 (defmethod parse-select-list :after (context (expression joined-reference))
-  (let ((root (root-of (reference-slot-of expression))))
-    (ensure-path-class-nodes context root (class-mapping-of root) (path-of 
+  (ensure-slot-path context (reference-slot-of expression)))
 
 (defmethod parse-select-list :after (context (expression property-slot))
-  (let ((root (root-of expression)))
-    (ensure-path-class-nodes context root (class-mapping-of root)
-			     (path-of expression))))
+  (select-property context expression))
 
 (defmethod parse-select-list :after (context (expression expression))
   (parse-select-item context expression)
   (setf (gethash expression (expression-aliases-of context))
 	(make-alias (name-of expression))))
 
+;; (defgeneric parse-order-by-clause (context expression))
+
+;; (defmethod parse-order-by-clause (context expression))
+
+;; (defmethod parse-order-by-clause :after (context (expression ascending-order))
+;;   (parse-order-by-clause context (expression-of expressoin)))
+
+;; (defmethod parse-order-by-clause :after (context (expression descending-order))
+;;   (parse-order-by-clause context (expression-of expressoin)))
+
+(defgeneric parse-fetch-clause (context fetch-reference))
+
+;; parse of order-by-clause and having-clause not needed becose this
+;; exoressins compute in select-list
 (defmethod initialize-instance ((instance context)
 				&key previous-context query aux-clause
 				  recursive-clause select-list
@@ -469,10 +491,6 @@
   (dolist (expression select-list)
     (parse-select-list instance expression))
   (dolist (expression where-clause)
-    (parse-expression instance expression))
-  (dolist (expression order-by-clause)
-    (parse-order-by-clause instance expression))
-  (dolist (expression having-clause)
     (parse-expression instance expression))
   (dolist (expression fetch-clause)
     (parse-fetch-clause instance expression)))
