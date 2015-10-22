@@ -252,12 +252,19 @@
 		 :correlation context)))
 
 (defun ensure-column (context class-node column-name)
-  (if (not (eq context (context-of class-node)))
-      (ensure-external-column-selection
-       (previous-context context) class-node column-name)
-      (make-instance 'column
-		     :correlation class-node
-		     :name column-name)))
+  (let ((columns
+	 (gethash class-node (class-node-columns-of context))))
+    (rest
+     (or (assoc column-name columns)
+	 (setf (gethash class-node (class-node-columns-of context))
+	       (acons column-name
+		      (if (not (eq context (context-of class-node)))
+			  (ensure-external-column-selection
+			   (previous-context context) class-node column-name)
+			  (make-instance 'column
+					 :correlation class-node
+					 :name column-name))
+		      columns))))))
 
 (defun ensure-direct-inheritance (context root class-node
 				  superclass-mapping)
@@ -280,16 +287,8 @@
 		  (make-alias (name-of expression))))
 
 (defun select-column (context class-node column-name)
-  (let ((columns
-	 (gethash class-node (class-node-columns-of context))))
-    (ensure-alias
-     (rest
-      (or (assoc column-name columns)
-	  (setf (gethash class-node (class-node-columns-of context))
-		(acons column-name
-		       (ensure-column context class-node column-name)
-		       columns))))
-     context)))
+  (ensure-alias
+   (ensure-column context class-node column-name) context))
 
 (defun select-all-inheritance-class-nodes (context root class-node)
   (dolist (superclass-mapping (superclass-mappings-of class-mapping))
@@ -303,9 +302,10 @@
       (select-column context class-node column-name)))
 
 (defun select-class (context root)
-  (select-all-inheritance-class-nodes context expression
-				      (ensure-class-node context root
-							 (class-mapping-of root))))
+  (let ((class-node
+	 (ensure-class-node context root (class-mapping-of root))))
+    (select-all-inheritance-class-nodes context expression class-node)
+    (select-all-extension-class-nodes context expression class-node)))
 
 (defun ensure-path-class-nodes (context root class-mapping path)
   (reduce #'(lambda (class-node superclass-mapping)
@@ -345,8 +345,29 @@
     (dolist (column-name (primary-key-of class-mapping))
       (ensure-column context class-node column-name))))
 
-;; subclasses
-;; ensure-reference-foreign-key
+(defgeneric ensure-reference (context reference mapped-slot))
+
+(defmethod ensure-reference (context reference mapped-slot))
+
+(defmethod ensure-reference :after (context reference (mapped-slot one-to-many))
+  (let ((class-node
+	 (ensure-slot-path context mapped-slot))
+	(reference-class-node
+	 (ensure-class-node context reference (class-mapping-of expression))))
+    (dolist (column-name (primary-key-of (class-mapping-of class-node)))
+      (ensure-column context class-node column-name))
+    (dolist (column-name (foreign-key-of (slot-mapping-of mapped-slot)))
+      (ensure-column context reference-class-node column-name))))
+
+(defmethod ensure-reference :after (context reference (mapped-slot many-to-one))
+  (let ((class-node
+	 (ensure-slot-path context mapped-slot))
+	(reference-class-node
+	 (ensure-class-node context reference (class-mapping-of expression))))
+    (dolist (column-name (foreign-key-of (slot-mapping-of mapped-slot)))
+      (ensure-column context class-node column-name))
+    (dolist (column-name (primary-key-of (class-mapping-of reference-class-node)))
+      (ensure-column context reference-class-node column-name))))
 
 (defgeneric parse-recursive-expression (context expression))
 
@@ -359,7 +380,7 @@
   (ensure-root-primary-key context expression))
 
 (defmethod parse-recursive-expression :after (context (expression joined-reference))
-  (ensure-slot-path context (reference-slot-of expression)))
+  (ensure-reference context expression (mapped-slot-of expression)))
 
 (defgeneric parse-expression (context expression))
 
@@ -474,7 +495,7 @@
 (defgeneric parse-fetch-clause (context fetch-reference))
 
 ;; parse of order-by-clause and having-clause not needed becose this
-;; exoressins compute in select-list
+;; expressins compute on select-list
 (defmethod initialize-instance ((instance context)
 				&key previous-context query aux-clause
 				  recursive-clause select-list
