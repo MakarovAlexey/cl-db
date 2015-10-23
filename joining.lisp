@@ -18,6 +18,9 @@
      (superclass-paths-of root-2)
      :key #'first))))
 
+(defun get-class-node (root class-mapping)
+  (gethash class-mapping (class-nodes-of root)))
+
 ;;;; path is inverted path, from end to begin (root mapping)
 (defclass mapped-slot ()
   ((class-mapping :initarg :class-mapping
@@ -151,7 +154,39 @@
 	(list* alias reference-node args)
 	args)))
 
-;;;; joining
+;;;; fetching
+
+(defclass fetched-reference (root)
+  ((reference-mapping :initarg :reference-mapping
+		   :reader reference-mapping-of)
+   (recursive-node :initarg :recursive-node
+		   :reader recursive-node-of)
+   (class-node :initarg :class-node
+	       :reader class-node-of)
+   (root :initarg :root
+	 :reader root-of)))
+
+(defun fetch (root reader &key class-name fetch recursive)
+  (let* ((class-mapping
+	  (if (not (null class-name))
+	      (get-class-mapping class-name)
+	      (class-mapping-of root)))
+	 (class-node
+	  (get-class-node root class-mapping))
+	 (reference-slot
+	  (get-reference-slot class-node reader))
+	 (fetched-reference
+	  (make-instance 'fetched-reference ;; one-to-many/many-to-one?
+			 :reference-mapping reference-mapping
+			 :class-mapping class-mapping
+			 :recursive-node recursive
+			 :class-node class-node
+			 :root root)))
+    (list* fetched-reference
+	   (when (not (null fetch))
+	     (reduce #'append
+		     (multiple-value-list
+		      (funcall fetch fetched-reference)))))))
 
 (defclass recursive ()
   ((root :initarg :root
@@ -202,13 +237,14 @@
   (push (gethash root (class-nodes-of context)) instance))
 
 (defun ensure-class-node (context root class-mapping)
-  (or
-   (find class-mapping (gethash root (class-nodes-of context))
-	 :key #'class-mapping-of)
-   (make-instance 'class-node
-		  :class-mapping class-mapping
-		  :context context
-		  :root root)))
+  (multiple-value-bind (class-node presentp)
+      (gethash class-mapping (class-nodes-of root))
+    (if (not presentp)
+	(make-instance 'class-node
+		       :class-mapping class-mapping
+		       :context context
+		       :root root)
+	class-node)))
 
 (defclass query ()
   ((previous-contexts :initform (make-hash-table)
