@@ -17,10 +17,10 @@
 (defclass rdbms-sql-function (sql-function)
   ((name :initarg :name :reader name-of)))
 
-(defclass aggregation (sql-function)
+(defclass aggregate-expression (sql-function)
   ())
 
-(defclass rdbms-aggeregation (aggregation)
+(defclass rdbms-aggeregation (aggregate-expression)
   ((name :initarg :name :reader name-of)))
 
 (defclass binary-operator-extended (n-ary-expression)

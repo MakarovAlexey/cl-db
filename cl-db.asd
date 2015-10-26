@@ -17,9 +17,9 @@
 	       (:file "persistence")
 ;;	       (:file "writers")
 ;;	       (:file "query-classes")
-	       (:file "query-plan")
-	       (:file "expressions")
-	       (:file "query-building")
+;;	       (:file "query-plan")
+;;	       (:file "expressions")
+	       (:file "joining")
 	       ;;(:file "db-read")))
 	       ))
 (asdf:defsystem #:cl-db.tests
