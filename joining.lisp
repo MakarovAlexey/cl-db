@@ -1,5 +1,10 @@
 (in-package #:cl-db)
 
+(defvar *table-index*)
+
+(defun make-alias (&rest name-parts)
+  (format nil "~{~(~a~)_~}~a" name-parts (incf *table-index*)))
+
 (defclass expression ()
   ())
 
@@ -203,39 +208,17 @@
 (defun descending (arg)
   (make-instance 'descending :arg arg))
 
-(defgeneric property (node reader))
-
-(defmethod property ((root-node root-node) reader)
-  (let* ((class-name
-	  (class-name-of (class-mapping-of root-node)))
-	 (slot-name
-	  (get-slot-name (find-class class-name) reader)))
-    (or
-     (find slot-name
-	   (property-slots-of root-node)
-	   :key #'(lambda (property-node)
-		    (slot-name-of
-		     (property-mapping-of property-node))))
-     (error "Property mapping for slot-name ~a of class mapping ~a not found"
-	    slot-name class-name))))
-
-(defmethod property ((recursive-node recursive-class-node) reader)
-  (property (class-node-of recursive-node) reader))
-
-(defmethod property ((class-selection root-class-selection) reader)
-  (property (concrete-class-node-of class-selection) reader))
-
 ;;;;
 
 (defclass root ()
   ((class-nodes :initform (make-hash-table)
-		:reader class-nodes)
+		:reader class-nodes-of)
    (superclass-paths :reader superclass-paths-of)
    (reference-slots :reader reference-slots-of)
    (class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
-   (subclass-roots :initform (list)
-		   :accessor subclass-roots-of)))
+   (direct-subclass-roots :initform (list)
+			  :accessor direct-subclass-roots-of)))
 
 (defun get-superclass-path (root-1 root-2)
   (rest
@@ -278,7 +261,7 @@
 	 (reduce #'append
 		 (superclass-mappings-of class-mapping)
 		 :key #'(lambda (superclass-mapping)
-			  (compute-precedence-list
+			  (compute-superclass-paths
 			   (get-class-mapping
 			    (reference-class-of superclass-mapping))
 			   (list* superclass-mapping path)))
@@ -320,23 +303,84 @@
     (setf superclass-paths (compute-superclass-paths class-mapping))
     (setf reference-slots (compute-references instance class-mapping))))
 
-(defclass query-root (root)
-  ((property-slots :reader properte-slots-of)
-   (subclass-roots :initform (make-hash-table)
+(defclass class-root (root)
+  ((subclass-roots :initform (make-hash-table)
 		   :reader subclass-roots-of)))
 
+(defmethod initialize-instance :after ((instance class-root) &key &allow-other-keys)
+  (select-subclasses instance instance))
+
+(defun ensure-subclass-root (superclass-root subclass-mapping query-root) 
+  (let ((class-mapping
+	 (get-class-mapping
+	  (reference-class-of subclass-mapping))))
+    (ensure-gethash class-mapping
+		    (subclass-roots-of query-root)
+		    (make-instance 'subclass-root ; see initialize-instance
+				   :class-mapping class-mapping
+				   :foreign-key (foreign-key-of subclass-mapping)
+				   :superclass-root superclass-root
+				   :query-root query-root))))
+
+(defun select-subclasses (superclass-root query-root) ; query-root for list-subclass-roots
+  (dolist (subclass-mapping
+	    (subclass-mappings-of
+	     (class-mapping-of superclass-root)) superclass-root)
+    (select-subclasses (ensure-subclass-root superclass-root
+					     subclass-mapping
+					     query-root)
+		       query-root)))
+
+(defclass query-root (class-root)
+  ((property-slots :reader property-slots-of)))
+
 (defun get-subclass-root (class-mapping root)
-  (gethash class-mapping (subclass-roots-of root)))
+  (multiple-value-bind (subclass-root presentp)
+      (gethash class-mapping (subclass-roots-of root))
+    (when (not presentp)
+      (error "Subclass ~a for ~a not found" (class-name-of class-mapping)
+	     (class-name-of (class-mapping-of root))))
+    subclass-root))
 
 (defun list-subclass-roots (query-root)
   (hash-table-values (subclass-roots-of query-root)))
+
+(defun find-slot-name (class reader-name)
+  (or
+   (find-if #'(lambda (slot-definition)
+		(find reader-name
+		      (slot-definition-readers slot-definition)))
+	    (class-direct-slots class))
+   (find-slot-name (find-if #'(lambda (class)
+				(find-slot-name class reader-name))
+			    (class-direct-superclasses class))
+		   reader-name)))
+
+(defun get-slot-name (class reader)
+  (let ((slot-definition
+	 (find-slot-name class (generic-function-name reader))))
+    (when (null slot-definition)
+      (error "Slot with reader ~a not found for class ~a"
+	     reader (class-name class)))
+    (slot-definition-name slot-definition)))
+
+(defun property (query-root reader)
+  (let* ((class-name
+	  (class-name-of (class-mapping-of query-root)))
+	 (slot-name
+	  (get-slot-name (find-class class-name) reader)))
+    (or
+     (find slot-name (property-slots-of query-root)
+	   :key (compose #'slot-name-of #'property-mapping-of))
+     (error "Property mapping for slot-name ~a of class mapping ~a not found"
+	    slot-name class-name))))
 
 (defun compute-properties (root class-mapping)
   (iterate-inheritance #'(lambda (result class-mapping path)
 			   (reduce #'list* (property-mappings-of class-mapping)
 				   :from-end t
 				   :key #'(lambda (property-mapping)
-					    (make-instance 'property
+					    (make-instance 'property-slot
 							   :class-mapping class-mapping
 							   :property-mapping property-mapping
 							   :path path
@@ -363,7 +407,7 @@
 (defmethod initialize-instance :after ((instance subclass-root)
 				       &key superclass-root
 					 class-mapping query-root)
-  (push instance (subclass-roots-of superclass-root))
+  (push instance (direct-subclass-roots-of superclass-root))
   (setf (gethash class-mapping
 		 (subclass-roots-of query-root))
 	instance))
@@ -414,21 +458,35 @@
 
 ;;;; fetching
 
-(defclass fetched-reference (root)
-  ((reference-mapping :initarg :reference-mapping
-		      :reader reference-mapping-of)
+(defclass fetched-reference (class-root)
+  ((reference-slot :initarg :reference-slot
+		      :reader reference-slot-of)
    (superclass-root :initarg :superclass-root
 		    :reader superclass-root-of)
    (recursive-node :initarg :recursive-node
 		   :reader recursive-node-of)))
 
+(defun get-reference-slot (root reader)
+  (let* ((class-mapping
+	  (class-mapping-of root))
+	 (class-name
+	  (class-name-of class-mapping))
+	 (slot-name
+	  (get-slot-name
+	   (find-class class-name) reader)))
+    (or (find slot-name (reference-slots-of root)
+	      :key (compose #'slot-name-of #'reference-mapping-of))
+	(error "Reference ~a of class ~a not found"
+	       slot-name class-name))))
+
 (defun fetch (root reader &key subclass-name fetch recursive)
-  (let* ((root
+  (let* ((class-root
 	  (if (not (null subclass-name))
-	      (get-subclass-root subclass-name root)
+	      (get-subclass-root
+	       (get-class-mapping subclass-name) root)
 	      root))
 	 (reference-slot
-	  (get-reference-slot root reader))
+	  (get-reference-slot class-root reader))
 	 (fetched-reference
 	  (make-instance 'fetched-reference
 			 :class-mapping (get-class-mapping
@@ -436,7 +494,7 @@
 					  (reference-mapping-of reference-slot)))
 			 :reference-slot reference-slot
 			 :recursive-node recursive
-			 :root root)))
+			 :root class-root)))
     (list* fetched-reference
 	   (when (not (null fetch))
 	     (reduce #'append
@@ -482,7 +540,7 @@
 				       &key context root class-mapping
 					 &allow-other-keys)
   (setf (gethash class-mapping (class-nodes-of root)) instance)
-  (push (gethash root (class-nodes-of context)) instance))
+  (push instance (gethash root (class-nodes-of context))))
 
 (defclass direct-inheritance ()
   ((superclass-node :initarg :superclass-node
@@ -511,13 +569,9 @@
 		       :root root)
 	class-node)))
 
-(defclass query ()
-  ((previous-contexts :initform (make-hash-table)
-		      :reader previous-contexts-of)))
-
 (defclass context ()
-  ((query :initarg :query
-	  :reader query-of)
+  ((previous-context :initarg :previous-context
+		     :reader previous-context-of)
    (class-nodes :initform (make-hash-table) ;; class-nodes by root
 		:reader class-nodes-of)
    (class-node-columns :initform (make-hash-table)
@@ -538,8 +592,12 @@
 		    :reader order-by-clause-of)
    (having-clause :initarg :having-clause
 		  :reader having-clause-of)
-   (fetch-clause :initarg :fetch-clase
-		 :reader fetch-clause-of)))
+   (fetch-clause :initarg :fetch-clause
+		 :reader fetch-clause-of)
+   (limit-clause :initarg :limit-clause
+		 :reader limit-clause-of)
+   (offset-clause :initarg :offset-clause
+		  :reader offset-clause-of)))
 
 (defclass column () ;;(select-item)
   ((name :initarg :name
@@ -556,16 +614,18 @@
   (let ((columns
 	 (gethash class-node (class-node-columns-of context))))
     (rest
-     (or (assoc column-name columns)
-	 (setf (gethash class-node (class-node-columns-of context))
-	       (acons column-name
-		      (if (not (eq context (context-of class-node)))
-			  (ensure-external-column-selection
-			   (previous-context context) class-node column-name)
-			  (make-instance 'column
-					 :correlation class-node
-					 :name column-name))
-		      columns))))))
+     (or (assoc column-name columns :test #'string=)
+	 (assoc column-name
+		(setf (gethash class-node (class-node-columns-of context))
+		      (acons column-name
+			     (if (not (eq context (context-of class-node)))
+				 (ensure-external-column-selection
+				  (previous-context-of context) class-node column-name)
+				 (make-instance 'column
+						:correlation class-node
+						:name column-name))
+			     columns))
+		:test #'string=)))))
 
 (defun ensure-direct-inheritance (context root class-node
 				  superclass-mapping)
@@ -606,39 +666,16 @@
 								      superclass-mapping))))
     (select-class-node class-node context)))
 
-(defun ensure-subclass-root (superclass-root subclass-mapping query-root) 
-  (let ((class-mapping 
-	 (get-class-mapping
-	  (reference-class-of subclass-mapping))))
-    (multiple-value-bind (subclass-root presentp)
-	(gethash class-mapping (subclass-roots-of query-root))
-      (if (not presentp)
-	  (make-instance 'subclass-root ; see initialize-instance
-			 :class-mapping class-mapping
-			 :foreign-key (foreign-key-of subclass-mapping)
-			 :superclass-root superclass-root
-			 :query-root query-root)
-	  subclass-root))))
-
-(defun select-subclasses (superclass-root query-root) ; query-root for list-subclass-roots
-  (dolist (subclass-mapping
-	    (subclass-mappings-of
-	     (class-mapping-of superclass-root)) superclass-root)
-    (select-subclasses (ensure-subclass-root superclass-root
-					     subclass-mapping
-					     query-root)
-		       query-root)))
-
 (defgeneric find-class-node (class-mapping root))
 
 (defmethod find-class-node (class-mapping (root subclass-root))
   (or (get-class-node root class-mapping)
       (find-class-node class-mapping (superclass-root-of root))))
 
-(defmethod find-class-node (class-mapping (root query-root))
+(defmethod find-class-node (class-mapping (root root))
   (get-class-node root class-mapping))
 
-(defun select-subclass-inheritance-class-nodes (context root class-node)
+(defun select-subclass-inheritance-class-nodes (class-node context root)
   (select-class-node class-node context)
   (dolist (superclass-mapping
 	    (superclass-mappings-of (class-mapping-of class-node)))
@@ -650,15 +687,14 @@
 	       (superclass-node-of
 		(ensure-direct-inheritance context root class-node
 					   superclass-mapping))))
-	  (select-subclass-inheritance-class-nodes context root
-						   superclass-node))))))
+	  (select-subclass-inheritance-class-nodes superclass-node
+						   context root))))))
   
 (defun select-class (context root)
   (select-all-inheritance-class-nodes context
 				      root
 				      (ensure-class-node context root
 							 (class-mapping-of root)))
-  (select-subclasses root root)
   (dolist (subclass-root (list-subclass-roots root))
     (select-subclass-inheritance-class-nodes
      (ensure-class-node context subclass-root
@@ -677,7 +713,7 @@
 
 (defmethod parse-equality (context lhs-expression rhs-expression))
 
-(defmethod parse-equality :after (context (lhs-root root) (rhs-root root))
+(defmethod parse-equality :after (context (lhs-root query-root) (rhs-root query-root))
   (ensure-path-class-nodes context rhs-root
 			   (class-mapping-of rhs-root)
 			   (get-superclass-path rhs-root lhs-root))
@@ -737,7 +773,7 @@
 (defmethod parse-recursive-expression :after (context (expression property-slot))
   (select-property context expression))
 
-(defmethod parse-recursive-expression :after (context (expression root))
+(defmethod parse-recursive-expression :after (context (expression query-root))
   (ensure-root-primary-key context expression))
 
 (defmethod parse-recursive-expression :after (context (expression joined-reference))
@@ -751,7 +787,7 @@
   (dolist (expression (arguments-of expression))
     (parse-expression context expression)))
 
-(defmethod parse-expression :after (context (expression binary-operation))
+(defmethod parse-expression :after (context (expression binary-expression))
   (parse-expression context (lhs-expression-of expression))
   (parse-expression context (rhs-expression-of expression)))
 
@@ -759,7 +795,7 @@
   (parse-equality context (lhs-expression-of expression)
 		  (rhs-expression-of expression)))
 
-(defmethod parse-expression :after (context (expression root))
+(defmethod parse-expression :after (context (expression query-root))
   (ensure-class-node context expression (class-mapping-of expression)))
 
 (defmethod parse-expression :after (context (expression joined-reference))
@@ -785,7 +821,7 @@
   (parse-equality context (lhs-expression-of expression)
 		  (rhs-expression-of expression)))
 
-(defmethod parse-aggregate-expression :after (context (expression root))
+(defmethod parse-aggregate-expression :after (context (expression query-root))
   (ensure-class-node context expression (class-mapping-of expression)))
 
 (defmethod parse-aggregate-expression :after (context (expression joined-reference))
@@ -802,7 +838,7 @@
   (dolist (expression (arguments-of expression))
     (parse-select-item context expression)))
 
-(defmethod parse-select-item :after (context (expression binary-operation))
+(defmethod parse-select-item :after (context (expression binary-expression))
   (parse-select-item context (lhs-expression-of expression))
   (parse-select-item context (rhs-expression-of expression)))
 
@@ -810,7 +846,7 @@
   (parse-equality context (lhs-expression-of expression)
 		  (rhs-expression-of expression)))
 
-(defmethod parse-select-item :after (context (expression root))
+(defmethod parse-select-item :after (context (expression query-root))
   (ensure-class-node context expression (class-mapping-of expression)))
 
 (defmethod parse-select-item :after (context (expression joined-reference))
@@ -827,9 +863,11 @@
 
 (defgeneric parse-select-list (context expression))
 
-(defmethod parse-select-list (context (expression t)))
+(defmethod parse-select-list (context (expression t))
+  (values expression context))
 
-(defmethod parse-select-list :after (context (expression root))
+(defmethod parse-select-list :after (context (expression query-root))
+  (select-subclasses expression expression)
   (select-class context expression))
 
 (defmethod parse-select-list :after (context (expression joined-reference))
@@ -861,17 +899,11 @@
   (ensure-slot-path context (reference-slot-of fetched-reference))
   (select-class context fetched-reference))
 
-;; parse of order-by-clause and having-clause not needed becouse this
-;; expressins compute on select-list
-(defmethod initialize-instance ((instance context)
-				&key previous-context query aux-clause
-				  recursive-clause select-list
-				  where-clause order-by-clause
-				  having-clause fetch-clause 
-				  &allow-other-keys)
-  (when (not (null previous-context))
-    (setf (gethash instance (previous-contexts-of query))
-	  previous-context))
+(defmethod initialize-instance :after ((instance context)
+				&key aux-clause recursive-clause
+				  select-list where-clause
+				  order-by-clause having-clause
+				  fetch-clause &allow-other-keys)
   (dolist (expression aux-clause)
     (parse-expression instance expression))
   (dolist (expression recursive-clause)
@@ -887,33 +919,28 @@
   (dolist (expression order-by-clause)
     (parse-order-by-clause instance expression)))
 
-(defun previous-context (context)
-  (gethash context (previous-contexts-of (query-of context))))
-
-(defun make-context (query name &key previous-context aux recursive
-				  where order-by having select
-				  offset limit fetch)
+(defun make-context (name &key previous-context aux recursive where
+			    order-by having select offset limit fetch)
   (make-instance 'context
 		 :name name
-		 :query query
 		 :previous-context previous-context
 		 :aux-clause aux
-		 :reacursive-clause recursive
+		 :recursive-clause recursive
 		 :select-list select
 		 :where-clause where
 		 :order-by-clause order-by
 		 :having-clause having
-		 :limit limit
-		 :offset offset
-		 :fetch fetch))
+		 :limit-clause limit
+		 :offset-clause offset
+		 :fetch-clause fetch))
 
-(defun ensure-recursive-joining (query aux-clause recursive-clause)
+(defun ensure-recursive-joining (aux-clause recursive-clause)
   (when (not (null recursive-clause))
-    (make-context query "recursive_joining"
+    (make-context "recursive_joining"
 		  :aux aux-clause
 		  :recursive recursive-clause)))
 
-(defun make-selection (query previous-context select-list where-clause
+(defun make-selection (previous-context select-list where-clause
 		       order-by-clause having-clause limit offset
 		       fetch-clause recursive-clause)
   (let ((recursive-fetch
@@ -923,7 +950,7 @@
 		 (or (not (null offset))
 		     (not (null limit)))))
 	(let ((selection
-	       (make-context query "selection"
+	       (make-context "selection"
 			     :previous-context previous-context
 			     :select select-list
 			     :where where-clause
@@ -932,27 +959,35 @@
 			     :offset offset
 			     :limit limit)))
 	  (if (not (null recursive-clause))
-	      (make-context query "main" :previous-context
-			    (make-context query "fetching"
+	      (make-context "main" :previous-context
+			    (make-context "fetching"
 					  :previous-context selection
+					  :select select-list
 					  :fetch fetch-clause
 					  :recursive recursive-fetch)
 			    :select select-list
 			    :fetch fetch-clause
 			    :order-by order-by-clause)
-	      (make-context query "main"
+	      (make-context "main"
 			    :previous-context selection
 			    :select select-list
 			    :fetch fetch-clause
-			    :order-by order-by-clause))
-	  (make-context query "selection"
-			:previous-context previous-context
-			:select (append select-list fetch-clause)
-			:where where-clause
-			:order-by order-by-clause
-			:having having-clause
-			:offset offset
-			:limit limit)))))
+			    :order-by order-by-clause)))
+	(make-context "selection"
+		      :previous-context previous-context
+		      :select select-list
+		      :where where-clause
+		      :order-by order-by-clause
+		      :having having-clause
+		      :offset offset
+		      :limit limit
+		      :fetch fetch-clause))))
+
+(defun compute-clause (clause args &optional default)
+  (if (not (null clause))
+      (multiple-value-list
+       (apply clause args))
+      default))
 
 (defun make-query (class-names join &key select aux recursive where
 				      order-by having fetch limit offset)
@@ -965,16 +1000,16 @@
 			    :initial-value selectors))
 	 (aux-clause (compute-clause aux join-list))
 	 (recursive-clause (compute-clause recursive join-list))
-	 (select-list (compute-clause select join-list selectors))
+	 (select-list (or (compute-clause select join-list selectors)
+			  (remove-if #'keywordp join-list)))
 	 (where-clause (compute-clause where join-list))
 	 (order-by-clause (compute-clause order-by join-list))
 	 (having-clause (compute-clause having join-list))
 	 (fetch-clause (when (not (null fetch))
 			 (reduce #'append (multiple-value-list
 					   (apply fetch select-list)))))
-	 (query (make-instance 'query)))
-    (make-selection query (ensure-recursive-joining query aux-clause
-						    recursive-clause)
+	 (*table-index* 0))
+    (make-selection (ensure-recursive-joining aux-clause recursive-clause)
 		    select-list where-clause order-by-clause
 		    having-clause limit offset fetch-clause
 		    recursive-clause)))
