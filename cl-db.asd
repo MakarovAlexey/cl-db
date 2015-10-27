@@ -20,7 +20,8 @@
 ;;	       (:file "query-plan")
 ;;	       (:file "expressions")
 	       (:file "joining")
-	       ;;(:file "db-read")))
+	       (:file "query-sql")
+	       (:file "db-read")
 	       ))
 (asdf:defsystem #:cl-db.tests
   :serial t

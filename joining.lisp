@@ -1000,11 +1000,11 @@
 			    :initial-value selectors))
 	 (aux-clause (compute-clause aux join-list))
 	 (recursive-clause (compute-clause recursive join-list))
-	 (select-list (or (compute-clause select join-list selectors)
-			  (remove-if #'keywordp join-list)))
+	 (select-list (compute-clause select join-list
+				      (remove-if #'keywordp join-list)))
 	 (where-clause (compute-clause where join-list))
 	 (order-by-clause (compute-clause order-by join-list))
-	 (having-clause (compute-clause having join-list))
+	 (having-clause (compute-clause having select-list))
 	 (fetch-clause (when (not (null fetch))
 			 (reduce #'append (multiple-value-list
 					   (apply fetch select-list)))))
@@ -1014,16 +1014,3 @@
 		    having-clause limit offset fetch-clause
 		    recursive-clause)))
 
-(defun db-read (roots &key join aux recursive where order-by having
-			select fetch singlep offset limit transform)
-  (declare (ignore transform singlep))
-  (make-query roots join
-	      :aux aux
-	      :recursive recursive
-	      :select select
-	      :where where
-	      :order-by order-by
-	      :having having
-	      :offset offset
-	      :limit limit
-	      :fetch fetch))
