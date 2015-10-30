@@ -1,7 +1,5 @@
 (in-package :cl-db)
 
-(defvar *query-output*)
-
 (defun list-previous-contexts (context)
   (let ((previous-context
 	 (previous-context-of context)))
@@ -9,28 +7,39 @@
       (list* previous-context
 	     (list-previous-contexts context)))))
 
-(defun write-select-item (stream object colon at-sign)
+(defgeneric print-expression (stream object)
+  )
+
+(defmethod print-expression (stream object))
+ 
+(defun write-expression (stream object &optional colon at-sign)
   (declare (ignore colon at-sign))
-  (destructuring-bind (expression . alias)
-      object
-    (format stream "~a AS ~a" expression alias)))
+  (format stream "~a" object))
 
 (defun list-class-nodes (context)
-  (hash-table-alist
-   (class-nodes-of context)))
+  (mapcar #'(lambda (nodes)
+	      (let ((root (first nodes)))
+	      (list* root "---" (table-name-of (class-mapping-of root))
+		     (mapcar #'(lambda (node)
+				 (list node "---" (table-name-of (class-mapping-of node))))
+			     (rest nodes)))))
+	  (hash-table-alist
+	   (class-nodes-of context))))
 
 (defun write-sql-query (stream context)
   (format stream
 	  (concatenate 'string
-		       "SELECT ~{~W~^,~%~7T~}~%"
-		       "  FROM ~a~%"
-		       " ~@[WHERE ~a~%~]"
-		       " ~@[GROUP BY ~a~%~]"
-		       "~@[HAVING ~a~%~]"
-		       "~@[ORDER BY ~a~%~]"
-		       "~@[LIMIT ~a~%~]"
-		       "~@[OFFSET ~a~%~]")
-	  (hash-table-alist (expression-aliases-of context))
+		       "   SELECT ~{~/cl-db:write-expression/ AS ~a~^,~%~10T~}"
+		       "~%     FROM ~@[~a~%LEFT JOIN ~]~{~a~^~%LEFT JOIN ~}"
+		       " ~@[~%    WHERE ~a~]"
+		       " ~@[~%GROUP BY ~a~]"
+		       "~@[~%HAVING ~a~]"
+		       "~@[~%ORDER BY ~a~]"
+		       "~@[~%LIMIT ~a~]"
+		       "~@[~%OFFSET ~a~]")
+	  (hash-table-plist
+	   (expression-aliases-of context))
+	  (previous-context-of context)
 	  (list-class-nodes context)
 	  (where-clause-of context)
 	  (when (group-by-present-p context)
