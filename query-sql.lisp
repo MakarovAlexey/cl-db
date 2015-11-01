@@ -40,7 +40,7 @@
 	  (hash-table-plist
 	   (expression-aliases-of context))
 	  (previous-context-of context)
-	  (list-class-nodes context)
+	  (hash-table-alist (direct-inheritance-of context))
 	  (where-clause-of context)
 	  (when (group-by-present-p context)
 	    (class-node-columns-of context))

@@ -24,7 +24,6 @@
    - having - select-list
    - order-by - select-list
    - fetch - select-list
-
 ** db-read (criteria-or-list &key select-list transform fetch-also where order-by having offset limit)
     |             | root      | superclass          | subclass  |
     |-------------+-----------+---------------------+-----------|
@@ -137,7 +136,7 @@
    Отображения объектов также возвращают ссылки и свойства (как
    lambda-выражения в ассоциативном списке по эффективным определениям
    слотов).
-*** Струткура запросов
+*** Структура запросов
     Проверка структуры запросов - от сложного к простому
 **** query-with-3 - запрос с тремя CTE (похоже максимальное количество)
      - есть обе рекурсивные части (join и fetch)
@@ -151,6 +150,15 @@
      - 
 **** simple query - простой запрос без WITH
      - отсутствие рекурсивных частей
+*** Классы
+   |                   | superclass-nodes | fetched-references | subclass-nodes | foreign-key | join-references | properties |
+   |-------------------+------------------+--------------------+----------------+-------------+-----------------+------------|
+   | root-node         | x                | x                  | x              |             | x               | x          |
+   | joined-reference  | x                | x                  | x              | x           | x               | x          |
+   | subclass-node     | x                | x                  | x              | x           |                 |            |
+   | fetched-reference | x                | x                  | x              | x           |                 |            |
+   | superclass-node   | x                | x                  |                | x           | x               |            |
+    
 ** loaders
    Для загрузочников необходимо:
    - Класс объекта

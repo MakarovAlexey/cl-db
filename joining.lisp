@@ -523,16 +523,16 @@
 	    :reader context-of)
    (class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
-   (direct-extension :initform (make-hash-table)
-		     :reader direct-extension-of)
-   (direct-inheritance :initform (make-hash-table)
-		       :reader direct-inheritance-of)))
+   (subclass-nodes :initform (list)
+		   :reader subclass-nodes-of)
+   (superclass-nodes :initform (list)
+		     :reader superclass-nodes-of)))
 
-(defun get-inheritance (class-mapping class-node)
-  (gethash class-mapping (direct-inheritance-of class-node)))
+(defun get-superclass-node (class-mapping class-node)
+  (gethash class-mapping (superclass-nodes-of class-node)))
 
-(defun get-extension (class-mapping class-node)
-  (gethash class-mapping (direct-extension-of class-node)))
+(defun get-subclass-node (class-mapping class-node)
+  (gethash class-mapping (subclass-node-of class-node)))
 
 (defun get-root-class-nodes (root context)
   (gethash root (class-nodes-of context)))
@@ -543,26 +543,15 @@
   (setf (gethash class-mapping (class-nodes-of root)) instance)
   (push instance (gethash root (class-nodes-of context))))
 
-(defclass direct-inheritance ()
-  ((superclass-node :initarg :superclass-node
-		    :reader superclass-node-of)
-   (subclass-node :initarg :subclass-node
-		  :reader subclass-node-of)
+(defclass class-node-dependency ()
+  ((context :initarg :context
+	    :reader context-of)
    (foreign-key :initarg :foreign-key
 		:reader foreign-key-of)
-   (context :initarg :context
-	    :reader context-of)))
-
-(defmethod initialize-instance :after ((instance direct-inheritance)
-				       &key superclass-node
-					 subclass-node context root)
-  (setf (gethash (class-mapping-of subclass-node)
-		 (direct-extension-of superclass-node))
-	instance)
-  (setf (gethash (class-mapping-of superclass-node)
-		 (direct-inheritance-of subclass-node))
-	instance)
-  (push instance (gethash root (direct-inheritance-of context))))
+   (dependent-node :initarg :dependent-node
+		   :reader dependent-node-of)
+   (dependency-node :initarg :dependency-node
+		    :reader dependency-node-of)))
 
 (defun ensure-class-node (context root class-mapping)
   (or (find-class-node class-mapping root)
@@ -576,8 +565,8 @@
 		     :reader previous-context-of)
    (class-nodes :initform (make-hash-table) ;; class-nodes by root
 		:reader class-nodes-of)
-   (direct-inheritance :initform (make-hash-table) ;; direct-inheritance list
-		       :accessor direct-inheritance-of)
+   (class-node-dependency :initform (make-hash-table)
+			  :reader class-node-dependency-of)
    (class-node-columns :initform (make-hash-table)
 		       :reader class-node-columns-of)
    (expression-aliases :initform (make-hash-table) ;; columns and expressions by aliases
@@ -609,6 +598,9 @@
    (correlation :initarg :correlation
 		:reader correlation-of)))
 
+(defun get-dependency (dependent-node context)
+  (gethash dependent-node (class-node-dependency-of context)))
+
 (defun ensure-external-column-selection (context class-node column-name)
   (make-instance 'column
 		 :name (select-column context class-node column-name)
@@ -631,23 +623,60 @@
 			     columns))
 		:test #'string=)))))
 
-(defun ensure-direct-inheritance (context root class-node
-				  superclass-mapping)
-  (let ((class-mapping
-	 (get-class-mapping
-	  (reference-class-of superclass-mapping))))
-    (or
-     (get-inheritance class-mapping class-node)
-     (make-instance 'direct-inheritance
-		    :superclass-node (ensure-class-node context root class-mapping)
-		    :foreign-key (mapcar #'(lambda (column-name)
-					     (ensure-column context
-							    class-node
-							    column-name))
-					 (foreign-key-of superclass-mapping))
-		    :subclass-node class-node
-		    :context context
-		    :root root))))
+(defun ensure-dependency (context dependent-node dependency-node foreign-key)
+  (let ((class-node-dependencies
+	 (class-node-dependencies-of context)))
+    (multiple-value-bind (dependency presentp)
+	(gethash dependent-node class-node-dependencies)
+      (if (not presentp)
+	  (setf (gethash dependent-node class-node-dependencies)
+		(make-instance 'class-node-dependency
+			       :dependent-node dependent-node
+			       :dependency-node class-node
+			       :foreign-key foreign-key
+			       :context context))
+	  instance))))
+
+(defun ensure-foreign-key (context class-node reference-mapping)
+  (mapcar #'(lambda (column-name)
+	      (ensure-column context class-node column-name))
+	  (foreign-key-of reference-mapping)))
+
+(defun ensure-superclass-dependency (context root class-node superclass-mapping)
+  (ensure-dependency context
+		     (ensure-class-node context root
+					(get-class-mapping
+					 (reference-class-of superclass-mapping)))
+		     class-node
+		     (ensure-foreign-key context class-node
+					 superclass-mapping)))
+
+(defun ensure-subclass-dependency (context root class-node subclass-mapping)
+  (let ((subclass-node
+	 (ensure-class-node context root
+			    (get-class-mapping
+			     (reference-class-of subclass-mapping)))))
+    (ensure-dependency context subclass-node class-node
+		       (ensure-foreign-key context subclass-node
+					   subclass-mapping))))
+
+(defun ensure-many-to-one-dependency (context root class-node many-to-one-mapping)
+  (ensure-dependency context
+		     (ensure-class-node context root
+					(get-class-mapping
+					 (reference-class-of many-to-one-mapping)))
+		     class-node
+		     (ensure-foreign-key context class-node
+					 many-to-one-mapping)))
+
+(defun ensure-one-to-many-dependency (context root class-node one-to-many-mapping)
+  (let ((one-to-many-node
+	 (ensure-class-node context root
+			    (get-class-mapping
+			     (reference-class-of one-to-many-mapping)))))
+    (ensure-dependency context one-to-many-node class-node
+		       (ensure-foreign-key context one-to-many-node
+					   one-to-many-mapping))))
 
 (defun ensure-alias (expression context)
   (ensure-gethash expression (expression-aliases-of context)
@@ -657,20 +686,19 @@
   (ensure-alias
    (ensure-column context class-node column-name) context))
 
-(defun select-class-node (class-node context)
+(defun select-class-node-columns (class-node context)
   (dolist (column-name (columns-of (class-mapping-of class-node)))
     (select-column context class-node column-name)))
 
-(defun select-all-inheritance-class-nodes (context root class-node)
+(defun select-all-superclass-nodes (context root class-node)
+  (select-class-node-columns class-node context)
   (let ((class-mapping (class-mapping-of class-node)))
     (dolist (superclass-mapping (superclass-mappings-of class-mapping))
-      (select-all-inheritance-class-nodes context root
-					  (superclass-node-of
-					   (ensure-direct-inheritance context
-								      root
-								      class-node
-								      superclass-mapping))))
-    (select-class-node class-node context)))
+      (let ((superclass-node
+	     (superclass-node-of
+	      (ensure-superclass-dependency context root class-node
+					    superclass-mapping))))
+	(select-all-superclass-nodes context root superclass-node)))))
 
 (defgeneric find-class-node (class-mapping root))
 
@@ -683,35 +711,39 @@
   (get-class-node root class-mapping))
 
 (defun select-subclass-inheritance-class-nodes (class-node context root)
-  (select-class-node class-node context)
+  (select-class-node-columns class-node context)
   (dolist (superclass-mapping
 	    (superclass-mappings-of (class-mapping-of class-node)))
     (let ((superclass-node
-	   (superclass-node-of
-	    (ensure-direct-inheritance context root class-node
-				       superclass-mapping))))
+	   (dependent-node-of
+	    (ensure-superclass-dependency context root class-node
+					  superclass-mapping))))
       (select-subclass-inheritance-class-nodes superclass-node
 					       context root))))
-  
-(defun select-class (context root)
-  (select-all-inheritance-class-nodes context
-				      root
-				      (ensure-class-node context root
-							 (class-mapping-of root)))
+
+(defun select-all-subclass-nodes (context root class-node) ;; переделать
   (dolist (subclass-root (list-subclass-roots root))
-    (ensure-class-node context subclass-root
-		       (class-mapping-of subclass-root)))
+    (ensure-subclass-dependency context	subclass-root class-node (su
+				(ensure-class-node context subclass-root
+						   (class-mapping-of subclass-root))
+				     subclass-root))
   (dolist (subclass-root (list-subclass-roots root))
     (select-subclass-inheritance-class-nodes
      (ensure-class-node context subclass-root
 			(class-mapping-of subclass-root))
      context subclass-root)))
+  
+(defun select-class (context root)
+  (let ((class-node
+	 (ensure-class-node context root (class-mapping-of root))))
+    (select-all-superclass-nodes context root class-node)
+    (select-all-subclass-class-nodes context root class-node)))
 
 (defun ensure-path-class-nodes (context root class-mapping path)
   (reduce #'(lambda (class-node superclass-mapping)
-	      (superclass-node-of
-	       (ensure-direct-inheritance context root class-node
-					  superclass-mapping)))
+	      (dependent-node-of
+	       (ensure-superclass-dependency context root class-node
+					     superclass-mapping)))
 	  path
 	  :from-end t
 	  :initial-value (ensure-class-node context root class-mapping)))
@@ -730,8 +762,8 @@
 
 (defun ensure-slot-path (context mapped-slot)
   (ensure-path-class-nodes context (root-of mapped-slot)
-			   (class-mapping-of mapped-slot)
-			   (path-of mapped-slot)))
+			   (class-mapping-of mapped-slot) ;; class-mapping of root
+t			   (path-of mapped-slot)))
 
 (defun select-property (context property-slot)
   (select-column context (ensure-slot-path context property-slot)
