@@ -26,6 +26,28 @@
 	  (hash-table-alist
 	   (class-nodes-of context))))
 
+(defgeneric append-class-node (class-node &optional class-nodes))
+
+(defmethod append-class-node ((class-node root-node) &optional class-nodes)
+  (when (not (find class-node class-nodes))
+    (list* root-node class-nodes)))
+
+(defmethod append-class-node ((class-node superclass-node) &optional class-nodes)
+  (append-class-node
+   (subclass-node-of class-node)
+   (list* class-node (remove class-node class-nodes))))
+
+(defmethod append-class-node ((class-node subclass-node) &optional class-nodes)
+  ())
+
+(defmethod append-class-node ((class-node reference-node) &optional class-nodes)
+  ())
+
+(defun list-class-nodes (context)
+  (reduce #'append-class-node
+	  (hash-table-values
+	   (class-nodes-of context)) :from-end t))
+
 (defun write-sql-query (stream context)
   (format stream
 	  (concatenate 'string
@@ -40,7 +62,7 @@
 	  (hash-table-plist
 	   (expression-aliases-of context))
 	  (previous-context-of context)
-	  (hash-table-alist (direct-inheritance-of context))
+	  (list-class-nodes context)
 	  (where-clause-of context)
 	  (when (group-by-present-p context)
 	    (class-node-columns-of context))
