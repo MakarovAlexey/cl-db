@@ -537,11 +537,11 @@
 	     :where #'(lambda (pp &key user)
 			(declare (ignore pp))
 			(restrict (property user #'name-of) :equal "Макаров"))
-	     :recursive #'(lambda (pp &key user)
-			    (declare (ignore pp))
-			    (restrict (property
-				       (recursive user) #'id-of)
-				      :equal (property user #'id-of)))
+;;	     :recursive #'(lambda (pp &key user)
+;;			    (declare (ignore pp))
+;;			    (restrict (property
+;;				       (recursive user) #'id-of)
+;;				      :equal (property user #'id-of)))
 	     :fetch #'(lambda (pp)
 			(fetch pp #'project-of :recursive pp)))))
 
@@ -550,11 +550,13 @@
 	 (make-instance 'clos-session
 			:mapping-schema (trees)
 			:connection (make-instance 'test-connection))))
-    (db-read 'tree-leaf
-	     :where #'(lambda (tree-node)
+    (db-read '(tree-leaf tree-leaf)
+	     :where #'(lambda (tree-node tree-leaf)
+			(declare (ignore tree-leaf))
 			(restrict
 			 (property tree-node #'name-of) :equal 1))
-	     :fetch #'(lambda (tree-node)
+	     :fetch #'(lambda (tree-node tree-leaf)
+			(declare (ignore tree-leaf))
 			(values
 			 (fetch tree-node #'left-node-of
 				:subclass-name 'left-child-node

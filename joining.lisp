@@ -549,6 +549,8 @@
 	 :reader root-of)
    (context :initarg :context
 	    :reader context-of)
+   (table-alias :initarg :table-alias
+		:reader table-alias-of)
    (class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
    (superclass-nodes :initform (make-hash-table)
@@ -565,6 +567,20 @@
 (defun get-root-class-nodes (root context)
   (gethash root (class-nodes-of context)))
 
+(defgeneric get-query-root (root))
+
+(defmethod get-query-root ((query-root query-root))
+  query-root)
+
+(defmethod get-query-root ((subclass-root subclass-root))
+  (get-query-root (query-root-of subclass-root)))
+
+(defmethod get-query-root ((fetched-reference fetched-reference))
+  (get-query-root (root-of (reference-slot-of fetched-reference))))
+
+(defmethod get-query-root ((joined-reference joined-reference))
+  (get-query-root (root-of (reference-slot-of joined-reference))))
+
 (defmethod initialize-instance :after ((instance class-node)
 				       &key context root class-mapping
 					 &allow-other-keys)
@@ -574,7 +590,10 @@
 	(setf (gethash class-mapping (class-nodes-of root)) instance)
 	(error "Class node for class mapping ~a for root ~a already present"
 	       class-node root)))
-  (push instance (gethash root (class-nodes-of context))))
+  (push instance (gethash (get-query-root root)
+			  (class-nodes-of context)))
+  (setf (slot-value instance 'table-alias)
+	(make-alias (table-name-of class-mapping))))
 
 (defclass superclass-node (class-node)
   ((foreign-key :initarg :foreign-key
@@ -618,11 +637,14 @@
 		foreign-key
 		(primary-key-of class-mapping))))
 
-(defclass many-to-one-node (root-node)
+(defclass reference-node (root-node)
   ((foreign-key :initarg :foreign-key
 		:reader foreign-key-of)
    (class-node :initarg :class-node
 	       :reader clas-node-of)))
+
+(defclass many-to-one-node (reference-node)
+  ())
 
 (defmethod initialize-instance :after ((instance many-to-one-node)
 				       &key class-node foreign-key
@@ -636,11 +658,8 @@
 		foreign-key
 		(primary-key-of class-mapping))))
 
-(defclass one-to-many-node (root-node)
-  ((foreign-key :initarg :foreign-key
-		:reader foreign-key-of)
-   (class-node :initarg :class-node
-	       :reader clas-node-of)))
+(defclass one-to-many-node (reference-node)
+  ())
 
 (defmethod initialize-instance :after ((instance one-to-many-node)
 				       &key class-node foreign-key
@@ -698,18 +717,15 @@
 				       :context context
 				       :root root)))))
 
-(defun ensure-subclass-node (context subclass-root superclass-node subclass-mapping)
-  (let ((class-mapping
-	 (get-class-mapping
-	  (class-name-of subclass-mapping))))
-    (or (find-class-node class-mapping subclass-root)
-	(ensure-gethash class-mapping (subclass-nodes-of superclass-node)
-			(make-instance 'subclass-node
-				       :root subclass-root
-				       :foreign-key (foreign-key-of subclass-mapping)
-				       :superclass-node superclass-node
-				       :class-mapping class-mapping
-				       :context context)))))
+(defun ensure-subclass-node (context subclass-root superclass-node class-mapping)
+  (or (find-class-node class-mapping subclass-root)
+      (ensure-gethash class-mapping (subclass-nodes-of superclass-node)
+		      (make-instance 'subclass-node
+				     :root subclass-root
+				     :foreign-key (foreign-key-of subclass-root)
+				     :superclass-node superclass-node
+				     :class-mapping class-mapping
+				     :context context))))
 
 (defgeneric ensure-root-node (context root))
 
