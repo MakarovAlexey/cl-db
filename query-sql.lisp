@@ -64,6 +64,21 @@
    (table-alias-of (correlation-of column))
    (name-of column)))
 
+(defgeneric list-select-item-expression (expression))
+
+(defmethod list-select-item-expression ((expression column))
+  (list-column expression))
+
+(defun list-select-item (select-item)
+  (destructuring-bind (expression . alias)
+      select-item
+    (list (list-select-item-expression expression) alias)))
+
+(defun list-select-items (context)
+  (mapcar #'list-select-item
+	  (hash-table-alist
+	   (expression-aliases-of context))))
+
 (defun list-column-pair (column-pair)
   (list (list-column
 	 (first column-pair))
@@ -104,10 +119,12 @@
 	  (reverse (hash-table-alist
 		    (class-nodes-of context)))))
 
+;; топологическая сортировка с учетом прошлого контекста
+
 (defun write-sql-query (stream context)
   (format stream
 	  (concatenate 'string
-		       "    SELECT ~{~/cl-db:write-expression/ AS ~a~^,~%~11T~}"
+		       "~4TSELECT ~{~{~a AS ~a~}~^,~%~11T~}"
 		       "~%~6TFROM ~@[~a~%~]~{~{~{~{~a ~}~^~%~8TON ~{~{~{~a.~a~} = ~{~a.~a~}~}~^~%AND ~}~}~^~%~1T~} ~^~%CROSS JOIN ~}"
 		       " ~@[~%~5TWHERE ~a~]"
 		       " ~@[~%GROUP BY ~a~]"
@@ -115,8 +132,7 @@
 		       "~@[~%ORDER BY ~a~]"
 		       "~@[~%LIMIT ~a~]"
 		       "~@[~%OFFSET ~a~]")
-	  (hash-table-plist
-	   (expression-aliases-of context))
+	  (list-select-items context)
 	  (previous-context-of context)
 	  (list-from-clause context)
 	  (where-clause-of context)
