@@ -551,10 +551,10 @@
 			:mapping-schema (trees)
 			:connection (make-instance 'test-connection))))
     (db-read '(tree-leaf tree-leaf)
-	     :where #'(lambda (tree-node tree-leaf)
-			(declare (ignore tree-leaf))
-			(restrict
-			 (property tree-node #'name-of) :equal 1))
+	     :aux #'(lambda (tree-node tree-leaf)
+		      (declare (ignore tree-leaf))
+		      (restrict
+		       (property tree-node #'name-of) :equal "root"))
 	     :fetch #'(lambda (tree-node tree-leaf)
 			(declare (ignore tree-leaf))
 			(values

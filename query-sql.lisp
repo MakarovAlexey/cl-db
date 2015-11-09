@@ -7,21 +7,6 @@
       (list* previous-context
 	     (list-previous-contexts context)))))
 
-(defgeneric print-expression (stream object)
-  )
-
-(defmethod print-expression (stream object))
- 
-(defun write-expression (stream object &optional colon at-sign)
-  (declare (ignore colon at-sign))
-  (format stream "~a" object))
-
-(defgeneric compute-from-clause-expression (class-node))
-
-(defmethod compute-from-clause-expression (class-node)
-  (list (table-name-of (class-mapping-of class-node))
-	:as (table-alias-of class-node)))
-
 ;;(defun list-class-nodes (context)
 ;;   (reduce #'(lambda (from-clause class-nodes)
 ;;	       (append (mapcar #'compute-from-clause-expression class-nodes)
@@ -30,15 +15,15 @@
 ;;	    (class-nodes-of context))
 ;;	   :key #'rest :initial-value nil))
 
-(defun list-class-nodes (context)
-  (mapcar #'(lambda (nodes)
-	      (let ((root (first nodes)))
-	      (list* root "---" (table-name-of (class-mapping-of root))
-		     (mapcar #'(lambda (node)
-				 (list node "---" (table-name-of (class-mapping-of node))))
-			     (rest nodes)))))
-	  (hash-table-alist
-	   (class-nodes-of context))))
+;;(defun list-class-nodes (context)
+;;  (mapcar #'(lambda (nodes)
+;;	      (let ((root (first nodes)))
+;;	      (list* root "---" (table-name-of (class-mapping-of root))
+;;		     (mapcar #'(lambda (node)
+;;				 (list node "---" (table-name-of (class-mapping-of node))))
+;;			     (rest nodes)))))
+;;	  (hash-table-alist
+;;	   (class-nodes-of context))))
 
 ;;(defgeneric append-class-node (class-node &optional from-clause))
 
@@ -60,9 +45,10 @@
 ;;  ())
 
 (defun list-column (column)
-  (list
-   (table-alias-of (correlation-of column))
-   (name-of column)))
+  (list "~a.~a"
+	(list
+	 (table-alias-of (correlation-of column))
+	 (name-of column))))
 
 (defgeneric list-select-item-expression (expression))
 
@@ -80,10 +66,12 @@
 	   (expression-aliases-of context))))
 
 (defun list-column-pair (column-pair)
-  (list (list-column
-	 (first column-pair))
-	(list-column
-	 (second column-pair))))
+  (list "~<~? = ~?~>"
+	(append
+	 (list-column
+	  (first column-pair))
+	 (list-column
+	  (second column-pair)))))
 
 (defun list-foreign-key (class-node)
   (mapcar #'list-column-pair (foreign-key-of class-node)))
@@ -91,41 +79,57 @@
 (defgeneric list-class-node (class-node))
 
 (defmethod list-class-node ((class-node root-node))
-  (list (list (table-name-of (class-mapping-of class-node))
-	      :as (table-alias-of class-node))))
+  (list "~8T~a AS ~a"
+	(list (table-name-of (class-mapping-of class-node))
+	      (table-alias-of class-node))))
 
 (defmethod list-class-node ((class-node reference-node))
-  (list (list :left :join (table-name-of (class-mapping-of class-node))
-	      :as (table-alias-of class-node))
-	(list-foreign-key class-node)))
+  (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
+	(list (table-name-of (class-mapping-of class-node))
+	      (table-alias-of class-node)
+	      (list-foreign-key class-node))))
 
 (defmethod list-class-node ((class-node subclass-node))
-  (list (list :left :join (table-name-of (class-mapping-of class-node))
-	      :as (table-alias-of class-node))
-	(list-foreign-key class-node)))
+  (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
+	(list (table-name-of (class-mapping-of class-node))
+	      (table-alias-of class-node)
+	      (list-foreign-key class-node))))
 
 (defmethod list-class-node ((class-node superclass-node))
-  (list (list :left :join (table-name-of (class-mapping-of class-node))
-	      :as (table-alias-of class-node))
-	(list-foreign-key class-node)))
+  (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
+	(list (table-name-of (class-mapping-of class-node))
+	      (table-alias-of class-node)
+	      (list-foreign-key class-node))))
 
 (defun list-class-nodes (root-list)
   (reverse
    (mapcar #'list-class-node
 	   (rest root-list))))
 
+(defun get-root-node (root)
+  (gethash (class-mapping-of root) (class-nodes-of root)))
+
 (defun list-from-clause (context)
-  (mapcar #'list-class-nodes
-	  (reverse (hash-table-alist
-		    (class-nodes-of context)))))
+  (let ((from-clause (make-hash-table)))
+    (dolist (node-list (hash-table-alist (class-nodes-of context)))
+      (let ((root (first node-list))
+	    (class-nodes (rest node-list)))
+	(if (eq (context-of (get-root-node root)) context)
+	    (setf (gethash root from-clause)
+		  class-nodes)
+	    (setf (gethash (previous-context-of context) from-clause)
+		  (append (gethash (previous-context-of context) from-clause)
+			  class-nodes)))))
+    (mapcar #'list-class-nodes
+	    (reverse (hash-table-alist from-clause)))))
 
 ;; топологическая сортировка с учетом прошлого контекста
 
 (defun write-sql-query (stream context)
   (format stream
 	  (concatenate 'string
-		       "~4TSELECT ~{~{~a AS ~a~}~^,~%~11T~}"
-		       "~%~6TFROM ~@[~a~%~]~{~{~{~{~a ~}~^~%~8TON ~{~{~{~a.~a~} = ~{~a.~a~}~}~^~%AND ~}~}~^~%~1T~} ~^~%CROSS JOIN ~}"
+		       "~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
+		       "~%~6TFROM~{~{~{~?~}~^~%~} ~^~%CROSS JOIN ~}"
 		       " ~@[~%~5TWHERE ~a~]"
 		       " ~@[~%GROUP BY ~a~]"
 		       "~@[~%HAVING ~a~]"
@@ -133,7 +137,6 @@
 		       "~@[~%LIMIT ~a~]"
 		       "~@[~%OFFSET ~a~]")
 	  (list-select-items context)
-	  (previous-context-of context)
 	  (list-from-clause context)
 	  (where-clause-of context)
 	  (when (group-by-present-p context)

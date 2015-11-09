@@ -81,8 +81,7 @@
 			    :initial-value selectors))
 	 (aux-clause (compute-clause aux join-list))
 	 (recursive-clause (compute-clause recursive join-list))
-	 (select-list (compute-clause select join-list
-				      (remove-if #'keywordp join-list)))
+	 (select-list (compute-clause select join-list selectors))
 	 (where-clause (compute-clause where join-list))
 	 (order-by-clause (compute-clause order-by join-list))
 	 (having-clause (compute-clause having select-list))
