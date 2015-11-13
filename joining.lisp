@@ -703,6 +703,9 @@
    (offset-clause :initarg :offset-clause
 		  :reader offset-clause-of)))
 
+(defun get-node-column (context class-node column-name)
+  (rest (assoc column-name (gethash class-node (class-node-columns-of context)))))
+
 (defun ensure-superclass-node (context subclass-node superclass-mapping)
   (let ((class-mapping
 	 (get-class-mapping

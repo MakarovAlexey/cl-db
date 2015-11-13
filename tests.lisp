@@ -20,6 +20,12 @@
   (declare (ignore connection))
   (format t "CONNECTION CLOSED~%"))
 
+(defmethod execute-query ((connection cl-postgres:database-connection) sql-string)
+  (cl-postgres:exec-query connection sql-string))
+
+(defmethod close-connection ((connection cl-postgres:database-connection))
+  (cl-postgres:close-database connection))
+
 ;;(define-database-interface postgresql-postmodern
 ;;  (:open-connection #'cl-postgres:open-database)
 ;;  (:close-connection #'cl-postgres:close-database)
@@ -551,7 +557,7 @@
 			:mapping-schema (trees)
 			:connection (make-instance 'test-connection))))
     (db-read '(tree-leaf tree-leaf)
-	     :aux #'(lambda (tree-node tree-leaf)
+	     :where #'(lambda (tree-node tree-leaf)
 		      (declare (ignore tree-leaf))
 		      (restrict
 		       (property tree-node #'name-of) :equal "root"))
@@ -565,3 +571,21 @@
 				:subclass-name 'right-child-node
 				:recursive tree-node))))))
 
+(defun select-tree-postgres ()
+  (with-session (trees (cl-postgres:open-database "bem" "admin"
+						  "thereisnocowlevel"
+						  "192.168.0.5"))
+    (db-read '(tree-leaf tree-leaf)
+	     :where #'(lambda (tree-node tree-leaf)
+		      (declare (ignore tree-leaf))
+		      (restrict
+		       (property tree-node #'name-of) :equal "root"))
+	     :fetch #'(lambda (tree-node tree-leaf)
+			(declare (ignore tree-leaf))
+			(values
+			 (fetch tree-node #'left-node-of
+				:subclass-name 'left-child-node
+				:recursive tree-node)
+			 (fetch tree-node #'right-node-of
+				:subclass-name 'right-child-node
+				:recursive tree-node))))))

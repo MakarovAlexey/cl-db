@@ -79,7 +79,7 @@
 (defgeneric list-class-node (class-node))
 
 (defmethod list-class-node ((class-node root-node))
-  (list "~8T~a AS ~a"
+  (list "~a AS ~a"
 	(list (table-name-of (class-mapping-of class-node))
 	      (table-alias-of class-node))))
 
@@ -123,14 +123,60 @@
     (mapcar #'list-class-nodes
 	    (reverse (hash-table-alist from-clause)))))
 
+(defun list-list (list context)
+  (mapcar #'(lambda (expression)
+	      (list-expression expression context))
+	  list))
+
+(defun get-path-node (root path)
+  (reduce #'(lambda (class-node superclass-mapping)
+	      (get-path-node class-node superclass-mapping))
+	  path
+	  :from-end t
+	  :initial-value (get-root-node root)))
+
+(defgeneric list-expression (expression context))
+
+(defmethod list-expression ((expression conjunction) context)
+  (list "~{~{~?~}~^ AND ~}" (list (list-list
+				   (arguments-of expression) context))))
+
+(defmethod list-expression ((expression equality) context)
+  (list "~? = ~?"
+	(append
+	 (list-expression (lhs-expression-of expression) context)
+	 (list-expression (rhs-expression-of expression) context))))
+
+(defmethod list-expression ((property-slot property-slot) context)
+  (list-column
+   (get-node-column context
+		    (get-path-node
+		     (root-of property-slot)
+		     (path-of property-slot))
+		    (column-of
+		     (property-mapping-of property-slot)))))
+
+(defmethod list-expression ((simple-value string) context)
+  (declare (ignore context))
+  (list "'~a'" (list simple-value)))
+
+(defmethod list-expression ((simple-value number) context)
+  (declare (ignore context))
+  (list "~a" (list simple-value)))
+
+(defun list-where-clause (context)
+  (list "~{~{~?~}~^ AND ~}" (list
+			     (list-list
+			      (where-clause-of context) context))))
+
 ;; топологическая сортировка с учетом прошлого контекста
 
 (defun write-sql-query (stream context)
   (format stream
 	  (concatenate 'string
 		       "~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
-		       "~%~6TFROM~{~{~{~?~}~^~%~} ~^~%CROSS JOIN ~}"
-		       " ~@[~%~5TWHERE ~a~]"
+		       "~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
+		       " ~@[~%~5TWHERE ~{~?~}~]"
 		       " ~@[~%GROUP BY ~a~]"
 		       "~@[~%HAVING ~a~]"
 		       "~@[~%ORDER BY ~a~]"
@@ -138,7 +184,7 @@
 		       "~@[~%OFFSET ~a~]")
 	  (list-select-items context)
 	  (list-from-clause context)
-	  (where-clause-of context)
+	  (list-where-clause context)
 	  (when (group-by-present-p context)
 	    (class-node-columns-of context))
 	  (having-clause-of context)

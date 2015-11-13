@@ -97,14 +97,15 @@
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform)
   (declare (ignore transform singlep))
-  (compile-sql-query
-   (make-query roots join
-	       :aux aux
-	       :recursive recursive
-	       :select select
-	       :where where
-	       :order-by order-by
-	       :having having
-	       :offset offset
-	       :limit limit
-	       :fetch fetch)))
+  (execute-query (connection-of *session*)
+		 (compile-sql-query
+		  (make-query roots join
+			      :aux aux
+			      :recursive recursive
+			      :select select
+			      :where where
+			      :order-by order-by
+			      :having having
+			      :offset offset
+			      :limit limit
+			      :fetch fetch))))
