@@ -27,6 +27,7 @@
   (let ((recursive-fetch
 	 (remove-if #'null fetch-clause :key #'recursive-node-of)))
     (if (or (not (null recursive-clause))
+	    (not (null recursive-fetch))
 	    (and (not (null fetch-clause))
 		 (or (not (null offset))
 		     (not (null limit)))))
@@ -39,7 +40,7 @@
 			     :having having-clause
 			     :offset offset
 			     :limit limit)))
-	  (if (not (null recursive-clause))
+	  (if (not (null recursive-fetch))
 	      (make-context "main" :previous-context
 			    (make-context "fetching"
 					  :previous-context selection
@@ -93,19 +94,19 @@
 		    select-list where-clause order-by-clause
 		    having-clause limit offset fetch-clause
 		    recursive-clause)))
-
+		
 (defun db-read (roots &key join aux recursive where order-by having
 			select fetch singlep offset limit transform)
   (declare (ignore transform singlep))
-  (execute-query (connection-of *session*)
-		 (compile-sql-query
-		  (make-query roots join
-			      :aux aux
-			      :recursive recursive
-			      :select select
-			      :where where
-			      :order-by order-by
-			      :having having
-			      :offset offset
-			      :limit limit
-			      :fetch fetch))))
+  (let ((context (make-query roots join
+			     :aux aux
+			     :recursive recursive
+			     :select select
+			     :where where
+			     :order-by order-by
+			     :having having
+			     :offset offset
+			     :limit limit
+			     :fetch fetch)))
+    (execute-query (connection-of *session*)
+		   (compile-sql-query context))))

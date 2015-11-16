@@ -2100,4 +2100,5 @@ WITH RECURSIVE parent (pid, id, node_value, left_node_id, right_node_id) AS (
 				       (or (not (null limit))
 					   (not (null offset))))
 		 :recursive-fetching (not (null recursive-fetch-references))))))
-	     
+
+(defun load-all (rows  context select-list session)

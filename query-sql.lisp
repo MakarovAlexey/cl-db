@@ -5,7 +5,7 @@
 	 (previous-context-of context)))
     (when (not (null previous-context))
       (list* previous-context
-	     (list-previous-contexts context)))))
+	     (list-previous-contexts previous-context)))))
 
 ;;(defun list-class-nodes (context)
 ;;   (reduce #'(lambda (from-clause class-nodes)
@@ -47,7 +47,7 @@
 (defun list-column (column)
   (list "~a.~a"
 	(list
-	 (table-alias-of (correlation-of column))
+	 (alias-of (correlation-of column))
 	 (name-of column))))
 
 (defgeneric list-select-item-expression (expression))
@@ -81,45 +81,53 @@
 (defmethod list-class-node ((class-node root-node))
   (list "~a AS ~a"
 	(list (table-name-of (class-mapping-of class-node))
-	      (table-alias-of class-node))))
+	      (alias-of class-node))))
+
+(defmethod list-class-node ((context context))
+  (list "~a AS ~a"
+	(list (alias-of context)
+	      (alias-of context))))
 
 (defmethod list-class-node ((class-node reference-node))
   (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
 	(list (table-name-of (class-mapping-of class-node))
-	      (table-alias-of class-node)
+	      (alias-of class-node)
 	      (list-foreign-key class-node))))
 
 (defmethod list-class-node ((class-node subclass-node))
   (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
 	(list (table-name-of (class-mapping-of class-node))
-	      (table-alias-of class-node)
+	      (alias-of class-node)
 	      (list-foreign-key class-node))))
 
 (defmethod list-class-node ((class-node superclass-node))
   (list "~1TLEFT JOIN ~a AS ~a~%~7T ON ~{~{~?~}~^~%~7TAND ~}"
 	(list (table-name-of (class-mapping-of class-node))
-	      (table-alias-of class-node)
+	      (alias-of class-node)
 	      (list-foreign-key class-node))))
 
 (defun list-class-nodes (root-list)
-  (reverse
-   (mapcar #'list-class-node
-	   (rest root-list))))
+  (list* (list-class-node (first root-list))
+	 (reverse
+	  (mapcar #'list-class-node (rest root-list)))))
 
 (defun get-root-node (root)
   (gethash (class-mapping-of root) (class-nodes-of root)))
 
 (defun list-from-clause (context)
-  (let ((from-clause (make-hash-table)))
+  (let ((from-clause (make-hash-table))
+	(previous-context (previous-context-of context)))
     (dolist (node-list (hash-table-alist (class-nodes-of context)))
-      (let ((root (first node-list))
+      (let ((root-node (get-root-node (first node-list)))
 	    (class-nodes (rest node-list)))
-	(if (eq (context-of (get-root-node root)) context)
-	    (setf (gethash root from-clause)
-		  class-nodes)
-	    (setf (gethash (previous-context-of context) from-clause)
-		  (append (gethash (previous-context-of context) from-clause)
+	(if (eq (context-of root-node) context)
+	    (setf (gethash root-node from-clause)
+		  (remove root-node class-nodes))
+	    (setf (gethash previous-context from-clause)
+		  (append (gethash previous-context from-clause)
 			  class-nodes)))))
+    (when (not (null previous-context))
+      (ensure-gethash previous-context from-clause nil))
     (mapcar #'list-class-nodes
 	    (reverse (hash-table-alist from-clause)))))
 
@@ -171,39 +179,66 @@
 
 ;; топологическая сортировка с учетом прошлого контекста
 
-(defun write-sql-query (stream context)
-  (format stream
-	  (concatenate 'string
-		       "~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
-		       "~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
-		       " ~@[~%~5TWHERE ~{~?~}~]"
-		       " ~@[~%GROUP BY ~a~]"
-		       "~@[~%HAVING ~a~]"
-		       "~@[~%ORDER BY ~a~]"
-		       "~@[~%LIMIT ~a~]"
-		       "~@[~%OFFSET ~a~]")
-	  (list-select-items context)
-	  (list-from-clause context)
-	  (list-where-clause context)
-	  (when (group-by-present-p context)
-	    (class-node-columns-of context))
-	  (having-clause-of context)
-	  (order-by-clause-of context)
-	  (limit-clause-of context)
-	  (offset-clause-of context)))
+(defun list-sql-query (context)
+  (list (concatenate 'string
+		     "~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
+		     "~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
+		     " ~@[~%~5TWHERE ~{~?~}~]"
+		     " ~@[~%GROUP BY ~a~]"
+		     "~@[~%HAVING ~a~]"
+		     "~@[~%ORDER BY ~a~]"
+		     "~@[~%LIMIT ~a~]"
+		     "~@[~%OFFSET ~a~]")
+	(list
+	 (list-select-items context)
+	 (list-from-clause context)
+	 (when (not (null (where-clause-of context)))
+	   (list-where-clause context))
+	 (when (group-by-present-p context)
+	   (class-node-columns-of context))
+	 (having-clause-of context)
+	 (order-by-clause-of context)
+	 (limit-clause-of context)
+	 (offset-clause-of context))))
 
-(defun write-auxiliary-statements (stream contexts)
-  (format stream "~@[WITH ~{~a~^,~%~}~]" contexts))
+(defun recursivep (context)
+  (not (null (recursive-clause-of context))))
 
-(defun write-query (stream context)
-  (let ((previous-contexts (list-previous-contexts context)))
-    (when (not (null previous-contexts))
-      (write-auxiliary-statements stream previous-contexts))
-    (write-sql-query stream context)))
+(defun list-recursive-part (context)
+  (list
+   (concatenate 'string
+		"~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
+		"~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
+		" ~@[~%~5TWHERE ~{~?~}~]")
+   
+
+(defun list-auxiliary-statement (context)
+  (if (recursivep context)
+      (list "~a (~<~{~a~^, ~}~@:>) AS (~%~?~%~6T)~%UNION ALL~%~?"
+	    (list* (alias-of context)
+		   (list
+		    (mapcar #'rest (hash-table-alist
+				    (expression-aliases-of context))))
+		   (list-sql-query context)
+		   (list-recursive-part context)))
+      (list "~a AS (~%~?~%~6T)"
+	    (list* (alias-of context)
+		   (list-sql-query context)))))
+
+(defun list-query (context)
+  (let ((previous-contexts (reverse (list-previous-contexts context))))
+    (list
+     (if (some #'recursivep previous-contexts)
+	 "~@[~6TWITH RECURSIVE ~{~{~?~}~^, ~}~]~%~?"
+	 "~@[~6TWITH ~{~{~?~}~^, ~}~]~%~?")
+     (list*
+      (when (not (null previous-contexts))
+	(mapcar #'list-auxiliary-statement previous-contexts))
+      (list-sql-query context)))))
 
 (defun compile-sql-query (context)
   (with-open-stream (query-stream (make-string-output-stream))
-    (write-query query-stream context)
+    (format query-stream "~%~{~?~}" (list-query context))
     (get-output-stream-string query-stream)))
 
     

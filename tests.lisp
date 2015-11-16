@@ -21,7 +21,11 @@
   (format t "CONNECTION CLOSED~%"))
 
 (defmethod execute-query ((connection cl-postgres:database-connection) sql-string)
-  (cl-postgres:exec-query connection sql-string))
+  (cl-postgres:exec-query connection sql-string 'cl-postgres:alist-row-reader))
+
+(defmethod execute-query :after ((connection cl-postgres:database-connection) sql-string)
+  (declare (ignore connection))
+  (format t "~a~%" sql-string))
 
 (defmethod close-connection ((connection cl-postgres:database-connection))
   (cl-postgres:close-database connection))
@@ -149,19 +153,19 @@
 
 (define-schema trees ()
   (tree-leaf
-   (("tree_leaf" "id"))
+   (("tree_nodes" "id"))
    (id (:property "id" "uuid"))
-   (name (:property "name" "varchar")))
+   (name (:property "node_value" "varchar")))
   (right-child-node
-   (("right_node" "id")
+   (("right_nodes" "id")
     (tree-leaf "id"))
-   (right-node (:many-to-one tree-leaf "right_node_id")))
+   (right-node (:many-to-one tree-leaf "tree_node_id")))
   (left-child-node
-   (("left_node" "id")
+   (("left_nodes" "id")
     (tree-leaf "id"))
-   (left-node (:many-to-one tree-leaf "left_node_id")))
+   (left-node (:many-to-one tree-leaf "tree_node_id")))
   (full-node
-   (("full_node" "id")
+   (("full_nodes" "id")
     (left-child-node "id")
     (right-child-node "id"))))
 
@@ -572,16 +576,12 @@
 				:recursive tree-node))))))
 
 (defun select-tree-postgres ()
-  (with-session (trees (cl-postgres:open-database "bem" "admin"
-						  "thereisnocowlevel"
-						  "192.168.0.5"))
-    (db-read '(tree-leaf tree-leaf)
-	     :where #'(lambda (tree-node tree-leaf)
-		      (declare (ignore tree-leaf))
+  (with-session (trees (cl-postgres:open-database "bem" "makarov" "" :unix))
+    (db-read 'tree-leaf
+	     :where #'(lambda (tree-node)
 		      (restrict
-		       (property tree-node #'name-of) :equal "root"))
-	     :fetch #'(lambda (tree-node tree-leaf)
-			(declare (ignore tree-leaf))
+		       (property tree-node #'name-of) :equal "один"))
+	     :fetch #'(lambda (tree-node)
 			(values
 			 (fetch tree-node #'left-node-of
 				:subclass-name 'left-child-node

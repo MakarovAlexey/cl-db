@@ -549,8 +549,8 @@
 	 :reader root-of)
    (context :initarg :context
 	    :reader context-of)
-   (table-alias :initarg :table-alias
-		:reader table-alias-of)
+   (alias :initarg :alias
+	  :reader alias-of)
    (class-mapping :initarg :class-mapping
 		  :reader class-mapping-of)
    (superclass-nodes :initform (make-hash-table)
@@ -592,7 +592,7 @@
 	       class-node root)))
   (push instance (gethash (get-query-root root)
 			  (class-nodes-of context)))
-  (setf (slot-value instance 'table-alias)
+  (setf (slot-value instance 'alias)
 	(make-alias (table-name-of class-mapping))))
 
 (defclass superclass-node (class-node)
@@ -674,7 +674,9 @@
 		foreign-key)))
 
 (defclass context ()
-  ((previous-context :initarg :previous-context
+  ((name :initarg :name
+	 :reader alias-of)
+   (previous-context :initarg :previous-context
 		     :reader previous-context-of)
    (class-nodes :initform (make-hash-table) ;; class-nodes by root
 		:reader class-nodes-of)

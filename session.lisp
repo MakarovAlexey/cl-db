@@ -467,8 +467,9 @@
 (defun call-with-session (mapping-schema-fn connection-fn thunk)
   (let ((*session*
 	 (open-session mapping-schema-fn connection-fn)))
-    (funcall thunk)
-    (close-session *session*)))
+    (unwind-protect
+	 (funcall thunk)
+      (close-session *session*))))
 
 (defmacro with-session ((mapping-schema connection-form)
 			&body body)
