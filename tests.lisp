@@ -576,11 +576,11 @@
 				:recursive tree-node))))))
 
 (defun select-tree-postgres ()
-  (with-session (trees (cl-postgres:open-database "bem" "makarov" "" :unix))
+  (with-session (trees (cl-postgres:open-database "" "" "" ""))
     (db-read 'tree-leaf
 	     :where #'(lambda (tree-node)
 		      (restrict
-		       (property tree-node #'name-of) :equal "один"))
+		       (property tree-node #'name-of) :equal "четыре"))
 	     :fetch #'(lambda (tree-node)
 			(values
 			 (fetch tree-node #'left-node-of

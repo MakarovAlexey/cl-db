@@ -69,9 +69,9 @@
   (list "~<~? = ~?~>"
 	(append
 	 (list-column
-	  (first column-pair))
+	  (second column-pair))
 	 (list-column
-	  (second column-pair)))))
+	  (first column-pair)))))
 
 (defun list-foreign-key (class-node)
   (mapcar #'list-column-pair (foreign-key-of class-node)))
@@ -149,11 +149,35 @@
   (list "~{~{~?~}~^ AND ~}" (list (list-list
 				   (arguments-of expression) context))))
 
-(defmethod list-expression ((expression equality) context)
+(defgeneric list-equality-expression (lhs-expression rhs-expression context))
+
+(defmethod list-equality-expression ((lhs-expression root)
+				     rhs-expression context)
+  (let ((lhs-node (get-root-node lhs-expression))
+	(rhs-node (get-root-node rhs-expression)))
+    (list "(~{~a = ~a~^AND ~})"
+	  (list
+	   (mapcar #'(lambda (lhs-column rhs-column)
+		       (list
+			(list-column
+			 (get-node-column context lhs-node lhs-column))
+			(list-column
+			 (get-node-column context rhs-node rhs-column))))
+		   (primary-key-of
+		    (class-mapping-of lhs-node))
+		   (primary-key-of
+		    (class-mapping-of rhs-node)))))))
+
+(defmethod list-equality-expression (lhs-expression rhs-expression context)
   (list "~? = ~?"
 	(append
-	 (list-expression (lhs-expression-of expression) context)
-	 (list-expression (rhs-expression-of expression) context))))
+	 (list-expression lhs-expression context)
+	 (list-expression rhs-expression context))))
+
+(defmethod list-expression ((expression equality) context)
+  (list-equality-expression (lhs-expression-of expression)
+			    (rhs-expression-of expression)
+			    context))
 
 (defmethod list-expression ((property-slot property-slot) context)
   (list-column
@@ -171,6 +195,9 @@
 (defmethod list-expression ((simple-value number) context)
   (declare (ignore context))
   (list "~a" (list simple-value)))
+
+;;(defmethod list-expression ((fetched-reference fetched-reference) context)
+;;  (
 
 (defun list-where-clause (context)
   (list "~{~{~?~}~^ AND ~}" (list
@@ -204,23 +231,53 @@
 (defun recursivep (context)
   (not (null (recursive-clause-of context))))
 
+(defgeneric list-recursive-clause (expression context))
+
+(defmethod list-recursive-clause ((expression fetched-reference) context)
+  (let ((root-node
+	 (get-root-node expression))
+	(recursive-node
+	 (get-root-node
+	  (recursive-node-of expression))))
+    (list "(~{~a.~a = ~?~^~%~6TAND ~})"
+;;	  (reduce #'list*
+		  (mapcar #'(lambda (lhs-column rhs-column)
+			      (list*
+			       (alias-of context)
+			       (select-column context recursive-node rhs-column)
+			       (list-column
+				(get-node-column context root-node lhs-column))))
+			  (primary-key-of
+			   (class-mapping-of root-node))
+			  (primary-key-of
+			   (class-mapping-of recursive-node)))))))
+
 (defun list-recursive-part (context)
+  ;; WHERE-clause - recursive-clause, JOIN - recursive fetch ?
   (list
    (concatenate 'string
 		"~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
 		"~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
-		" ~@[~%~5TWHERE ~{~?~}~]")
-   
+		"~%~6TCROSS JOIN ~a~%~8TWHERE ~{~?~^~%~8TOR ~}")
+   (list
+    (list-select-items context)
+    (list-from-clause context)
+    (alias-of context)
+    (reduce #'append (recursive-clause-of context)
+	    :key #'(lambda (recursive-expression)
+		     (list-recursive-clause recursive-expression
+					    context))))))
 
 (defun list-auxiliary-statement (context)
   (if (recursivep context)
-      (list "~a (~<~{~a~^, ~}~@:>) AS (~%~?~%~6T)~%UNION ALL~%~?"
+      (list "~a (~<~{~a~^, ~}~@:>) AS (~%~?~%~5TUNION ALL~%~?~%~6T)"
 	    (list* (alias-of context)
 		   (list
 		    (mapcar #'rest (hash-table-alist
 				    (expression-aliases-of context))))
-		   (list-sql-query context)
-		   (list-recursive-part context)))
+		   (append
+		    (list-sql-query context)
+		    (list-recursive-part context))))
       (list "~a AS (~%~?~%~6T)"
 	    (list* (alias-of context)
 		   (list-sql-query context)))))
@@ -240,6 +297,3 @@
   (with-open-stream (query-stream (make-string-output-stream))
     (format query-stream "~%~{~?~}" (list-query context))
     (get-output-stream-string query-stream)))
-
-    
-    

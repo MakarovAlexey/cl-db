@@ -25,7 +25,12 @@
 		       order-by-clause having-clause limit offset
 		       fetch-clause recursive-clause)
   (let ((recursive-fetch
-	 (remove-if #'null fetch-clause :key #'recursive-node-of)))
+;;	 (mapcar #'(lambda (fetch-reference)
+;;		     (restrict fetch-reference :equal
+;;			       (recursive
+;;				(recursive-node-of fetch-reference))))
+		 (remove-if #'null fetch-clause
+			    :key #'recursive-node-of)))
     (if (or (not (null recursive-clause))
 	    (not (null recursive-fetch))
 	    (and (not (null fetch-clause))

@@ -145,9 +145,9 @@
   (make-instance 'conjunction
 		 :arguments (list* restriction more-restrictions)))
 
-(defun restrict (property &key equal not-equal not is like not-like
-			    less-than less-than-or-equal
-			    more-than more-than-or-equal)
+(defun restrict (object &key equal not-equal not is like not-like
+			  less-than less-than-or-equal
+			  more-than more-than-or-equal)
   (let ((operations
 	 (list (cons 'equality equal)
 	       (cons 'not-equal not-equal)
@@ -163,7 +163,7 @@
 		 (loop for (class-name . parameter) in operations
 		    when (not (null parameter))
 		    collect (make-instance class-name
-					   :lhs property
+					   :lhs object
 					   :rhs parameter)))))
 
 (defgeneric projection (descriptor &rest args))
