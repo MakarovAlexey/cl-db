@@ -240,7 +240,7 @@
 	 (get-root-node
 	  (recursive-node-of expression))))
     (list "(~{~a.~a = ~?~^~%~6TAND ~})"
-;;	  (reduce #'list*
+	  (list (reduce #'list*
 		  (mapcar #'(lambda (lhs-column rhs-column)
 			      (list*
 			       (alias-of context)
@@ -250,34 +250,46 @@
 			  (primary-key-of
 			   (class-mapping-of root-node))
 			  (primary-key-of
-			   (class-mapping-of recursive-node)))))))
+			   (class-mapping-of recursive-node))))))))
 
-(defun list-recursive-part (context)
-  ;; WHERE-clause - recursive-clause, JOIN - recursive fetch ?
-  (list
-   (concatenate 'string
-		"~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
-		"~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
-		"~%~6TCROSS JOIN ~a~%~8TWHERE ~{~?~^~%~8TOR ~}")
-   (list
-    (list-select-items context)
-    (list-from-clause context)
-    (alias-of context)
-    (reduce #'append (recursive-clause-of context)
-	    :key #'(lambda (recursive-expression)
-		     (list-recursive-clause recursive-expression
-					    context))))))
+;;(defclass fetched-reference (class-root)
+;;  ((reference-slot :initarg :reference-slot
+;;		      :reader reference-slot-of)
+;;   (superclass-root :initarg :superclass-root
+;;		    :reader superclass-root-of)
+;;   (recursive-node :initarg :recursive-node
+;;		   :reader recursive-node-of)))
+
+;; Объекдинить list-recursive-part и list-auxilliary-statemeт в части
+;; рекурсивных запросов. Добавить столбцы рекурсивных ключей, по
+;; которым идет условие рекурсии. Написать рекурсивное условие с этими
+;; колонками
+
+(defun list-recursive-statement (context)
+  (list "~a (~<~{~a~^, ~}~@:>) AS (~%~?~%~5TUNION ALL~%~?~%~6T)"
+	(list* (alias-of context)
+	       (list
+		(mapcar #'rest (hash-table-alist
+				(expression-aliases-of context))))
+	       (append
+		(list-sql-query context)
+		(list
+		 (concatenate 'string
+			      "~4TSELECT ~{~{~{~?~} AS ~a~}~^,~%~11T~}"
+			      "~%~6TFROM ~{~{~{~?~}~^~%~}~^~%CROSS JOIN ~}"
+			      "~%~6TJOIN ~a~%~8TON ~{~?~^~%~8TOR ~}")
+		 (list
+		  (list-select-items context)
+		  (list-from-clause context)
+		  (alias-of context)
+		  (reduce #'append (recursive-clause-of context)
+			  :key #'(lambda (recursive-expression)
+				   (list-recursive-clause recursive-expression
+							  context)))))))))
 
 (defun list-auxiliary-statement (context)
   (if (recursivep context)
-      (list "~a (~<~{~a~^, ~}~@:>) AS (~%~?~%~5TUNION ALL~%~?~%~6T)"
-	    (list* (alias-of context)
-		   (list
-		    (mapcar #'rest (hash-table-alist
-				    (expression-aliases-of context))))
-		   (append
-		    (list-sql-query context)
-		    (list-recursive-part context))))
+      (list-recursive-statement context)
       (list "~a AS (~%~?~%~6T)"
 	    (list* (alias-of context)
 		   (list-sql-query context)))))

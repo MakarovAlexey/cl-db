@@ -560,13 +560,11 @@
 	 (make-instance 'clos-session
 			:mapping-schema (trees)
 			:connection (make-instance 'test-connection))))
-    (db-read '(tree-leaf tree-leaf)
-	     :where #'(lambda (tree-node tree-leaf)
-		      (declare (ignore tree-leaf))
-		      (restrict
-		       (property tree-node #'name-of) :equal "root"))
-	     :fetch #'(lambda (tree-node tree-leaf)
-			(declare (ignore tree-leaf))
+    (db-read 'tree-leaf
+	     :where #'(lambda (tree-node)
+			(restrict
+			 (property tree-node #'name-of) :equal "один"))
+	     :fetch #'(lambda (tree-node)
 			(values
 			 (fetch tree-node #'left-node-of
 				:subclass-name 'left-child-node
@@ -576,11 +574,26 @@
 				:recursive tree-node))))))
 
 (defun select-tree-postgres ()
-  (with-session (trees (cl-postgres:open-database "" "" "" ""))
+  (with-session (trees (cl-postgres:open-database "bem" "makarov" "" :unix))
     (db-read 'tree-leaf
 	     :where #'(lambda (tree-node)
 		      (restrict
-		       (property tree-node #'name-of) :equal "четыре"))
+		       (property tree-node #'id-of) :equal 4))
+	     :fetch #'(lambda (tree-node)
+			(values
+			 (fetch tree-node #'left-node-of
+				:subclass-name 'left-child-node
+				:recursive tree-node)
+			 (fetch tree-node #'right-node-of
+				:subclass-name 'right-child-node
+				:recursive tree-node))))))
+
+(defun select-tree-postgres ()
+  (with-session (trees (cl-postgres:open-database "bem" "makarov" "" :unix))
+    (db-read 'tree-leaf
+	     :where #'(lambda (tree-node)
+		      (restrict
+		       (property tree-node #'id-of) :equal 2))
 	     :fetch #'(lambda (tree-node)
 			(values
 			 (fetch tree-node #'left-node-of
