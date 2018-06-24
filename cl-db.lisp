@@ -97,30 +97,35 @@
    (find class-name (mapping-schema-of session) :key #'class-name-of)
    (error "class mapping for class ~a not found" class-name)))
 
+(defun make-class-mapping (class-name table-name primary-key
+                           superclass-mappings slot-mappings)
+  (let ((slot-mappings
+         (apply #'parse-slot-mappings slot-mappings)))
+    (list :class-name class-name
+          :table-name table-name
+          :primary-key primary-key
+          :superclass-mappings superclass-mappings
+          :properties (remove-if-not
+                       #'(lambda (mapping)
+                           (eq (first mapping) :property))
+                       slot-mappings)
+          :many-to-one-mappings (remove-if-not
+                                 #'(lambda (mapping)
+                                     (eq (first mapping) :many-to-one))
+                                 slot-mappings)
+          :one-to-many-mappings (remove-if-not
+                                 #'(lambda (mapping)
+                                     (eq (first mapping) :one-to-many))
+                                 slot-mappings))))
+
 (defun parse-class-mapping (class-mapping)
   (destructuring-bind
 	(class-name ((table-name &rest primary-key)
 		     &rest superclasses)
 		    &rest slot-mappings)
       class-mapping
-    (let ((slot-mappings
-	   (apply #'parse-slot-mappings slot-mappings)))
-      (list :class-name class-name
-	    :table-name table-name
-	    :primary-key primary-key
-	    :superclass-mappings superclasses
-	    :properties (remove-if-not
-			 #'(lambda (mapping)
-			     (eq (first mapping) :property))
-			 slot-mappings)
-	    :many-to-one-mappings (remove-if-not
-				   #'(lambda (mapping)
-				       (eq (first mapping) :many-to-one))
-				   slot-mappings)
-	    :one-to-many-mappings (remove-if-not
-				   #'(lambda (mapping)
-				       (eq (first mapping) :one-to-many))
-				   slot-mappings)))))
+    (make-class-mapping class-name table-name primary-key
+                        superclasses slot-mappings)))
 
 (defun find-class-mapping (class-name &optional (class-mappings
 						 *class-mappings*))
@@ -262,3 +267,11 @@
 	   `(quote ,(mapcar #'(lambda (class-mapping)
 				(apply #'compute-class-mapping class-mapping))
 			    *class-mappings*)))))
+
+;;(defmacro define-mapping (class-name ((table-name &rest primary-key)
+;;                                      &rest superclass-mappings)
+;;                          &rest slot-mappings)
+;;  (setf (get `(quote ,class-name) 'class-mapping)
+;;        (make-class-mapping class-name table-name primary-key
+;;                            superclass-mappings slot-mappings)))
+                             
